@@ -1,0 +1,21 @@
+[mcp_servers.chrome-devtools]
+command = "npx"
+args = [ "-y", "chrome-devtools-mcp@latest", "--no-usage-statistics", "--isolated" ]
+
+[mcp_servers.serena]
+command = "oma"
+args = [ "bridge", "--context", "codex" ]
+startup_timeout_sec = 90
+
+[mcp_servers.serena.env]
+SERENA_LOG_LEVEL = "info"
+
+[features]
+goals = true
+
+[analytics]
+enabled = false
+
+[feedback]
+enabled = false
+
