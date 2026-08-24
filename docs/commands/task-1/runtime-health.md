@@ -10,20 +10,20 @@ local infra가 healthy인 상태에서 API/worker를 실행하고 live/readiness
 
 ```bash
 nix develop path:.
-just task task-1 api-run
+just task-1 api-run
 ```
 
 별도 terminal B에서 worker를 실행한다.
 
 ```bash
 nix develop path:.
-just task task-1 worker-run
+just task-1 worker-run
 ```
 
 별도 terminal C에서 health를 확인한다.
 
 ```bash
-nix develop path:. --command just task task-1 health-check
+nix develop path:. --command just task-1 health-check
 ```
 
 ## 부작용

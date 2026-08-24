@@ -21,7 +21,7 @@
 
 - `rust-toolchain.toml`: 정확한 Rust release/profile/components/targets의 유일한 원본
 - `flake.nix` + `flake.lock`: Rust toolchain을 소비하고 Cargo 외 도구와 native dependency를 고정
-- `Justfile`: 설치나 version pin을 하지 않는 작은 dispatcher
+- `Justfile` + task modules: 설치나 version pin을 하지 않는 discoverable command catalog
 - `compose.yaml`: `jamye-server-test` 전용 rootless Podman local test harness
 
 저장소가 아직 Git에 추가되지 않은 파일을 포함해도 같은 내용을 검증하도록 모든 로컬 flake 명령은 `path:.`를 사용한다. 시작점은 다음 한 명령이다.
@@ -30,16 +30,16 @@
 nix develop path:.
 ```
 
-devShell에 들어왔다고 서비스가 시작되지는 않는다. 다음 stable primitive만 제공한다.
+devShell에 들어왔다고 서비스가 시작되지는 않는다. 루트는 task module만 등록하고 각 module이 명시적인 recipe를 제공한다.
 
 ```text
 just cards
-just task <task-id> <card>
-just locks <create|verify>
-just infra <status|up|down|reset>
+just task-1
+just task-1 platform-check
+just task-1 infra-status
 ```
 
-정확한 명령, 목적, 부작용, 성공 기준, 복구 방법은 [task-1 command cards](docs/commands/task-1/README.md)에 있다. 이후 migration, contract 생성, API/worker 실행, feature test도 각 task card에 추가하고 README나 Justfile에 feature recipe를 넣지 않는다.
+정확한 명령, 목적, 부작용, 성공 기준, 복구 방법은 [task-1 command cards](docs/commands/task-1/README.md)에 있다. 단순 명령과 순서는 task module recipe로 두고, credential 생성, trap cleanup, health wait, guarded deletion처럼 상태·복구 안전성이 필요한 동작만 별도 Bash script로 둔다. 이후 task도 루트 `Justfile`을 비대하게 만들지 않고 자기 module과 command card를 소유한다.
 
 ## M0 환경 계약
 
@@ -63,7 +63,7 @@ task-1의 사용자 실행 card가 disposable `.env.local`을 만들며 이 파�
 
 macOS의 `podman machine`은 저장소나 Nix가 소유하지 않는 사용자 관리 VM이다. 생성·시작·정지·삭제는 사용자가 명시적으로 실행한다. Linux에서는 같은 Compose project를 rootless Podman으로 직접 실행한다. devShell은 Compose provider를 Nix store 경로로 고정하므로 ambient Docker Compose나 Homebrew provider를 자동 선택하지 않는다.
 
-`infra down`은 container와 network만 내리고 데이터를 보존한다. `infra reset`은 별도 확인 문자열, project 이름, 세 named-volume 이름과 ownership label을 검증한 뒤 그 local test bytes만 삭제한다. 에이전트는 이 명령을 실행하지 않는다.
+`just task-1 infra-down`은 container와 network만 내리고 데이터를 보존한다. `just task-1 infra-reset`은 별도 확인 문자열, project 이름, 세 named-volume 이름과 ownership label을 검증한 뒤 그 local test bytes만 삭제한다. 에이전트는 이 명령을 실행하지 않는다.
 
 ## Health 의미론
 

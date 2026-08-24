@@ -58,7 +58,7 @@ devShell은 Nix로 다음 tool을 제공한다.
 - `cargo-deny`: advisory, ban, source, explicit SPDX license policy
 - `gitleaks`: Git history가 아닌 working-directory scan. 기본 rule을 그대로 사용하고 재생성 가능한 `target/` compiler/linker output만 제외하며 `.env.local`과 ignored/untracked source/state는 계속 포함한다.
 - `sqlx-cli`: migration commands
-- `just`: stable dispatcher
+- `just`: stable task-module command catalog
 - `podman` + `podman-compose`: rootless local harness
 - `minio-client`: M0 local admin/app identity 분리
 

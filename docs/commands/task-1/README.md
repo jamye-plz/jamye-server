@@ -1,8 +1,10 @@
 # task-1 command cards
 
-M0의 consequential 명령은 사용자가 직접 실행한다. 에이전트는 아래 card의 script를 작성하고 결과를 해석하지만 Nix lock/develop, Cargo resolution/build/test, Podman lifecycle, secret scan을 대신 실행하지 않는다.
+M0의 consequential 명령은 사용자가 직접 실행한다. 에이전트는 아래 card의 task-module recipe와 필요한 safety script를 작성하고 결과를 해석하지만 Nix lock/develop, Cargo resolution/build/test, Podman lifecycle, secret scan을 대신 실행하지 않는다.
 
 모든 card는 repository root에서 `path:.` flake를 사용한다.
+
+`just task-1`은 현재 task의 recipe를 나열한다. 실행 형식은 `just task-1 <recipe>`이며, 별도 Bash는 command 자체가 아니라 credential/trap/wait/destructive guard 같은 안전 구현이 필요할 때만 사용한다.
 
 | Card | 목적 |
 |---|---|

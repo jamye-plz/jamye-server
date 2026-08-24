@@ -9,8 +9,8 @@ locked Cargo graph의 advisory/license/source 정책과 gitleaks working-directo
 선행 조건: lock card가 통과했고 `.env.local`은 아직 존재하지 않아야 한다.
 
 ```bash
-nix develop path:. --command just task task-1 dependency-check
-nix develop path:. --command just task task-1 secret-scan
+nix develop path:. --command just task-1 dependency-check
+nix develop path:. --command just task-1 secret-scan
 ```
 
 ## 부작용

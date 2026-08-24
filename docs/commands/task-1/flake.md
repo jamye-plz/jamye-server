@@ -7,7 +7,7 @@ untracked working tree를 포함하는 `path:.`에서 output shape와 current-sy
 ## Local-system 명령
 
 ```bash
-nix develop path:. --command just task task-1 flake-local
+nix develop path:. --command just task-1 flake-local
 ```
 
 이 card는 `aarch64-darwin`, `x86_64-linux` output을 모두 show하고 현재 system의 flake checks를 실행한다. lock을 갱신하지 않는다.
@@ -15,7 +15,7 @@ nix develop path:. --command just task task-1 flake-local
 ## Production Linux 명령
 
 ```bash
-nix develop path:. --command just task task-1 flake-linux
+nix develop path:. --command just task-1 flake-linux
 ```
 
 macOS에서 실행하려면 설정된 x86_64-linux remote/VM builder가 필요하다. 이 저장소는 builder를 생성하거나 설정하지 않는다.

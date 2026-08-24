@@ -24,8 +24,8 @@ Linux에는 machine 단계가 없으며 user session의 rootless Podman socket�
 먼저 environment card로 `.env.local`을 만든 뒤 실행한다.
 
 ```bash
-nix develop path:. --command just infra up
-nix develop path:. --command just infra status
+nix develop path:. --command just task-1 infra-up
+nix develop path:. --command just task-1 infra-status
 ```
 
 `up`은 세 container를 시작하고 60초 안에 health를 확인한 뒤, MinIO 관리 계정으로 권한 없는 별도 local app 사용자를 만든다. bucket, policy, lifecycle은 만들지 않는다.
@@ -33,7 +33,7 @@ nix develop path:. --command just infra status
 ## 정지
 
 ```bash
-nix develop path:. --command just infra down
+nix develop path:. --command just task-1 infra-down
 ```
 
 container와 project network만 내리고 세 named volume은 보존한다.
@@ -43,7 +43,7 @@ container와 project network만 내리고 세 named volume은 보존한다.
 다음 명령은 세 local test volume의 bytes를 되돌릴 수 없게 삭제한다. command의 확인 문자열, top-level Compose project 이름, exact volume 이름, Compose/Podman ownership label이 모두 일치할 때만 진행한다.
 
 ```bash
-JAMYE_CONFIRM_INFRA_RESET=jamye-server-test nix develop path:. --command just infra reset
+JAMYE_CONFIRM_INFRA_RESET=jamye-server-test nix develop path:. --command just task-1 infra-reset
 ```
 
 삭제 대상은 다음 세 개뿐이다.
@@ -72,4 +72,4 @@ jamye-server-test-minio-data
 
 ## 복구
 
-macOS에서 연결 실패 시 사용자가 `podman machine list`와 `podman machine start`를 확인한다. service health 실패 시 `just infra status` 결과를 보존하고 `just infra down`으로 안전하게 정지한다. data 초기화가 꼭 필요할 때만 guarded reset을 별도로 승인·실행한다.
+macOS에서 연결 실패 시 사용자가 `podman machine list`와 `podman machine start`를 확인한다. service health 실패 시 `just task-1 infra-status` 결과를 보존하고 `just task-1 infra-down`으로 안전하게 정지한다. data 초기화가 꼭 필요할 때만 guarded reset을 별도로 승인·실행한다.

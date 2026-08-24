@@ -12,7 +12,7 @@ M0/C0 코드의 format, warning-as-error Clippy, default/all-feature test, 독�
 ## 명령
 
 ```bash
-nix develop path:. --command just task task-1 platform-check
+nix develop path:. --command just task-1 platform-check
 ```
 
 ## 부작용

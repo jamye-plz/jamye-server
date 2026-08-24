@@ -23,7 +23,7 @@
 
 - 계획 단계는 종료됐고 사용자가 별도로 “M0 시작”을 승인했다. 현재는 task-1의 Rust platform, test source, Nix devShell, local-only Podman harness와 command card만 구현한다.
 - M0 다음 feature, migration, generated contract와 production composition은 해당 dependency와 decision gate가 열리기 전에는 구현하지 않는다.
-- 구현 중 consequential local/dev 명령도 사용자가 직접 실행한다. task-1은 작은 Just primitive dispatcher만 만들고, 각 feature owner는 `docs/commands/<task-id>/`와 `scripts/tasks/<task-id>/`에 목적, 부작용, 예상 결과, 복구 방법을 기록한다.
+- 구현 중 consequential local/dev 명령도 사용자가 직접 실행한다. 루트 Justfile은 task module만 등록하고, 각 feature owner는 자기 module과 `docs/commands/<task-id>/`에 명령, 목적, 부작용, 예상 결과, 복구 방법을 기록한다. 별도 Bash는 credential/trap/wait/guarded deletion처럼 실제 안전 경계를 제공할 때만 둔다.
 - 모든 command card는 nix develop path:. 안에서 실행한다. 계획 문서에 shell body를 중복하지 않는다.
 - pending 제품 결정은 가장 이른 materializer가 한 번만 사용자 선택을 받아 evidence를 고정한다. 후속 task와 VERIFY/SHIP는 dependency를 통해 그 evidence를 소비하며 같은 결정을 다시 승인받지 않는다.
 - production/release/SCM 변경은 별도 승인이 있어야 한다.
@@ -197,9 +197,9 @@ M1은 /Users/poby/Developer/jamye-plz의 정확한 PF1 source set을 determinist
 - mise, rustup, .tool-versions, 두 번째 Rust version declaration은 없다.
 - Justfile은 task runner일 뿐이며 tool 설치나 version pinning을 하지 않는다.
 - 모든 command card는 nix develop path:.에서 실행한다.
-- task-1은 M0/C0에서 실제 쓰는 dependency와 stable Just primitive, base `.env.example`만 고정한다. 미래 feature graph나 behavior recipe를 미리 만들지 않는다.
+- task-1은 M0/C0에서 실제 쓰는 dependency, task-1 Just module, base `.env.example`만 고정한다. 미래 feature graph나 behavior recipe를 미리 만들지 않는다.
 - 현재 후속 Cargo 공유 파일 owner는 의존 순서가 보장된 task-5(auth), task-8(S3/media)뿐이다. 각 owner는 필요한 dependency만 추가하고 사용자가 lock/no-drift card를 다시 실행한다.
-- task-13은 `flake.nix`, `nix/`, module evaluation, `.env.example`, `docs/deployment-nix.md`, task-owned command docs/scripts만 소유한다. README/Just에 feature recipe를 추가하지 않는다.
+- task-13은 `flake.nix`, `nix/`, module evaluation, `.env.example`, `docs/deployment-nix.md`, task-owned command docs/module/scripts만 소유한다. 루트 README/Justfile에 개별 feature recipe를 추가하지 않는다.
 - rootless Podman compose.yaml은 local disposable PostgreSQL/Redis/MinIO 전용이다. macOS podman machine과 lifecycle/reset은 사용자가 실행한다.
 - production은 native Nix package와 NixOS systemd module이다. Podman compose는 production SSOT가 아니다.
 - flake는 supported system마다 api/worker package, checks, devShell, nixosModules.default를 export한다.
@@ -269,7 +269,7 @@ task-10은 사용자 승인 STT non-goal로 삭제했다. 기존 참조 안정�
 - task-12는 feature behavior를 다시 구현하거나 final QA authority가 되지 않는다.
 - VERIFY/SHIP만 PF1 재발견, task-2 최종 inventory/matrix, migration metadata/full chain, log/secret/license/package/security와 whole-tree regression을 감사한다.
 - secret scanner sentinel self-test는 M0에서 한 번 실행한다. SHIP에서는 final clean working-tree scan만 실행한다.
-- exact shell body는 task-owned `docs/commands/`와 `scripts/tasks/`에만 있고, README/Justfile에는 stable dispatcher primitive만 존재한다.
+- exact command는 task-owned Just module에, 목적·부작용·복구는 `docs/commands/`에 둔다. 별도 `scripts/tasks/`는 안전상 독립 script가 필요한 동작만 소유하고 루트 README/Justfile에는 module catalog만 존재한다.
 
 최종 VERIFY/SHIP 범주는 다음과 같다.
 
@@ -296,4 +296,4 @@ task-10은 사용자 승인 STT non-goal로 삭제했다. 기존 참조 안정�
 4. M0 이후에는 dependency, earliest materializer가 고정한 decision evidence, user-run evidence가 충족되면 별도 milestone-start 승인 없이 진행한다.
 5. production/release/추가 SCM 작업은 M0와 별개로 계속 별도 승인을 요구한다.
 
-현재 task-1은 in progress이고 나머지 16개 task는 pending이다. 계획 문서와 `.serena/project.yml`은 commit `a86d51c`로 기록돼 있으며, M0 변경은 사용자 승인에 따라 이 중간 기준선으로 기록한다. 사용자 실행으로 provider/toolchain, Cargo/Nix lock no-drift, dependency advisory/ban/license/source, working-directory secret-scan clean/detect/clean gate까지 통과했다. Cargo build/test/fmt/clippy, local Nix check/build, Podman lifecycle, migration, service, production deploy evidence는 아직 완료되지 않았다.
+현재 task-1은 in progress이고 나머지 16개 task는 pending이다. 계획 문서와 `.serena/project.yml`은 commit `a86d51c`로 기록돼 있으며, M0 변경은 사용자 승인에 따라 중간 기준선 commit `0b1b04b`로 기록했다. 사용자 실행으로 provider/toolchain, Cargo/Nix lock no-drift, dependency advisory/ban/license/source, working-directory secret-scan clean/detect/clean, Cargo format/Clippy/default+all-feature+architecture test gate까지 통과했다. 사용자 결정에 따라 generic script dispatcher를 task-1 Just module과 safety-only Bash 경계로 단순화했고, Just 1.58.0 parser/format 및 Bash syntax 정적 검증을 통과했다. local Nix check/build, Podman lifecycle, migration, service, production deploy evidence는 아직 완료되지 않았다.

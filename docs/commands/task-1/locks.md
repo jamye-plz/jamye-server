@@ -9,8 +9,8 @@
 repository root에서 실행한다.
 
 ```bash
-nix develop path:. --command just locks create
-nix develop path:. --command just locks verify
+nix develop path:. --command just task-1 locks-create
+nix develop path:. --command just task-1 locks-verify
 ```
 
 ## 부작용

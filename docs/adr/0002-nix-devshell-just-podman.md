@@ -1,6 +1,6 @@
 # ADR 0002: Nix devShell, Just, rootless Podman responsibility split
 
-- 상태: Accepted
+- 상태: Accepted, task-module boundary amended
 - 날짜: 2026-08-24
 
 ## Context
@@ -23,9 +23,9 @@ Nix는 native package, mise는 language/task version, Docker는 infra를 맡는�
 
 authority는 단순하지만 discoverability가 낮다. 긴 command를 사용자가 매번 복사해야 하고 task owner별 evidence 위치가 불명확해진다.
 
-### C. Nix devShell + small Just dispatcher + rootless Podman Compose
+### C. Nix devShell + small Just task modules + rootless Podman Compose
 
-Nix가 모든 executable/version을 제공하고 Just는 설치 기능이 없는 catalog/dispatcher만 맡는다. Compose는 local disposable service에만 사용하고 production은 native NixOS/systemd로 유지한다.
+Nix가 모든 executable/version을 제공하고 Just는 설치 기능이 없는 command catalog만 맡는다. Compose는 local disposable service에만 사용하고 production은 native NixOS/systemd로 유지한다.
 
 ## Decision
 
@@ -39,15 +39,15 @@ mise, rustup, `.tool-versions`, 별도 Rust version literal을 추가하지 않�
 
 ### Just boundary
 
-Justfile은 다음 stable primitive만 가진다.
+루트 `Justfile`은 다음 stable primitive만 가진다.
 
 - `nix develop path:.` 진입 안내
 - card 목록
-- `scripts/tasks/<task-id>/<card>.sh`의 guarded dispatch
-- task-1 lock wrapper
-- fixed local infra lifecycle wrapper
+- task별 Just module 등록
 
-정확한 feature command와 목적/부작용/성공 기준/복구는 `docs/commands/<task-id>/`와 `scripts/tasks/<task-id>/`에 둔다. 이후 feature task는 README/Justfile에 recipe를 추가하지 않는다. Just는 tool을 설치하거나 version을 고정하지 않는다.
+각 module은 `just task-1 platform-check`처럼 명시적이고 `just task-1`로 발견 가능한 recipe를 제공한다. 단순 tool invocation과 순서는 module에 두고, credential 생성, trap cleanup, bounded wait, guarded deletion처럼 상태와 복구 안전성이 필요한 구현만 `scripts/tasks/<task-id>/`의 Bash에 둔다. 목적/부작용/성공 기준/복구는 `docs/commands/<task-id>/`가 소유한다. 이후 feature task는 루트 README/Justfile에 개별 recipe를 쌓지 않고 자기 module을 추가한다. Just는 tool을 설치하거나 version을 고정하지 않는다.
+
+초기 generic `<task-id> <card>` filename dispatcher는 모든 동작을 별도 `.sh`로 강제해 짧은 command까지 간접화했고 `just --list`에서 실제 명령을 숨겼다. 사용자 검토 후 이를 task module로 대체했으며, 안전 로직이 없는 thin wrapper script는 제거했다.
 
 ### Podman boundary
 

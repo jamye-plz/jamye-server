@@ -15,7 +15,7 @@ nix develop path:.
 shell 안에서 provider를 확인한다. 이 명령은 container나 VM을 시작하지 않는다.
 
 ```bash
-just task task-1 provider-check
+just task-1 provider-check
 ```
 
 이후 lock card와 security card의 gitleaks self-test를 먼저 완료한다. `gitleaks dir .`은 `.gitignore`와 무관하게 local file까지 읽으므로 credential-bearing file을 먼저 만들지 않는다.
@@ -23,7 +23,7 @@ just task task-1 provider-check
 두 gate가 통과한 뒤 처음 한 번만 local 값을 생성한다.
 
 ```bash
-just task task-1 local-env-create
+just task-1 local-env-create
 ```
 
 ## 부작용
