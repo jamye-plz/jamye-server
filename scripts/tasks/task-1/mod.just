@@ -165,6 +165,13 @@ flake-linux: require-nix-shell
     #!/usr/bin/env bash
     set -euo pipefail
     printf '%s\n' 'This card requires an x86_64-linux builder. Failure to find one is an M0 blocker, not a skip.'
-    nix build --no-link --no-write-lock-file \
+    output_paths="$(nix build --no-link --print-out-paths --no-write-lock-file \
       path:.#packages.x86_64-linux.api \
-      path:.#packages.x86_64-linux.worker
+      path:.#packages.x86_64-linux.worker)"
+    if [[ -z "$output_paths" ]]; then
+      printf '%s\n' 'error: Nix returned no x86_64-linux package output paths' >&2
+      exit 1
+    fi
+    printf '%s\n' 'built x86_64-linux package outputs:'
+    printf '%s\n' "$output_paths"
+    printf '%s\n' 'x86_64-linux API and worker package build passed'
