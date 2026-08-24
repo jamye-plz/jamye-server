@@ -1,8 +1,8 @@
 # jamye-server 로드맵 — FastAPI 전체 이관, 신뢰성 고도화, 모바일 계약
 
 > 세션: ultrawork/20260822-200110
-> 현재 단계: PLAN_GATE passed; M0·M1 완료, M2 결정 게이트 준비
-> 상태: task-1 platform evidence 완료, task-2에서 40 operation·13 table·189 test·6 migration과 42 REST·2 realtime target을 동결하고 L08=A installation-specific delete 사용자 승인을 기록해 M1_SCOPE_LOCK 통과
+> 현재 단계: PLAN_GATE passed; M0·M1 완료, M2 task-3a/task-3b 시작
+> 상태: task-1 platform evidence와 task-2 M1_SCOPE_LOCK 완료; 사용자가 D1=A, D8=A, D13=A를 승인해 M2 schema/C0 contract gate 해제
 > 기계 SSOT: .agents/results/plan-20260822-200110.json
 
 ## 1. 목표와 범위
@@ -21,7 +21,7 @@
 
 ## 2. 지금 적용되는 승인 경계
 
-- 계획 단계는 종료됐고 사용자가 별도로 “M0 시작”을 승인했다. task-1 M0와 `docs/migration-from-jamye-plz.md`의 task-2 M1 scope lock은 완료됐다. 다음 구현 단위는 D1을 공동 materialize하는 task-3a/core schema와 task-3b/C0 contract이며, task-3b는 D8과 D13도 시작 전에 고정한다.
+- 계획 단계는 종료됐고 사용자가 별도로 “M0 시작”을 승인했다. task-1 M0와 `docs/migration-from-jamye-plz.md`의 task-2 M1 scope lock은 완료됐다. 사용자가 2026-08-25에 D1=A, D8=A, D13=A를 명시적으로 선택했으므로 다음 구현 단위인 task-3a/core schema와 task-3b/C0 contract의 결정 게이트도 열렸다.
 - M0 다음 feature, migration, generated contract와 production composition은 해당 dependency와 decision gate가 열리기 전에는 구현하지 않는다.
 - 구현 중 consequential local/dev 명령도 사용자가 직접 실행한다. 루트 Justfile은 task module만 등록하고, 각 feature owner는 자기 module과 `docs/commands/<task-id>/`에 명령, 목적, 부작용, 예상 결과, 복구 방법을 기록한다. 별도 Bash는 credential/trap/wait/guarded deletion처럼 실제 안전 경계를 제공할 때만 둔다.
 - 모든 command card는 nix develop path:. 안에서 실행한다. 계획 문서에 shell body를 중복하지 않는다.
@@ -213,21 +213,21 @@ M1은 /Users/poby/Developer/jamye-plz의 정확한 PF1 source set을 determinist
 
 | ID | 결정 | 권고 | 현재 영향 |
 |---|---|---|---|
-| D1 | conversation event retention | A no-pruning v1 | C0/M2 전 필요 |
+| D1 | conversation event retention | **A no-pruning v1 (사용자 승인, locked)** | M2 schema/C0에 materialize |
 | D2 | PWA Web Push coexistence | A Expo-only | 후속 RN 교체 지시로 locked; Web Push는 non-goal |
 | D3 | STT/전사 범위 | C 전체 제외, voice media 보존 | 사용자 승인으로 locked non-goal |
 | D4 | Apple login/Guideline 4.8 | release gate에서 결정 | 현재 deferred |
 | D5 | account deletion sole-owner policy | A transfer required | M10 전 필요 |
 | D6 | rate-limit algorithm | A configurable fixed window | locked technical default |
 | D7 | modular monolith | A | locked from initial prompt |
-| D8 | message duplicate response shape | A canonical existing result | C0 전 필요 |
+| D8 | message duplicate response shape | **A same payload 200 canonical, different payload 409 (사용자 승인, locked)** | C0에 materialize |
 | D9 | notification localization representation | A structured type+args | M8 전 필요 |
 | D10 | account deletion data disposition | A tombstone/anonymize | M10 전 필요 |
 | D11 | private bucket lifecycle owner | A homelab admin provision | M7 전 선택; M11b는 frozen evidence 소비 |
 | D12 | mobile OAuth exchange flow | A PKCE S256 | M4 전 필요 |
-| D13 | logout/access/ticket/socket expiry | A short token valid to exp | C0 전 필요 |
+| D13 | logout/access/ticket/socket expiry | **A short token valid to exp, ticket capped by exp, socket 4401 at exp (사용자 승인, locked)** | C0에 materialize |
 
-현재 pending_user는 D1, D5, D8, D9, D10, D11, D12, D13의 8개다. 에이전트가 임의 선택하지 않는다. D2는 Expo-only, D3=C는 STT 제외로 locked다.
+현재 pending_user는 D5, D9, D10, D11, D12의 5개다. 에이전트가 임의 선택하지 않는다. D1=A, D8=A, D13=A는 2026-08-25 사용자 승인으로 locked됐고, D2는 Expo-only, D3=C는 STT 제외로 locked다.
 
 결정 materializer는 `D1=task-3a/task-3b`, `D8/D13=task-3b`, `D12=task-5`, `D11=task-8`, `D9=task-9`, `D5/D10=task-11`로 고정한다. task-4a/task-4b/task-12/task-13과 VERIFY/SHIP는 이미 고정된 evidence를 소비할 뿐 같은 결정을 다시 gate로 열지 않는다.
 
@@ -286,14 +286,14 @@ task-10은 사용자 승인 STT non-goal로 삭제했다. 기존 참조 안정�
 
 ## 13. 다음 단계
 
-계획은 SHA-256 `3961a5108d4fb384d7e92e7b9fdaeca4c96e8e303acea8fa330b0f393679c973`로 동결되었다. fresh r16 completeness, meta, simplicity review는 모두 material finding 0으로 PASS했고 PLAN_GATE와 implementation-plan lock도 기록·검증했다. 이후 사용자가 M0 시작을 승인했다.
+구조 계획은 SHA-256 `3961a5108d4fb384d7e92e7b9fdaeca4c96e8e303acea8fa330b0f393679c973`에서 fresh r16 completeness, meta, simplicity review를 material finding 0으로 통과했다. 이후 사용자 선택 D1=A, D8=A, D13=A의 evidence만 추가한 현재 실행 snapshot은 SHA-256 `3ea4355491a608c9aa2a58869561a7fb842477531d42f9aa5c7dd9c595432a41`이며 task, dependency, scope, contract count는 바뀌지 않았다.
 
 다음 순서는 고정한다.
 
 1. task-1 M0 evidence는 commit `d285e75`까지 기준선으로 기록됐다.
 2. task-2는 PF1 89-file manifest와 40 operation·13 table·189 test·6 migration 양방향 matrix를 동결했다.
 3. 사용자가 L08=A를 선택해 P4를 installation-specific delete로 잠갔고 M1_SCOPE_LOCK을 통과했다.
-4. M2 시작 전에 D1을 task-3a/task-3b가 공동 materialize하고, task-3b가 D8과 D13의 정확한 wire/lifetime을 함께 고정한다.
+4. 사용자가 D1=A, D8=A, D13=A를 승인했다. task-3a는 no-pruning event schema를, task-3b는 동일 payload 200/different payload 409 및 token-exp/ticket/socket lifetime을 각각 materialize한다.
 5. 이후에는 dependency, earliest materializer가 고정한 decision evidence, user-run evidence가 충족되면 별도 milestone-start 승인 없이 진행한다. production/release/추가 SCM 작업은 계속 별도 승인을 요구한다.
 
 task-1과 task-2는 completed이고 나머지 15개 task는 pending이다. 계획 문서와 `.serena/project.yml`은 commit `a86d51c`로 기록돼 있으며, M0 변경은 사용자 승인에 따라 기준선 commit `0b1b04b`와 후속 보정 commit들로 기록했다. 사용자 실행으로 provider/toolchain, Cargo/Nix lock no-drift, dependency advisory/ban/license/source, working-directory secret-scan clean/detect/clean, Cargo format/Clippy/default+all-feature+architecture test gate까지 통과했다. 사용자 결정에 따라 generic script dispatcher를 task-1 Just module과 safety-only Bash 경계로 단순화했고, Just 1.58.0 parser/format 및 Bash syntax 정적 검증을 통과했다. rootless Podman에서 PostgreSQL 17.11, Redis 8.10.1, MinIO RELEASE.2025-09-07T16-13-09Z가 loopback binding으로 모두 healthy임을 확인했다. 실행 중인 API의 `/health/live`는 `live`, `/health/ready`는 PostgreSQL 필수 및 Redis/MinIO 선택 의존성이 모두 `ready`임을 반환했다. worker와 API가 Test 환경에서 정상 시작했으며 `Ctrl-C` 뒤 각각 종료 로그를 남겼다. local flake show에서 aarch64-darwin과 x86_64-linux의 package/devShell/check shape를 확인했고 aarch64-darwin flake check가 통과했다. 사용자가 구성한 `linux-builder-vz`를 통해 x86_64-linux API와 worker를 실제 빌드해 `/nix/store/sqhc2lpyly8p9w7mdwyib21df3rsxaq4-jamye-server-0.1.0`, `/nix/store/fifjz6gkpm32g7nvc4ki1h7iljg5yr02-jamye-server-0.1.0` output을 생성했으며 `flake_linux_exit=0`을 확인했다. task-2는 legacy 저장소를 수정하지 않고 PF1 inventory, behavior/discrepancy matrix, target reverse coverage를 동결했으며 사용자의 L08=A 선택을 `approved_by_user_2026-08-25_option_A`로 기록했다. migration과 production deployment evidence는 각각 후속 milestone과 별도 승인 범위다.
