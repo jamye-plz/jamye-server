@@ -11,9 +11,7 @@ use axum::{
 };
 use tower::ServiceBuilder;
 use tower_http::{
-    request_id::{
-        MakeRequestUuid, PropagateRequestIdLayer, RequestId, SetRequestIdLayer,
-    },
+    request_id::{MakeRequestUuid, PropagateRequestIdLayer, RequestId, SetRequestIdLayer},
     sensitive_headers::SetSensitiveRequestHeadersLayer,
     trace::{DefaultOnResponse, TraceLayer},
 };
@@ -120,7 +118,10 @@ impl fmt::Display for CompositionError {
             Self::Redis => "Redis",
             Self::Minio => "MinIO",
         };
-        write!(formatter, "failed to initialize {component} readiness probe")
+        write!(
+            formatter,
+            "failed to initialize {component} readiness probe"
+        )
     }
 }
 

@@ -99,13 +99,13 @@ impl TryFrom<ConfigInput> for AppConfig {
     type Error = ConfigError;
 
     fn try_from(input: ConfigInput) -> Result<Self, Self::Error> {
-        let environment = parse_environment(required(
-            "JAMYE_ENVIRONMENT",
-            input.environment,
-        )?)?;
+        let environment = parse_environment(required("JAMYE_ENVIRONMENT", input.environment)?)?;
         let listen_address = parse_socket_address(
             "JAMYE_LISTEN_ADDR",
-            input.listen_address.as_deref().unwrap_or(DEFAULT_LISTEN_ADDRESS),
+            input
+                .listen_address
+                .as_deref()
+                .unwrap_or(DEFAULT_LISTEN_ADDRESS),
         )?;
         let shutdown_grace = parse_duration(
             "JAMYE_SHUTDOWN_GRACE_SECONDS",
@@ -299,10 +299,7 @@ fn validate_minio_health_url(key: &'static str, url: &Url) -> Result<(), ConfigE
         ));
     }
     if url.path().trim_end_matches('/') != "/minio/health/live" {
-        return Err(ConfigError::new(
-            key,
-            "must target /minio/health/live",
-        ));
+        return Err(ConfigError::new(key, "must target /minio/health/live"));
     }
     Ok(())
 }

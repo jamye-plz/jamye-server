@@ -49,7 +49,10 @@ pub async fn wait_for_shutdown_signal() {
             }
         }
         Err(_) => {
-            tracing::error!(failure_kind = "signal_registration", "failed to register SIGTERM");
+            tracing::error!(
+                failure_kind = "signal_registration",
+                "failed to register SIGTERM"
+            );
             log_signal_error(interrupt.await);
         }
     }
@@ -62,7 +65,10 @@ pub async fn wait_for_shutdown_signal() {
 
 fn log_signal_error(result: std::io::Result<()>) {
     if result.is_err() {
-        tracing::error!(failure_kind = "signal_listener", "shutdown signal listener failed");
+        tracing::error!(
+            failure_kind = "signal_listener",
+            "shutdown signal listener failed"
+        );
     }
 }
 

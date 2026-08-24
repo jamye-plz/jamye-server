@@ -1,10 +1,6 @@
 //! Server-issued request identifier boundary.
 
-use axum::{
-    extract::Request,
-    middleware::Next,
-    response::Response,
-};
+use axum::{extract::Request, middleware::Next, response::Response};
 
 pub const REQUEST_ID_HEADER: &str = "x-request-id";
 

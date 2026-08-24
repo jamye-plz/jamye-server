@@ -46,7 +46,12 @@ fn sqlx_is_confined_to_postgres_adapters() -> io::Result<()> {
 fn runtime_plugin_registries_are_not_used() -> io::Result<()> {
     assert_no_tokens(
         &source_root(),
-        &["inventory::", "linkme::", "register_feature", "register_handler"],
+        &[
+            "inventory::",
+            "linkme::",
+            "register_feature",
+            "register_handler",
+        ],
     )
 }
 

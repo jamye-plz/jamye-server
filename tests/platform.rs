@@ -57,9 +57,10 @@ async fn liveness_is_unconditional_and_has_server_request_id() -> Result<(), Box
     let response = app.oneshot(request).await?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    let request_id = response.headers().get(REQUEST_ID_HEADER).ok_or(
-        "response did not include a server request ID",
-    )?;
+    let request_id = response
+        .headers()
+        .get(REQUEST_ID_HEADER)
+        .ok_or("response did not include a server request ID")?;
     let request_id = request_id.to_str()?;
     let parsed = Uuid::try_parse(request_id)?;
     assert_eq!(parsed.get_version_num(), 4);
@@ -68,8 +69,8 @@ async fn liveness_is_unconditional_and_has_server_request_id() -> Result<(), Box
 }
 
 #[tokio::test]
-async fn readiness_requires_postgres_but_only_degrades_optional_services(
-) -> Result<(), Box<dyn Error>> {
+async fn readiness_requires_postgres_but_only_degrades_optional_services()
+-> Result<(), Box<dyn Error>> {
     let app = router_with_readiness(readiness(
         ProbeOutcome::Reachable,
         ProbeOutcome::Unreachable,
