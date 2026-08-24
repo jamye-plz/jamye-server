@@ -2,7 +2,7 @@
 
 > 세션: ultrawork/20260822-200110
 > 현재 단계: PLAN_GATE passed; M0 구현·사용자 실행 검증 진행 중
-> 상태: D3=C(STT 제외·voice media 보존) 반영 완료, r16 completeness/meta/simplicity 모두 PASS, 사용자의 `M0 시작` 승인에 따라 task-1 source/devShell/Podman harness 작성 완료 및 consequential command evidence 대기
+> 상태: D3=C(STT 제외·voice media 보존) 반영 완료, r16 completeness/meta/simplicity 모두 PASS, 사용자의 `M0 시작` 승인에 따라 task-1 source/devShell/Podman harness 작성 완료 및 consequential command evidence 수집 중
 > 기계 SSOT: .agents/results/plan-20260822-200110.json
 
 ## 1. 목표와 범위
@@ -296,4 +296,4 @@ task-10은 사용자 승인 STT non-goal로 삭제했다. 기존 참조 안정�
 4. M0 이후에는 dependency, earliest materializer가 고정한 decision evidence, user-run evidence가 충족되면 별도 milestone-start 승인 없이 진행한다.
 5. production/release/추가 SCM 작업은 M0와 별개로 계속 별도 승인을 요구한다.
 
-현재 task-1은 in progress이고 나머지 16개 task는 pending이다. 계획 문서와 `.serena/project.yml`은 commit `a86d51c`로 기록돼 있으며, M0 변경은 사용자 승인에 따라 중간 기준선 commit `0b1b04b`로 기록했다. 사용자 실행으로 provider/toolchain, Cargo/Nix lock no-drift, dependency advisory/ban/license/source, working-directory secret-scan clean/detect/clean, Cargo format/Clippy/default+all-feature+architecture test gate까지 통과했다. 사용자 결정에 따라 generic script dispatcher를 task-1 Just module과 safety-only Bash 경계로 단순화했고, Just 1.58.0 parser/format 및 Bash syntax 정적 검증을 통과했다. local Nix check/build, Podman lifecycle, migration, service, production deploy evidence는 아직 완료되지 않았다.
+현재 task-1은 in progress이고 나머지 16개 task는 pending이다. 계획 문서와 `.serena/project.yml`은 commit `a86d51c`로 기록돼 있으며, M0 변경은 사용자 승인에 따라 중간 기준선 commit `0b1b04b`로 기록했다. 사용자 실행으로 provider/toolchain, Cargo/Nix lock no-drift, dependency advisory/ban/license/source, working-directory secret-scan clean/detect/clean, Cargo format/Clippy/default+all-feature+architecture test gate까지 통과했다. 사용자 결정에 따라 generic script dispatcher를 task-1 Just module과 safety-only Bash 경계로 단순화했고, Just 1.58.0 parser/format 및 Bash syntax 정적 검증을 통과했다. rootless Podman에서 PostgreSQL 17.11, Redis 8.10.1, MinIO RELEASE.2025-09-07T16-13-09Z가 loopback binding으로 모두 healthy임을 확인했다. 실행 중인 API의 `/health/live`는 `live`, `/health/ready`는 PostgreSQL 필수 및 Redis/MinIO 선택 의존성이 모두 `ready`임을 반환했다. worker와 API가 Test 환경에서 정상 시작했으며 `Ctrl-C` 뒤 각각 종료 로그를 남겼다. local flake show에서 두 지원 system의 package/devShell/check shape를 확인했고 aarch64-darwin flake check가 통과했다. x86_64-linux package build 또는 builder blocker, migration, production deploy evidence는 아직 완료되지 않았다.

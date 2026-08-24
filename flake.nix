@@ -87,7 +87,7 @@
               commonArgs
               // {
                 inherit cargoArtifacts;
-                cargoClippyExtraArgs = "--locked --all-targets --all-features -- --deny warnings";
+                cargoClippyExtraArgs = "--all-targets --all-features -- --deny warnings";
               }
             );
 
@@ -95,7 +95,7 @@
               commonArgs
               // {
                 inherit cargoArtifacts;
-                cargoTestExtraArgs = "--locked --all-targets";
+                cargoTestExtraArgs = "--all-targets";
               }
             );
 
@@ -103,7 +103,7 @@
               commonArgs
               // {
                 inherit cargoArtifacts;
-                cargoTestExtraArgs = "--locked --all-targets --all-features";
+                cargoTestExtraArgs = "--all-targets --all-features";
               }
             );
 
@@ -111,7 +111,7 @@
               commonArgs
               // {
                 inherit cargoArtifacts;
-                cargoTestExtraArgs = "--locked --test architecture";
+                cargoTestExtraArgs = "--test architecture";
               }
             );
           };

@@ -12,6 +12,8 @@ nix develop path:. --command just task-1 flake-local
 
 이 card는 `aarch64-darwin`, `x86_64-linux` output을 모두 show하고 현재 system의 flake checks를 실행한다. lock을 갱신하지 않는다.
 
+고정된 Crane input은 `cargoClippy`/`cargoTest`의 공통 `cargoExtraArgs`에 `--locked`를 기본 적용한다. flake의 `cargoClippyExtraArgs`와 `cargoTestExtraArgs`에는 추가 selector만 기록해 같은 option을 두 번 전달하지 않는다.
+
 ## Production Linux 명령
 
 ```bash

@@ -20,6 +20,7 @@
 - Fenix에 전달하는 SRI hash `sha256-P30Tm3O7vQAE725YtDCDHGjNrSsfZO4us11UwJGZSJo=`는 official `channel-rust-1.98.0.toml` manifest의 integrity 값이다. 두 번째 version 선언이 아니다.
 - 같은 resulting toolchain derivation을 Crane `api`/`worker` package와 devShell에 사용한다.
 - flake input의 exact revisions와 Nix-provided tool versions는 사용자가 생성할 `flake.lock`이 고정한다.
+- `flake.lock`이 고정한 Crane의 `cargoClippy`와 `cargoTest`는 `cargoExtraArgs` 기본값으로 이미 `--locked`를 전달한다. 따라서 `cargoClippyExtraArgs`/`cargoTestExtraArgs`에는 target·feature·lint selector만 두며 `--locked`를 중복하지 않는다.
 
 Fenix는 upstream이 `aarch64-darwin`과 `x86_64-linux`를 supported platform으로 명시하고 binary cache도 두 platform을 제공하므로 선택했다. oxalica rust-overlay의 `fromRustupToolchainFile`은 hash 없이 더 단순하지만 공식 README가 CI 보장을 주로 x86_64-linux에 한정해 dual-system baseline의 근거가 더 약했다.
 
