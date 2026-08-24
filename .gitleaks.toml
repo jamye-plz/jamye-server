@@ -1,0 +1,32 @@
+title = "jamye-server secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Ignore reproducible Rust compiler and linker output"
+paths = ['''(^|/)target/''']
+
+[[allowlists]]
+description = "Allow the Nix api package attribute, not an API credential"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''(^|/)flake\.nix$''']
+regexTarget = "line"
+regexes = ['''^\s*api = craneLib\.buildPackage \($''']
+
+[[allowlists]]
+description = "Allow OMA's fixed local SCM control sentinel declaration"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''(^|/)\.agents/hooks/core/scm-guard\.ts$''']
+regexTarget = "line"
+regexes = ['''^\s*const BYPASS_TOKEN = "[^"]+";\s*$''']
+
+[[allowlists]]
+description = "Allow OMA's backend authentication library documentation"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''(^|/)\.agents/skills/oma-backend/stack/tech-stack\.md$''']
+regexTarget = "match"
+regexes = ['''jsonwebtoken, argon2/bcrypt''']

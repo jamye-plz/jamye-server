@@ -1,0 +1,53 @@
+[package]
+name = "jamye-server"
+version = "0.1.0"
+edition = "2024"
+publish = false
+default-run = "api"
+
+[workspace]
+resolver = "3"
+
+[lib]
+name = "jamye_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "api"
+path = "src/bin/api.rs"
+
+[[bin]]
+name = "worker"
+path = "src/bin/worker.rs"
+
+[features]
+default = []
+dev-fixtures = []
+
+[dependencies]
+axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "matched-path", "tokio", "tracing"] }
+redis = { version = "1.6.0", default-features = false, features = ["tokio-comp"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls"] }
+schemars = { version = "1.2.2", features = ["uuid1"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sqlx = { version = "0.9.0", default-features = false, features = ["json", "migrate", "postgres", "runtime-tokio", "time", "tls-rustls-ring-native-roots", "uuid"] }
+time = { version = "0.3.55", features = ["formatting", "parsing", "serde", "serde-well-known"] }
+tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tower = { version = "0.5.3", features = ["util"] }
+tower-http = { version = "0.7.0", features = ["request-id", "sensitive-headers", "trace"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["env-filter", "fmt", "json", "tracing-log"] }
+url = "2.5.8"
+utoipa = { version = "5.5.0", features = ["time", "uuid"] }
+uuid = { version = "1.25.0", features = ["serde", "v4"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+expect_used = "deny"

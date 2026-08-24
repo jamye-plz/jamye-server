@@ -1,8 +1,8 @@
 # jamye-server 로드맵 — FastAPI 전체 이관, 신뢰성 고도화, 모바일 계약
 
 > 세션: ultrawork/20260822-200110
-> 현재 단계: PLAN_GATE passed and implementation plan locked; `M0 시작` 대기
-> 상태: D3=C(STT 제외·voice media 보존) 반영 완료, r16 completeness/meta/simplicity 모두 PASS, PLAN_GATE 기록·검증 완료, 별도 `M0 시작` 대기
+> 현재 단계: PLAN_GATE passed; M0 구현·사용자 실행 검증 진행 중
+> 상태: D3=C(STT 제외·voice media 보존) 반영 완료, r16 completeness/meta/simplicity 모두 PASS, 사용자의 `M0 시작` 승인에 따라 task-1 source/devShell/Podman harness 작성 완료 및 consequential command evidence 대기
 > 기계 SSOT: .agents/results/plan-20260822-200110.json
 
 ## 1. 목표와 범위
@@ -21,8 +21,8 @@
 
 ## 2. 지금 적용되는 승인 경계
 
-- 이번 turn은 계획 문서만 다룬다. 제품 코드, 테스트, migration, generated contract, build, Nix/Podman runtime, 서비스는 시작하지 않는다.
-- 구현은 fresh PLAN reviews가 모두 통과한 뒤에도 사용자가 별도로 “M0 시작”이라고 해야 시작한다.
+- 계획 단계는 종료됐고 사용자가 별도로 “M0 시작”을 승인했다. 현재는 task-1의 Rust platform, test source, Nix devShell, local-only Podman harness와 command card만 구현한다.
+- M0 다음 feature, migration, generated contract와 production composition은 해당 dependency와 decision gate가 열리기 전에는 구현하지 않는다.
 - 구현 중 consequential local/dev 명령도 사용자가 직접 실행한다. task-1은 작은 Just primitive dispatcher만 만들고, 각 feature owner는 `docs/commands/<task-id>/`와 `scripts/tasks/<task-id>/`에 목적, 부작용, 예상 결과, 복구 방법을 기록한다.
 - 모든 command card는 nix develop path:. 안에서 실행한다. 계획 문서에 shell body를 중복하지 않는다.
 - pending 제품 결정은 가장 이른 materializer가 한 번만 사용자 선택을 받아 evidence를 고정한다. 후속 task와 VERIFY/SHIP는 dependency를 통해 그 evidence를 소비하며 같은 결정을 다시 승인받지 않는다.
@@ -286,12 +286,14 @@ task-10은 사용자 승인 STT non-goal로 삭제했다. 기존 참조 안정�
 
 ## 13. 다음 단계
 
-계획은 SHA-256 `3961a5108d4fb384d7e92e7b9fdaeca4c96e8e303acea8fa330b0f393679c973`로 동결되었다. fresh r16 completeness, meta, simplicity review는 모두 material finding 0으로 PASS했고 PLAN_GATE와 implementation-plan lock도 기록·검증했다. 이는 구현 시작 승인이 아니다.
+계획은 SHA-256 `3961a5108d4fb384d7e92e7b9fdaeca4c96e8e303acea8fa330b0f393679c973`로 동결되었다. fresh r16 completeness, meta, simplicity review는 모두 material finding 0으로 PASS했고 PLAN_GATE와 implementation-plan lock도 기록·검증했다. 이후 사용자가 M0 시작을 승인했다.
 
 다음 순서는 고정한다.
 
-1. 사용자가 별도로 “M0 시작”이라고 말해야 구현을 시작한다.
-2. M0 이후에는 dependency, earliest materializer가 고정한 decision evidence, user-run evidence가 충족되면 별도 milestone-start 승인 없이 진행한다.
-3. production/release/SCM 작업은 M0와 별개로 계속 별도 승인을 요구한다.
+1. task-1 source, tests, Nix/devShell, rootless-Podman local harness와 command card를 정적으로 검토한다.
+2. 사용자가 task-1 card를 순서대로 실행하고 lock checksum, format/lint/test, dependency/secret scan, local infra/health, flake/Linux-builder evidence를 반환한다.
+3. 실패 증거를 보정하고 같은 card가 통과하면 M0를 완료한다.
+4. M0 이후에는 dependency, earliest materializer가 고정한 decision evidence, user-run evidence가 충족되면 별도 milestone-start 승인 없이 진행한다.
+5. production/release/추가 SCM 작업은 M0와 별개로 계속 별도 승인을 요구한다.
 
-현재 구현 task는 17개 모두 pending이며, milestone은 16개다. 코드/빌드/테스트/Nix/Podman/service/deploy/SCM 실행은 없었다.
+현재 task-1은 in progress이고 나머지 16개 task는 pending이다. 계획 문서와 `.serena/project.yml`은 commit `a86d51c`로 기록돼 있으며, M0 변경은 사용자 승인에 따라 이 중간 기준선으로 기록한다. 사용자 실행으로 provider/toolchain, Cargo/Nix lock no-drift, dependency advisory/ban/license/source, working-directory secret-scan clean/detect/clean gate까지 통과했다. Cargo build/test/fmt/clippy, local Nix check/build, Podman lifecycle, migration, service, production deploy evidence는 아직 완료되지 않았다.

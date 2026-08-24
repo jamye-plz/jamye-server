@@ -6,3 +6,18 @@
 docs/plans/
 .migration-backup/
 .qwen/tmp/
+
+# Rust/Nix build output
+/target/
+/result
+/.direnv/
+
+# Local-only configuration and disposable infrastructure credentials
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Local coverage output
+/coverage/
+/lcov.info
