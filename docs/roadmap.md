@@ -1,8 +1,8 @@
 # jamye-server 로드맵 — FastAPI 전체 이관, 신뢰성 고도화, 모바일 계약
 
 > 세션: ultrawork/20260822-200110
-> 현재 단계: PLAN_GATE passed; M0·M1 완료, M2 task-3a/task-3b 시작
-> 상태: task-1 platform evidence와 task-2 M1_SCOPE_LOCK 완료; 사용자가 D1=A, D8=A, D13=A를 승인해 M2 schema/C0 contract gate 해제
+> 현재 단계: PLAN_GATE passed; M0·M1·M2 task-3a 완료, task-3b 시작
+> 상태: core PostgreSQL schema와 forward-only SQLx migration 정책 완료; C0 contract RED gate 준비
 > 기계 SSOT: .agents/results/plan-20260822-200110.json
 
 ## 1. 목표와 범위
@@ -21,7 +21,7 @@
 
 ## 2. 지금 적용되는 승인 경계
 
-- 계획 단계는 종료됐고 사용자가 별도로 “M0 시작”을 승인했다. task-1 M0와 `docs/migration-from-jamye-plz.md`의 task-2 M1 scope lock은 완료됐다. 사용자가 2026-08-25에 D1=A, D8=A, D13=A를 명시적으로 선택했으므로 다음 구현 단위인 task-3a/core schema와 task-3b/C0 contract의 결정 게이트도 열렸다.
+- 계획 단계는 종료됐고 사용자가 별도로 “M0 시작”을 승인했다. task-1 M0, `docs/migration-from-jamye-plz.md`의 task-2 M1 scope lock, task-3a core schema가 완료됐다. 사용자가 2026-08-25에 D1=A, D8=A, D13=A를 명시적으로 선택했으므로 task-3b/C0 contract의 결정 게이트도 열려 있다.
 - M0 다음 feature, migration, generated contract와 production composition은 해당 dependency와 decision gate가 열리기 전에는 구현하지 않는다.
 - 구현 중 consequential local/dev 명령도 사용자가 직접 실행한다. 루트 Justfile은 task module만 등록하고, 각 feature owner는 자기 module과 `docs/commands/<task-id>/`에 명령, 목적, 부작용, 예상 결과, 복구 방법을 기록한다. 별도 Bash는 credential/trap/wait/guarded deletion처럼 실제 안전 경계를 제공할 때만 둔다.
 - 모든 command card는 nix develop path:. 안에서 실행한다. 계획 문서에 shell body를 중복하지 않는다.
@@ -293,7 +293,7 @@ task-10은 사용자 승인 STT non-goal로 삭제했다. 기존 참조 안정�
 1. task-1 M0 evidence는 commit `d285e75`까지 기준선으로 기록됐다.
 2. task-2는 PF1 89-file manifest와 40 operation·13 table·189 test·6 migration 양방향 matrix를 동결했다.
 3. 사용자가 L08=A를 선택해 P4를 installation-specific delete로 잠갔고 M1_SCOPE_LOCK을 통과했다.
-4. 사용자가 D1=A, D8=A, D13=A를 승인했다. task-3a는 no-pruning event schema를, task-3b는 동일 payload 200/different payload 409 및 token-exp/ticket/socket lifetime을 각각 materialize한다.
+4. 사용자가 D1=A, D8=A, D13=A를 승인했다. task-3a는 no-pruning event schema와 lease-generation outbox foundation을 materialize했고, task-3b는 동일 payload 200/different payload 409 및 token-exp/ticket/socket lifetime을 materialize한다.
 5. 이후에는 dependency, earliest materializer가 고정한 decision evidence, user-run evidence가 충족되면 별도 milestone-start 승인 없이 진행한다. production/release/추가 SCM 작업은 계속 별도 승인을 요구한다.
 
-task-1과 task-2는 completed이고 나머지 15개 task는 pending이다. 계획 문서와 `.serena/project.yml`은 commit `a86d51c`로 기록돼 있으며, M0 변경은 사용자 승인에 따라 기준선 commit `0b1b04b`와 후속 보정 commit들로 기록했다. 사용자 실행으로 provider/toolchain, Cargo/Nix lock no-drift, dependency advisory/ban/license/source, working-directory secret-scan clean/detect/clean, Cargo format/Clippy/default+all-feature+architecture test gate까지 통과했다. 사용자 결정에 따라 generic script dispatcher를 task-1 Just module과 safety-only Bash 경계로 단순화했고, Just 1.58.0 parser/format 및 Bash syntax 정적 검증을 통과했다. rootless Podman에서 PostgreSQL 17.11, Redis 8.10.1, MinIO RELEASE.2025-09-07T16-13-09Z가 loopback binding으로 모두 healthy임을 확인했다. 실행 중인 API의 `/health/live`는 `live`, `/health/ready`는 PostgreSQL 필수 및 Redis/MinIO 선택 의존성이 모두 `ready`임을 반환했다. worker와 API가 Test 환경에서 정상 시작했으며 `Ctrl-C` 뒤 각각 종료 로그를 남겼다. local flake show에서 aarch64-darwin과 x86_64-linux의 package/devShell/check shape를 확인했고 aarch64-darwin flake check가 통과했다. 사용자가 구성한 `linux-builder-vz`를 통해 x86_64-linux API와 worker를 실제 빌드해 `/nix/store/sqhc2lpyly8p9w7mdwyib21df3rsxaq4-jamye-server-0.1.0`, `/nix/store/fifjz6gkpm32g7nvc4ki1h7iljg5yr02-jamye-server-0.1.0` output을 생성했으며 `flake_linux_exit=0`을 확인했다. task-2는 legacy 저장소를 수정하지 않고 PF1 inventory, behavior/discrepancy matrix, target reverse coverage를 동결했으며 사용자의 L08=A 선택을 `approved_by_user_2026-08-25_option_A`로 기록했다. migration과 production deployment evidence는 각각 후속 milestone과 별도 승인 범위다.
+task-1, task-2, task-3a는 completed이고 나머지 14개 task는 pending이다. 계획 문서와 `.serena/project.yml`은 commit `a86d51c`로 기록돼 있으며, M0 변경은 사용자 승인에 따라 기준선 commit `0b1b04b`와 후속 보정 commit들로 기록했다. 사용자 실행으로 provider/toolchain, Cargo/Nix lock no-drift, dependency advisory/ban/license/source, working-directory secret-scan clean/detect/clean, Cargo format/Clippy/default+all-feature+architecture test gate까지 통과했다. 사용자 결정에 따라 generic script dispatcher를 task-1 Just module과 safety-only Bash 경계로 단순화했고, Just 1.58.0 parser/format 및 Bash syntax 정적 검증을 통과했다. rootless Podman에서 PostgreSQL 17.11, Redis 8.10.1, MinIO RELEASE.2025-09-07T16-13-09Z가 loopback binding으로 모두 healthy임을 확인했다. 실행 중인 API의 `/health/live`는 `live`, `/health/ready`는 PostgreSQL 필수 및 Redis/MinIO 선택 의존성이 모두 `ready`임을 반환했다. worker와 API가 Test 환경에서 정상 시작했으며 `Ctrl-C` 뒤 각각 종료 로그를 남겼다. local flake show에서 aarch64-darwin과 x86_64-linux의 package/devShell/check shape를 확인했고 aarch64-darwin flake check가 통과했다. 사용자가 구성한 `linux-builder-vz`를 통해 x86_64-linux API와 worker를 실제 빌드해 `/nix/store/sqhc2lpyly8p9w7mdwyib21df3rsxaq4-jamye-server-0.1.0`, `/nix/store/fifjz6gkpm32g7nvc4ki1h7iljg5yr02-jamye-server-0.1.0` output을 생성했으며 `flake_linux_exit=0`을 확인했다. task-2는 legacy 저장소를 수정하지 않고 PF1 inventory, behavior/discrepancy matrix, target reverse coverage를 동결했으며 사용자의 L08=A 선택을 `approved_by_user_2026-08-25_option_A`로 기록했다. task-3a는 빈 disposable PostgreSQL에서 `0001` 적용, 7개 core table/constraint/index, server-generated cursor, typed outbox defaults, forced-failure 전체 rollback을 사용자 실행 GREEN 6/6과 exit `0`으로 검증했다. production deployment/migration은 계속 별도 승인 범위다.

@@ -12,6 +12,7 @@ use url::Url;
 use uuid::Uuid;
 
 const CORE_MIGRATION: &str = "migrations/0001_core_reliable_messaging.sql";
+const MIGRATION_POLICY: &str = "docs/adr/0003-forward-only-sqlx-migrations.md";
 const DISPOSABLE_DATABASE_PREFIX: &str = "jamye_task_3a_";
 
 type TestResult<T = ()> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -39,8 +40,22 @@ fn migration_source_is_exactly_forward_only_0001() -> TestResult {
     let sql = fs::read_to_string(migration)?;
     assert!(sql.contains("-- migration: 0001_core_reliable_messaging"));
     assert!(sql.contains("-- reversibility: forward-only"));
-    assert!(sql.contains("-- recovery: docs/adr/0003-forward-only-sqlx-migrations.md"));
+    assert!(sql.contains(&format!("-- recovery: {MIGRATION_POLICY}")));
     assert!(!sql.contains("-- no-transaction"));
+
+    let policy = fs::read_to_string(MIGRATION_POLICY)?;
+    for required in [
+        "forward-fix migration",
+        "speculative down migration",
+        "exact immediate-prior schema",
+        "강제 오류",
+        "production restore/import/cutover",
+    ] {
+        assert!(
+            policy.contains(required),
+            "migration policy is missing required rule: {required}"
+        );
+    }
 
     Ok(())
 }
@@ -92,6 +107,46 @@ async fn empty_database_is_the_immediate_prior_state_for_0001() -> TestResult {
                 .fetch_one(&mut connection)
                 .await?;
         assert_eq!(applied, 1);
+        assert_eq!(
+            table_columns(&mut connection, "conversation_events").await?,
+            [
+                "conversation_id",
+                "cursor",
+                "event_type",
+                "event_version",
+                "id",
+                "occurred_at",
+                "payload",
+            ]
+            .map(String::from)
+            .to_vec()
+        );
+        assert_eq!(
+            table_columns(&mut connection, "outbox_events").await?,
+            [
+                "aggregate_id",
+                "aggregate_type",
+                "attempt_count",
+                "claim_expires_at",
+                "claim_generation",
+                "claim_owner",
+                "conversation_event_id",
+                "created_at",
+                "dead_lettered_at",
+                "deadline_at",
+                "event_type",
+                "event_version",
+                "id",
+                "intent_type",
+                "last_error_code",
+                "next_attempt_at",
+                "payload",
+                "published_at",
+                "status",
+            ]
+            .map(String::from)
+            .to_vec()
+        );
         connection.close().await?;
         Ok(())
     })
@@ -185,6 +240,27 @@ async fn core_constraints_enforce_group_chatroom_and_message_invariants() -> Tes
             "chatrooms_type_topic_check",
         )?;
 
+        let topic_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO chatrooms (id, group_id, type, topic_id) VALUES ($1, $2, 'topic', $3)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(group_id)
+        .bind(topic_id)
+        .execute(&mut connection)
+        .await?;
+        assert_constraint(
+            sqlx::query(
+                "INSERT INTO chatrooms (id, group_id, type, topic_id) VALUES ($1, $2, 'topic', $3)",
+            )
+            .bind(Uuid::new_v4())
+            .bind(group_id)
+            .bind(topic_id)
+            .execute(&mut connection)
+            .await,
+            "ux_chatrooms_one_topic_per_topic",
+        )?;
+
         let client_msg_id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO messages (id, chatroom_id, sender_id, client_msg_id, body, type) \
@@ -211,6 +287,17 @@ async fn core_constraints_enforce_group_chatroom_and_message_invariants() -> Tes
             .await,
             "ux_messages_sender_client_msg_id",
         )?;
+        sqlx::query(
+            "INSERT INTO messages (id, chatroom_id, sender_id, client_msg_id, body, type) \
+             VALUES ($1, $2, $3, $4, $5, 'user')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(main_chatroom_id)
+        .bind(member_id)
+        .bind(client_msg_id)
+        .bind("same key, different sender")
+        .execute(&mut connection)
+        .await?;
         assert_constraint(
             sqlx::query(
                 "INSERT INTO messages (id, chatroom_id, body, type) VALUES ($1, $2, $3, 'user')",
@@ -322,6 +409,15 @@ async fn cursors_are_server_generated_and_outbox_claim_state_is_guarded() -> Tes
             .await,
             "outbox_intent_shape_check",
         )?;
+        sqlx::query(
+            "INSERT INTO outbox_events \
+             (id, intent_type, event_type, event_version, aggregate_type, aggregate_id, payload) \
+             VALUES ($1, 'control', 'membership.revoked', 1, 'membership', $2, '{}'::jsonb)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(Uuid::new_v4())
+        .execute(&mut connection)
+        .await?;
 
         connection.close().await?;
         Ok(())
@@ -390,6 +486,21 @@ async fn application_tables(connection: &mut PgConnection) -> TestResult<Vec<Str
          WHERE schemaname = 'public' AND tablename <> '_sqlx_migrations' \
          ORDER BY tablename",
     )
+    .fetch_all(connection)
+    .await?)
+}
+
+async fn table_columns(
+    connection: &mut PgConnection,
+    table_name: &'static str,
+) -> TestResult<Vec<String>> {
+    Ok(sqlx::query_scalar(
+        "SELECT column_name::text \
+         FROM information_schema.columns \
+         WHERE table_schema = 'public' AND table_name = $1 \
+         ORDER BY column_name",
+    )
+    .bind(table_name)
     .fetch_all(connection)
     .await?)
 }
