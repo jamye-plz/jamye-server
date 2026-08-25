@@ -69,6 +69,26 @@ outbox_events
 
 DB의 `UNIQUE(sender_id, client_msg_id)`가 멱등성의 최종 fence다. concurrent retry에서 conflict가 나면 새 row를 만들지 않고 기존 canonical result를 반환한다. response 유실은 committed message 유실이나 duplication으로 바뀌지 않는다.
 
+task-4a의 application wrapper만 공용 opaque `TransactionHandle`을 열고 한 번
+commit/rollback한다. PostgreSQL repository는 이 caller-owned handle을 받아 다음
+순서로 실행하며 begin/commit하지 않는다.
+
+1. `chatrooms → groups(live) → memberships(user)`를 조회하고 group/membership row를
+   `FOR SHARE`로 잠가 command 중 권한 변경과 직렬화한다.
+2. `(sender_id, client_msg_id)` partial unique index를 대상으로 message insert를 시도한다.
+3. conflict면 기존 row의 `chatroom_id`와 body를 비교해 같을 때만 canonical 200을 반환하고,
+   다르면 mutation 없는 409로 transaction을 rollback한다.
+4. 새 message면 같은 handle에서 server identity cursor를 가진 conversation event와 그
+   event를 참조하는 full-envelope outbox row를 순서대로 기록한다.
+
+기본 PostgreSQL `READ COMMITTED`를 사용한다. command의 row lock과 unique index가
+필요한 직렬화 지점이며 process-local lock이나 Redis lock은 두지 않는다. S1 delta는
+membership authorization과 `(conversation_id, cursor)` ordered page를 하나의 SQL
+statement/snapshot에서 읽고 `limit+1`로 다음 page 존재 여부만 판정한다. access path는
+`ux_messages_sender_client_msg_id`, `ix_conversation_events_conversation_cursor`,
+membership unique constraint다. task-4a는 schema를 추가하지 않고 0001의 물리 모델을
+소비한다.
+
 ### Server outbox worker
 
 worker는 PostgreSQL clock과 `FOR UPDATE SKIP LOCKED`에 준하는 claim을 사용한다. Redis publish가 성공한 뒤에만 published state로 전이한다. 실패하면 durable outbox row를 남겨 재시도한다. publish 직후 worker가 죽으면 중복 publish가 가능하므로 event 소비자는 `event_id`로 idempotent해야 한다.
