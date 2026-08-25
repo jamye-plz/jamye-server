@@ -22,15 +22,16 @@ path = "src/bin/worker.rs"
 
 [features]
 default = []
-dev-fixtures = ["dep:jsonwebtoken"]
+dev-fixtures = []
 
 [dependencies]
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "matched-path", "tokio", "tracing", "ws"] }
+base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
 getrandom = { version = "0.4.3", default-features = false }
-jsonwebtoken = { version = "11.0.0", default-features = false, features = ["aws_lc_rs"], optional = true }
+jsonwebtoken = { version = "11.0.0", default-features = false, features = ["aws_lc_rs"] }
 redis = { version = "1.6.0", default-features = false, features = ["tokio-comp"] }
-reqwest = { version = "0.13.4", default-features = false, features = ["rustls"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["form", "json", "rustls"] }
 schemars = { version = "1.2.2", features = ["uuid1"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

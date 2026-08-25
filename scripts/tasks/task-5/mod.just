@@ -15,3 +15,12 @@ red: require-nix-shell
       exit 2
     fi
     cargo test --locked --test auth production_auth_surface_is_absent_before_task_5 -- --exact --nocapture
+
+# Regenerate and verify Cargo/Nix locks after the bounded production-auth dependency delta.
+locks: require-nix-shell
+    just task-1 locks-create
+    just task-1 locks-verify
+
+# Reuse the repository-wide advisory, ban, license, and source policy.
+dependency-check: require-nix-shell
+    just task-1 dependency-check
