@@ -1,0 +1,58 @@
+{
+  "S1_page": {
+    "items": [
+      {
+        "cursor": "201",
+        "event_id": "70000000-0000-4000-8000-000000000001",
+        "reconcile_scope": "chat_history"
+      },
+      {
+        "conversation_id": "10000000-0000-4000-8000-000000000001",
+        "cursor": "202",
+        "data": {
+          "body": "안녕하세요",
+          "chatroom_id": "10000000-0000-4000-8000-000000000001",
+          "client_msg_id": "30000000-0000-4000-8000-000000000001",
+          "created_at": "2026-08-22T00:00:00Z",
+          "id": "20000000-0000-4000-8000-000000000001",
+          "media": [],
+          "sender_id": "10000000-0000-4000-8000-000000000002",
+          "type": "user"
+        },
+        "event_id": "70000000-0000-4000-8000-000000000002",
+        "occurred_at": "2026-08-22T00:00:01Z",
+        "type": "message.created",
+        "version": 1
+      }
+    ],
+    "next_cursor": null
+  },
+  "after_unknown_ws": {
+    "action": "request_S1_after_200",
+    "cursor": "200",
+    "diagnostic_contains_payload": false
+  },
+  "declarative_app_commit_order": [
+    "insert_applied_events_U_as_unsupported_mark_chat_history_dirty_and_CAS_cursor_201",
+    "apply_known_K_and_CAS_cursor_202",
+    "refresh_C2_chat_history",
+    "clear_dirty_state"
+  ],
+  "expected": {
+    "crash": false,
+    "cursor_regression": false,
+    "final_cursor": "202",
+    "realtime_variant_count": 1,
+    "retry_storm": false
+  },
+  "fixture": "unknown_ws_to_bounded_delta_marker_then_known_and_reconcile",
+  "next_S1_page": {
+    "items": [],
+    "next_cursor": null
+  },
+  "unknown_websocket_input": {
+    "cursor": "201",
+    "event_id": "70000000-0000-4000-8000-000000000001",
+    "type": "future.event"
+  }
+}

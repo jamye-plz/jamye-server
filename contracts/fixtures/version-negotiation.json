@@ -1,0 +1,30 @@
+{
+  "accepted": [
+    {
+      "echoed": "1",
+      "requested": "1"
+    },
+    {
+      "echoed": "0",
+      "requested": "0"
+    }
+  ],
+  "fixture": "current_previous_version_negotiation",
+  "header": "X-Jamye-Contract-Version",
+  "unsupported": {
+    "automatic_retry": false,
+    "requested": "999",
+    "response": {
+      "body": {
+        "error": {
+          "code": "contract_upgrade_required",
+          "details": null,
+          "message": "지원되는 계약 버전으로 앱을 업데이트해 주세요.",
+          "request_id": "40000000-0000-4000-8000-000000000001"
+        }
+      },
+      "status": 426
+    },
+    "ticket_created": false
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "app_owned_invariants": {
+    "applied_events": "UNIQUE(event_id)",
+    "apply_path": "one applyEvent(event_id) path for both REST phases and WebSocket",
+    "cursor": "per_conversation_monotonic_compare_and_set_after_event_transaction_commit",
+    "pending_and_outbox": "both_or_neither_after_reopen"
+  },
+  "atomicity_contract": "One exclusive SQLite transaction creates both messages(status=pending) and the persisted outbox command with the unchanged client_msg_id; after process reopen, both rows are visible or neither is.",
+  "connect_sequence": [
+    "persist_last_applied_cursor",
+    "drain_S1_phase_1_to_exhaustion",
+    "issue_one_time_R1_ticket",
+    "connect_and_receive_subscribed_ack",
+    "drain_S1_phase_2_to_exhaustion"
+  ],
+  "execution_owner": "jamye-app",
+  "expected": {
+    "event_loss": 0,
+    "final_cursor": "7",
+    "logical_applications_per_event": 1
+  },
+  "fixture": "declarative_mobile_sqlite_outbox_and_two_phase_sync",
+  "outbox": {
+    "network_regain": "reconcile to exactly one canonical server message",
+    "ordinary_401_marker": {
+      "next_contract_owner": "task-5",
+      "preserve_client_msg_id": true,
+      "preserve_outbox_intent": true
+    },
+    "process_reopen": "reload the same persisted command",
+    "retry_client_msg_id": "unchanged",
+    "retryable": [
+      "network",
+      "timeout",
+      "429",
+      "5xx"
+    ],
+    "terminal_or_user_action": [
+      "403",
+      "404",
+      "409_idempotency_conflict",
+      "422"
+    ],
+    "upgrade_stop": "426_contract_upgrade_required"
+  },
+  "page_fixture": {
+    "between_ack_and_phase_2": "event_B",
+    "between_phase_1_and_ack": "event_A",
+    "bounded_page_guard": "persist_committed_progress_then_stop",
+    "limit": 2,
+    "phase_1_pages": [
+      {
+        "items": [
+          "event_1",
+          "event_2"
+        ],
+        "next_cursor": "2"
+      },
+      {
+        "items": [
+          "event_3",
+          "event_4"
+        ],
+        "next_cursor": "4"
+      },
+      {
+        "items": [
+          "event_5"
+        ],
+        "next_cursor": "5"
+      },
+      {
+        "items": [],
+        "next_cursor": null
+      }
+    ],
+    "phase_2_pages": [
+      {
+        "items": [
+          "event_A",
+          "event_B"
+        ],
+        "next_cursor": "7"
+      },
+      {
+        "items": [],
+        "next_cursor": null
+      }
+    ],
+    "same_or_regressing_next_cursor": "stop_with_safe_diagnostics_and_resume_from_last_committed_cursor",
+    "websocket_delivery": [
+      "event_A",
+      "event_B",
+      "event_B"
+    ]
+  },
+  "server_execution": "none",
+  "server_observer": {
+    "last_cursor": null,
+    "seen_event_ids": []
+  },
+  "triggers": [
+    "app_foreground",
+    "network_regain",
+    "websocket_reconnect",
+    "validated_push_tap"
+  ]
+}

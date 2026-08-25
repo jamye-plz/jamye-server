@@ -1,0 +1,838 @@
+{
+  "components": {
+    "schemas": {
+      "CanonicalMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "chatroom_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "client_msg_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "description": "UTC ISO 8601 timestamp.",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "media": {
+            "items": {
+              "$ref": "#/components/schemas/MessageAttachment"
+            },
+            "type": "array"
+          },
+          "sender_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "$ref": "#/components/schemas/MessageKind"
+          }
+        },
+        "required": [
+          "id",
+          "chatroom_id",
+          "type",
+          "created_at",
+          "media"
+        ],
+        "type": "object"
+      },
+      "DeltaItem": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/MessageCreatedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/UnsupportedEventMarker"
+          }
+        ]
+      },
+      "DependencyCheck": {
+        "properties": {
+          "required": {
+            "type": "boolean"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DependencyStatus"
+          }
+        },
+        "required": [
+          "status",
+          "required"
+        ],
+        "type": "object"
+      },
+      "DependencyChecks": {
+        "properties": {
+          "minio": {
+            "$ref": "#/components/schemas/DependencyCheck"
+          },
+          "postgres": {
+            "$ref": "#/components/schemas/DependencyCheck"
+          },
+          "redis": {
+            "$ref": "#/components/schemas/DependencyCheck"
+          }
+        },
+        "required": [
+          "postgres",
+          "redis",
+          "minio"
+        ],
+        "type": "object"
+      },
+      "DependencyStatus": {
+        "enum": [
+          "ready",
+          "unavailable",
+          "degraded"
+        ],
+        "type": "string"
+      },
+      "ErrorBody": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "details": {
+            "description": "Reserved for a future additive contract; exactly null in v1",
+            "type": "null"
+          },
+          "message": {
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "request_id",
+          "details"
+        ],
+        "type": "object"
+      },
+      "ErrorEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorBody"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "EventPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DeltaItem"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "type": "object"
+      },
+      "LivenessResponse": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/LivenessStatus"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "LivenessStatus": {
+        "enum": [
+          "live"
+        ],
+        "type": "string"
+      },
+      "MediaRef": {
+        "additionalProperties": false,
+        "properties": {
+          "media_upload_id": {
+            "description": "A finalized, unconsumed upload capability owned by the authenticated user.",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "media_upload_id"
+        ],
+        "type": "object"
+      },
+      "MessageAttachment": {
+        "additionalProperties": false,
+        "properties": {
+          "byte_size": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "duration": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "filename": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "height": {
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "media_upload_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "position": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "type": "string"
+          },
+          "width": {
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "media_upload_id",
+          "type",
+          "byte_size",
+          "position"
+        ],
+        "type": "object"
+      },
+      "MessageCreate": {
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "properties": {
+              "body": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "body"
+            ]
+          },
+          {
+            "properties": {
+              "media": {
+                "maxItems": 4,
+                "minItems": 1,
+                "type": "array"
+              }
+            },
+            "required": [
+              "media"
+            ]
+          }
+        ],
+        "properties": {
+          "body": {
+            "description": "Missing, null, and empty are allowed only when media is non-empty.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client_msg_id": {
+            "description": "The stable, app-generated idempotency key reused for every retry.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "media": {
+            "items": {
+              "$ref": "#/components/schemas/MediaRef"
+            },
+            "maxItems": 4,
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "client_msg_id"
+        ],
+        "type": "object"
+      },
+      "MessageCreatedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "conversation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CanonicalMessage"
+          },
+          "event_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "occurred_at": {
+            "description": "UTC ISO 8601 timestamp.",
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/MessageCreatedType"
+          },
+          "version": {
+            "format": "int32",
+            "maximum": 1,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "type",
+          "event_id",
+          "conversation_id",
+          "cursor",
+          "occurred_at",
+          "data"
+        ],
+        "type": "object"
+      },
+      "MessageCreatedType": {
+        "enum": [
+          "message.created"
+        ],
+        "type": "string"
+      },
+      "MessageKind": {
+        "enum": [
+          "user",
+          "system"
+        ],
+        "type": "string"
+      },
+      "ReadinessResponse": {
+        "properties": {
+          "checks": {
+            "$ref": "#/components/schemas/DependencyChecks"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReadinessStatus"
+          }
+        },
+        "required": [
+          "status",
+          "checks"
+        ],
+        "type": "object"
+      },
+      "ReadinessStatus": {
+        "enum": [
+          "ready",
+          "not_ready"
+        ],
+        "type": "string"
+      },
+      "RealtimeTicket": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "UTC ISO 8601 timestamp bounded by the access-token expiry.",
+            "type": "string"
+          },
+          "ticket": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket",
+          "expires_at",
+          "contract_version"
+        ],
+        "type": "object"
+      },
+      "ReconcileScope": {
+        "enum": [
+          "chat_history",
+          "group_topics",
+          "notifications"
+        ],
+        "type": "string"
+      },
+      "UnsupportedEventMarker": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "reconcile_scope": {
+            "$ref": "#/components/schemas/ReconcileScope"
+          }
+        },
+        "required": [
+          "event_id",
+          "cursor",
+          "reconcile_scope"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "bearer_auth": {
+        "bearerFormat": "JWT",
+        "description": "Short-lived signed access token",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Deterministic C0 snapshot. Runtime feature owners extend this explicit compile-time surface.",
+    "license": {
+      "name": ""
+    },
+    "title": "Jamye Server C0 API",
+    "version": "1"
+  },
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/chatrooms/{chatroom_id}/messages": {
+      "post": {
+        "operationId": "C4",
+        "parameters": [
+          {
+            "description": "Target chatroom",
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional; when present it must exactly equal body client_msg_id",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageCreate"
+              }
+            }
+          },
+          "description": "Stable idempotent message command",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CanonicalMessage"
+                }
+              }
+            },
+            "description": "D8=A same-payload retry; existing canonical message"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CanonicalMessage"
+                }
+              }
+            },
+            "description": "New canonical message"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bearer authentication is required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Membership is required without resource disclosure"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "D8=A client_msg_id was reused with a different logical payload"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Content or Idempotency-Key validation failed"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Required PostgreSQL dependency is unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "tags": [
+          "messages"
+        ]
+      }
+    },
+    "/api/v1/conversations/{conversation_id}/events": {
+      "get": {
+        "operationId": "S1",
+        "parameters": [
+          {
+            "description": "Conversation to recover",
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque last-applied server cursor",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Bounded page size",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Required current or previous contract version",
+            "in": "header",
+            "name": "X-Jamye-Contract-Version",
+            "required": true,
+            "schema": {
+              "enum": [
+                "1",
+                "0"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventPage"
+                }
+              }
+            },
+            "description": "Version-projected delta page",
+            "headers": {
+              "X-Jamye-Contract-Version": {
+                "description": "Accepted contract version",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bearer authentication is required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Membership is required without resource disclosure"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Requested or persisted event version cannot converge safely"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Required PostgreSQL dependency is unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "tags": [
+          "sync"
+        ]
+      }
+    },
+    "/api/v1/realtime/tickets": {
+      "post": {
+        "operationId": "R1",
+        "parameters": [
+          {
+            "description": "Required current or previous contract version",
+            "in": "header",
+            "name": "X-Jamye-Contract-Version",
+            "required": true,
+            "schema": {
+              "enum": [
+                "1",
+                "0"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RealtimeTicket"
+                }
+              }
+            },
+            "description": "One-time version-bound realtime ticket",
+            "headers": {
+              "X-Jamye-Contract-Version": {
+                "description": "Accepted contract version",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bearer authentication is required"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unsupported contract version"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Redis ticket service is unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "tags": [
+          "realtime"
+        ]
+      }
+    },
+    "/health/live": {
+      "get": {
+        "operationId": "H1",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LivenessResponse"
+                }
+              }
+            },
+            "description": "Process is alive"
+          }
+        },
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "H2",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            },
+            "description": "PostgreSQL is ready; optional dependencies are reported independently"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            },
+            "description": "Required PostgreSQL dependency is unavailable"
+          }
+        },
+        "tags": [
+          "health"
+        ]
+      }
+    }
+  },
+  "x-jamye-contract-stage": "C0"
+}

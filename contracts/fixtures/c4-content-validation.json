@@ -1,0 +1,54 @@
+{
+  "fixture": "c4_content_and_header_validation",
+  "message_content_required": {
+    "cases": [
+      {
+        "body_state": "missing",
+        "media_state": "missing"
+      },
+      {
+        "body_state": "null",
+        "media_state": "empty"
+      },
+      {
+        "body_state": "empty_string",
+        "media_state": "missing"
+      }
+    ],
+    "mutation_count": 0,
+    "response": {
+      "body": {
+        "error": {
+          "code": "message_content_required",
+          "details": null,
+          "message": "메시지 본문 또는 미디어가 필요합니다.",
+          "request_id": "40000000-0000-4000-8000-000000000001"
+        }
+      },
+      "status": 422
+    }
+  },
+  "operation_id": "C4",
+  "optional_idempotency_header_mismatch": {
+    "body_client_msg_id": "30000000-0000-4000-8000-000000000001",
+    "header": "30000000-0000-4000-8000-000000000099",
+    "mutation_count": 0,
+    "response": {
+      "body": {
+        "error": {
+          "code": "idempotency_key_mismatch",
+          "details": null,
+          "message": "Idempotency-Key가 client_msg_id와 일치하지 않습니다.",
+          "request_id": "40000000-0000-4000-8000-000000000001"
+        }
+      },
+      "status": 422
+    }
+  },
+  "whitespace_only_body": {
+    "accepted": true,
+    "canonical_body": "   ",
+    "request_body": "   ",
+    "server_trim": false
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "consumer_idempotency_key": "event_id",
+  "cursor_commits_only_after_application": true,
+  "delivery_may_repeat": true,
+  "event": {
+    "conversation_id": "10000000-0000-4000-8000-000000000001",
+    "cursor": "101",
+    "data": {
+      "body": "안녕하세요",
+      "chatroom_id": "10000000-0000-4000-8000-000000000001",
+      "client_msg_id": "30000000-0000-4000-8000-000000000001",
+      "created_at": "2026-08-22T00:00:00Z",
+      "id": "20000000-0000-4000-8000-000000000001",
+      "media": [],
+      "sender_id": "10000000-0000-4000-8000-000000000002",
+      "type": "user"
+    },
+    "event_id": "50000000-0000-4000-8000-000000000001",
+    "occurred_at": "2026-08-22T00:00:00Z",
+    "type": "message.created",
+    "version": 1
+  },
+  "fixture": "message.created"
+}

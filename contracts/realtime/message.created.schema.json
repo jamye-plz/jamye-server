@@ -1,0 +1,179 @@
+{
+  "$defs": {
+    "CanonicalMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "chatroom_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "client_msg_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "description": "UTC ISO 8601 timestamp.",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "media": {
+          "items": {
+            "$ref": "#/$defs/MessageAttachment"
+          },
+          "type": "array"
+        },
+        "sender_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "$ref": "#/$defs/MessageKind"
+        }
+      },
+      "required": [
+        "id",
+        "chatroom_id",
+        "type",
+        "created_at",
+        "media"
+      ],
+      "type": "object"
+    },
+    "MessageAttachment": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_size": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "duration": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "filename": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "height": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "media_upload_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "position": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "type": "string"
+        },
+        "width": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "media_upload_id",
+        "type",
+        "byte_size",
+        "position"
+      ],
+      "type": "object"
+    },
+    "MessageCreatedType": {
+      "enum": [
+        "message.created"
+      ],
+      "type": "string"
+    },
+    "MessageKind": {
+      "enum": [
+        "user",
+        "system"
+      ],
+      "type": "string"
+    }
+  },
+  "$id": "https://contracts.jamye.local/realtime/message.created.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "conversation_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "cursor": {
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/CanonicalMessage"
+    },
+    "event_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "occurred_at": {
+      "description": "UTC ISO 8601 timestamp.",
+      "type": "string"
+    },
+    "type": {
+      "$ref": "#/$defs/MessageCreatedType"
+    },
+    "version": {
+      "format": "uint8",
+      "maximum": 1,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "version",
+    "type",
+    "event_id",
+    "conversation_id",
+    "cursor",
+    "occurred_at",
+    "data"
+  ],
+  "title": "Jamye message.created event v1",
+  "type": "object"
+}

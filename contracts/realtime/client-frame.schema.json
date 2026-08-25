@@ -1,0 +1,67 @@
+{
+  "$id": "https://contracts.jamye.local/realtime/client-frame.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "conversation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "request_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "type": {
+          "const": "subscribe",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "request_id",
+        "conversation_id"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "conversation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "request_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "type": {
+          "const": "unsubscribe",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "request_id",
+        "conversation_id"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "nonce": {
+          "type": "string"
+        },
+        "type": {
+          "const": "ping",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "nonce"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "Jamye realtime client frames"
+}

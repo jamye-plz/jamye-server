@@ -1,0 +1,82 @@
+{
+  "client_frames": [
+    "subscribe",
+    "unsubscribe",
+    "ping"
+  ],
+  "contract_versions": {
+    "current": "1",
+    "previous": "0",
+    "request_header": "X-Jamye-Contract-Version",
+    "unsupported": {
+      "automatic_retry": false,
+      "error_code": "contract_upgrade_required",
+      "status": 426
+    }
+  },
+  "delivery": {
+    "correctness_source": "postgresql_delta_sync",
+    "duplicates_allowed": true,
+    "idempotency_key": "event_id",
+    "redis_websocket_role": "acceleration_only"
+  },
+  "denied_subscribe": {
+    "cleanup": "remove every local subscription and socket registry entry before close",
+    "client_cleanup_class": "evicted",
+    "close_code": 4001,
+    "data_or_error_frame_count": 0,
+    "indistinguishable_cases": [
+      "nonexistent_conversation",
+      "cross_group_conversation",
+      "nonmember",
+      "deleted_group"
+    ],
+    "reason": "membership_required"
+  },
+  "heartbeat": {
+    "client_ping_interval_seconds": 25,
+    "pong_deadline_seconds": 10,
+    "timeout_action": "reconnect_then_delta"
+  },
+  "join_ack": "subscribed is emitted only after authoritative membership validation and local registration",
+  "known_event_discriminants": [
+    "message.created"
+  ],
+  "selected_D13_A": {
+    "deadline_cleanup": "remove every local subscription and registry entry before close",
+    "deadline_close_code": 4401,
+    "deadline_reason": "realtime_auth_expired",
+    "established_socket_deadline": "bound access-token exp copied from the consumed ticket",
+    "logout_effect": "the short access token remains valid until exp; logout revokes refresh authority only",
+    "recovery": "refresh_or_reauthenticate_then_new_ticket_then_delta_first"
+  },
+  "server_control_frames": [
+    "subscribed",
+    "unsubscribed",
+    "pong",
+    "error"
+  ],
+  "stage": "C0",
+  "ticket": {
+    "consume": "atomic_getdel_or_equivalent_lua",
+    "effective_expiry": "min(issue_time_plus_30_seconds, access_token_exp)",
+    "invalid_expired_reused_or_redis_restart": {
+      "close_code": 4401,
+      "reason": "realtime_auth_failed"
+    },
+    "raw_value": "csprng_256_bit_returned_once",
+    "storage": "redis_ephemeral_only",
+    "stored_key": "sha256_of_raw_ticket",
+    "stored_value": [
+      "user_id",
+      "verified_access_token_sid",
+      "contract_version",
+      "access_token_expires_at"
+    ]
+  },
+  "unknown_event": {
+    "cursor_action": "unchanged",
+    "next_action": "request_S1_after_last_applied_cursor"
+  },
+  "url": "wss://{host}/api/v1/realtime/ws?ticket={one_time_ticket}"
+}

@@ -1,0 +1,30 @@
+{
+  "database_effect": "one message, one conversation event, and one outbox intent commit atomically",
+  "fixture": "c4_normal",
+  "operation_id": "C4",
+  "request": {
+    "body": {
+      "body": "안녕하세요",
+      "client_msg_id": "30000000-0000-4000-8000-000000000001",
+      "media": []
+    },
+    "headers": {
+      "authorization": "Bearer <redacted>"
+    },
+    "method": "POST",
+    "path": "/api/v1/chatrooms/10000000-0000-4000-8000-000000000001/messages"
+  },
+  "response": {
+    "body": {
+      "body": "안녕하세요",
+      "chatroom_id": "10000000-0000-4000-8000-000000000001",
+      "client_msg_id": "30000000-0000-4000-8000-000000000001",
+      "created_at": "2026-08-22T00:00:00Z",
+      "id": "20000000-0000-4000-8000-000000000001",
+      "media": [],
+      "sender_id": "10000000-0000-4000-8000-000000000002",
+      "type": "user"
+    },
+    "status": 201
+  }
+}

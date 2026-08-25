@@ -1,0 +1,22 @@
+{
+  "fixture": "c4_permission",
+  "indistinguishable_cases": [
+    "missing_conversation",
+    "cross_group",
+    "nonmember",
+    "deleted_group"
+  ],
+  "mutation_count": 0,
+  "operation_id": "C4",
+  "response": {
+    "body": {
+      "error": {
+        "code": "membership_required",
+        "details": null,
+        "message": "이 그룹에 접근할 수 없습니다.",
+        "request_id": "40000000-0000-4000-8000-000000000001"
+      }
+    },
+    "status": 403
+  }
+}

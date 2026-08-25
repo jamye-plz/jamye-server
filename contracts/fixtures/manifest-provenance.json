@@ -1,0 +1,22 @@
+{
+  "fixture": "explicit_manifest_provenance",
+  "future_separately_authorized_publication": {
+    "artifact_commit_points_to_itself": false,
+    "current_plan_executes_transition": false,
+    "manifest_server_commit": "0123456789abcdef0123456789abcdef01234567",
+    "manifest_server_tag": "v0.1.0",
+    "step_1": "establish_the_source_commit",
+    "step_2": "generate_an_artifact_commit_and_tag_whose_manifest_points_to_the_source_commit"
+  },
+  "pre_publication": {
+    "clean_checkout_result": "still_uses_the_explicit_dirty_input",
+    "dirty_workspace_result": "uses_the_explicit_input",
+    "git_head_inference": false,
+    "input": {
+      "contract_version": "1",
+      "server_commit": "dirty",
+      "server_tag": null,
+      "server_version": "0.1.0"
+    }
+  }
+}

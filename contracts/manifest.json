@@ -1,0 +1,36 @@
+{
+  "server_tag": null,
+  "server_commit": "dirty",
+  "contract_version": "1",
+  "server_version": "0.1.0",
+  "checksum_algorithm": "sha256 over lexicographic path,NUL,decimal-length,NUL,bytes entries; manifest.json uses recursively key-sorted compact JSON without sha256; v1",
+  "artifacts": [
+    "fixtures/c4-content-validation.json",
+    "fixtures/c4-duplicate.json",
+    "fixtures/c4-normal.json",
+    "fixtures/c4-permission.json",
+    "fixtures/manifest-provenance.json",
+    "fixtures/message.created.json",
+    "fixtures/mobile-sync-handoff.json",
+    "fixtures/realtime-lifecycle.json",
+    "fixtures/unknown-event-recovery.json",
+    "fixtures/version-negotiation.json",
+    "manifest.json",
+    "openapi.json",
+    "realtime/client-frame.schema.json",
+    "realtime/message.created.schema.json",
+    "realtime/protocol.json",
+    "realtime/server-frame.schema.json"
+  ],
+  "operation_ids": [
+    "H1",
+    "H2",
+    "C4",
+    "S1",
+    "R1"
+  ],
+  "realtime_discriminants": [
+    "message.created"
+  ],
+  "sha256": "ff85acb1bb910786368400fe83753fdb4f6c2a6a089ab8c2d51be3de18323f45"
+}
