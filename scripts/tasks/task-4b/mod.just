@@ -15,3 +15,12 @@ red: require-nix-shell
       exit 2
     fi
     cargo test --locked --test realtime realtime_surface_is_absent_before_task_4b -- --exact --nocapture
+
+# Regenerate and verify Cargo/Nix locks after the bounded realtime dependency delta.
+locks: require-nix-shell
+    just task-1 locks-create
+    just task-1 locks-verify
+
+# Reuse the repository-wide advisory, ban, license, and source policy.
+dependency-check: require-nix-shell
+    just task-1 dependency-check
