@@ -46,7 +46,9 @@ compile 오류나 다른 assertion 실패는 유효한 RED가 아니다. raw out
 
 RED 이후 사용자는 A안을 승인했다. `Cargo.toml`은 `default=[]`를 유지하고
 `dev-fixtures=["dep:jsonwebtoken"]`만 연결한다. `jsonwebtoken 11.0.0`은 optional,
-`default-features=false`, `rust_crypto` feature로 한정한다. 따라서 default build는
+`default-features=false`, `aws_lc_rs` feature로 한정한다. 초기 `rust_crypto` 선택은
+사용하지 않는 `rsa 0.9.10`과 `RUSTSEC-2023-0071`을 끌어와 dependency gate에서
+거절됐고 advisory 예외 없이 교체했다. 따라서 default build는
 JWT crate, dev issuer, in-memory key, seed route를 만들지 않는다. exact Rust release는
 계속 `rust-toolchain.toml` 하나만 소유한다.
 
