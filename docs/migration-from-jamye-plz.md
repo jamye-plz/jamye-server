@@ -161,11 +161,11 @@ FastAPI가 자동 생성하는 OpenAPI/docs/redoc route는 migration surface가 
 | OP-CHAT-MEDIA-01 | backend/app/routers/chat_media.py:23 | chat media presign | change | task-8 | MD1 | tests/media | L09 | yes | approved_locked_from_initial_prompt |
 | OP-CHAT-MEDIA-02 | backend/app/routers/chat_media.py:49 | refresh authorized media URL | preserve | task-8 | MD4 | tests/media | - | yes | not_required_preserve |
 | OP-CHAT-MEDIA-03 | backend/app/routers/chat_media.py:70 | authorized media download redirect | preserve | task-8 | MD5 | tests/media | - | yes | not_required_preserve |
-| OP-AUTH-01 | backend/app/routers/auth.py:85 | browser Kakao authorization start | change | task-5 | A1 | tests/auth | L02 | yes | approved mobile-token boundary; exact D12 branch pending |
-| OP-AUTH-02 | backend/app/routers/auth.py:99 | browser Kakao callback/session | change | task-5 | A2 | tests/auth | L02 | yes | approved mobile-token boundary; exact D12 branch pending |
-| OP-AUTH-03 | backend/app/routers/auth.py:114 | browser Google authorization start | change | task-5 | A1 | tests/auth | L02 | yes | approved mobile-token boundary; exact D12 branch pending |
-| OP-AUTH-04 | backend/app/routers/auth.py:128 | browser Google callback/session | change | task-5 | A2 | tests/auth | L02 | yes | approved mobile-token boundary; exact D12 branch pending |
-| OP-AUTH-05 | backend/app/routers/auth.py:143 | logout browser session | change | task-5 | A4 | tests/auth | L02 | yes | approved mobile-token boundary; D13 authority pending |
+| OP-AUTH-01 | backend/app/routers/auth.py:85 | browser Kakao authorization start | change | task-5 | A1 | tests/auth | L02 | yes | approved mobile-token boundary; D12=A PKCE S256 locked |
+| OP-AUTH-02 | backend/app/routers/auth.py:99 | browser Kakao callback/session | change | task-5 | A2 | tests/auth | L02 | yes | approved mobile-token boundary; D12=A PKCE S256 locked |
+| OP-AUTH-03 | backend/app/routers/auth.py:114 | browser Google authorization start | change | task-5 | A1 | tests/auth | L02 | yes | approved mobile-token boundary; D12=A PKCE S256 locked |
+| OP-AUTH-04 | backend/app/routers/auth.py:128 | browser Google callback/session | change | task-5 | A2 | tests/auth | L02 | yes | approved mobile-token boundary; D12=A PKCE S256 locked |
+| OP-AUTH-05 | backend/app/routers/auth.py:143 | browser logout | change | task-5 | A4 | tests/auth | L02 | yes | approved mobile-token boundary; D13=A locked |
 | OP-PUSH-01 | backend/app/routers/push.py:97 | serve VAPID public key | non_goal | task-9 | L07 | tests/notifications/expo_only_surface | L07 | yes | approved_locked_from_later_user_directive_D2_A |
 | OP-PUSH-02 | backend/app/routers/push.py:112 | register Web Push subscription | change | task-9 | P2 | tests/notifications | L07 | yes | approved_locked_from_later_user_directive_D2_A |
 | OP-PUSH-03 | backend/app/routers/push.py:124 | bodyless delete-all Web Push subscriptions | change | task-9 | P4 | tests/notifications | L08 | yes | approved_by_user_2026-08-25_option_A |
@@ -186,10 +186,10 @@ FastAPI가 자동 생성하는 OpenAPI/docs/redoc route는 migration surface가 
 | discrepancy_id | candidate | disposition | resolution/target behavior | owner | contract/internal ID | product_visible | approval evidence | target milestone |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | L01 | public wire normalization | change | /api/v1, snake_case, exact error envelope, opaque cursor pages, split liveness/readiness | task-1, task-3b, feature owners, task-12 | H1,H2,all REST | yes | approved_locked_from_initial_prompt | M0/C0/C2 |
-| L02 | browser-cookie auth to mobile tokens | change | short Bearer + rotated hashed refresh; OAuth mobile flow selected later by D12 | task-5 | A1-A4,U1,U2 | yes | approved mobile boundary; D12 pending at M4 | M4 |
+| L02 | browser-cookie auth to mobile tokens | change | short Bearer + rotated hashed refresh; Authorization Code + PKCE S256 | task-5 | A1-A4,U1,U2 | yes | approved mobile boundary; D12=A locked at M4 | M4 |
 | L03 | WS message command to REST idempotent command | change | C4 is canonical write; WS accelerates committed events only | task-4a,task-8 | C4,message.created | yes | approved_locked_from_initial_prompt and later outbox directive | M3a/M7 |
 | L04 | volatile realtime to durable outbox+delta | change | messages+conversation_events+outbox atomically; Redis loss recovered by paginated S1 | task-3a,task-4a,task-4b,task-12 | C4,S1,message.created | yes | approved_locked_from_initial_prompt and later outbox directive | M2-M3/C2 |
-| L05 | cookie WS auth/join topology | change | one-time Redis ticket; subscribed causal ack; denied join terminal 4001; DB delta is correctness path | task-3b,task-4b,task-6c | R1,WS,4001,4401 | yes | approved_locked_from_initial_prompt; D13 expiry pending | C0/M3b/M5c |
+| L05 | cookie WS auth/join topology | change | one-time Redis ticket; subscribed causal ack; denied join terminal 4001; DB delta is correctness path | task-3b,task-4b,task-6c | R1,WS,4001,4401 | yes | approved_locked_from_initial_prompt; D13=A expiry locked | C0/M3b/M5c |
 | L06 | client timestamp read marker | change | server conversation cursor, monotonic same/older idempotent no-op | task-6b,task-9 | C3,chatroom_reads | yes | approved_locked_from_initial_prompt | M5b/M8 |
 | L07 | Web Push/VAPID to Expo-only native push | non_goal | no VAPID endpoint, subscription key, SSRF adapter, Web Push credential or fixture; preserve durable push hint semantics via Expo | task-9,task-12,task-13 | P2-P4,N1,N2 | yes | approved_locked_from_later_user_directive_D2_A | M8/C2/M11b |
 | L08 | delete-all subscription to installation-specific delete | change | selected A: P4 deletes exactly one globally identified installation owned by current user; stale owner is non-revealing missing | task-9 | P4 | yes | approved_by_user_2026-08-25_option_A | M1 locked; implement at M8 |
@@ -205,7 +205,7 @@ FastAPI가 자동 생성하는 OpenAPI/docs/redoc route는 migration surface가 
 - **A — installation-specific delete (선택됨):** DELETE /api/v1/push/installations/{installation_id}는 현재 인증 사용자가 소유한 설치 하나만 제거한다. 계정 전환 뒤의 stale owner는 존재 여부를 알 수 없다.
 - **B — legacy delete-all 보존:** 현재 사용자의 모든 설치를 한 command로 제거하는 별도 collection-level 계약을 C2에 추가하고, 특정 설치 logout과 전체 logout을 구분한다.
 
-사용자가 2026-08-25에 A를 직접 선택했다. 이 승인으로 L08은 잠겼으며, B는 C2 surface에 포함하지 않는다. D11은 운영 수명주기 결정이라 M1 제품 scope-lock을 막지 않지만 task-8 전에는 선택해야 한다. D9/D12/D13/D5/D10은 각 계획상 earliest materializer의 gate를 유지한다.
+사용자가 2026-08-25에 A를 직접 선택했다. 이 승인으로 L08은 잠겼으며, B는 C2 surface에 포함하지 않는다. D11은 운영 수명주기 결정이라 M1 제품 scope-lock을 막지 않지만 task-8 전에는 선택해야 한다. D12=A와 D13=A는 각각 task-5 PKCE S256과 task-3b access/ticket/socket lifetime 경계로 잠겼다. D9/D5/D10은 각 계획상 earliest materializer의 gate를 유지한다.
 
 ## 5. Target contract reverse coverage
 
