@@ -9,6 +9,8 @@
 pub mod adapters;
 pub mod application;
 pub mod config;
+#[cfg(feature = "dev-fixtures")]
+pub mod dev_fixtures;
 pub mod domain;
 pub mod platform;
 pub mod ports;

@@ -110,7 +110,19 @@ Realtime event는 `version`, `type`, `event_id`, `conversation_id`, `cursor`, `o
 
 모든 group resource는 transport뿐 아니라 use-case 경계에서 membership을 검증한다. object key 추측으로 다른 group media를 읽지 못하도록 object metadata와 access decision은 PostgreSQL이 소유한다. auth, invite, presign, refresh의 rate-limit 정책 위치는 application과 replaceable port 경계에 둔다.
 
-dev auth가 필요하면 `dev-fixtures` Cargo feature와 environment guard를 둘 다 통과해야 한다. `default=[]` production composition에는 fixture route, key, issuer, acceptance path가 없어야 한다.
+dev auth는 `dev-fixtures` Cargo feature와 `JAMYE_ENABLE_DEV_FIXTURES=true`를 둘 다
+통과하고 environment가 `development|test`일 때만 구성할 수 있다. 이 feature는
+optional `jsonwebtoken` dependency만 활성화하며 `default=[]` production build에는
+JWT crate, fixture route, signing key, `jamye-dev` issuer acceptance path가 없다.
+
+guard를 통과한 process는 매 실행마다 32-byte ephemeral HMAC key를 만들고 5분짜리
+HS256 Bearer만 발급한다. claim은 UUID `sub`, signed UUID `sid`, exact
+`iss=jamye-dev`, `aud=jamye-api`, `exp`이며 validation leeway는 0이다. 실제
+`POST /__dev/fixtures/seed`는 PostgreSQL transaction 하나로 user, group, owner
+membership, main chatroom을 만들고 그 identity token을 반환한다. SQLx는 PostgreSQL
+adapter 안에만 있고, endpoint와 공통 Bearer extractor는 application port를 소비한다.
+task-4b 전까지 이 feature-local router는 중앙 API composition이나 binary에 mount하지
+않는다.
 
 ## 7. 미디어와 음성
 
