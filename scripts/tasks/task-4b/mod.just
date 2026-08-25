@@ -24,3 +24,19 @@ locks: require-nix-shell
 # Reuse the repository-wide advisory, ban, license, and source policy.
 dependency-check: require-nix-shell
     just task-1 dependency-check
+
+# Prove outbox leasing, Redis ticket/PubSub, WebSocket lifecycle, C1, and architecture boundaries.
+green: require-nix-shell
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source scripts/tasks/task-1/_common.sh
+    load_local_env
+
+    JAMYE_ENABLE_DEV_FIXTURES=true \
+      cargo test --locked --test realtime --features dev-fixtures -- \
+      --skip 'redis_recovery::' --nocapture
+    cargo test --locked --test architecture --all-features
+
+# Stop/restart only guarded local Redis and prove durable retry plus same-router recovery.
+redis-recovery: require-nix-shell
+    bash scripts/tasks/task-4b/redis-recovery.sh

@@ -84,3 +84,74 @@ finding 전체를 전달하고 예외나 무관한 version pin을 임의로 추�
 
 따라서 dependency gate는 통과했으며, 이 경고를 숨기기 위한 무관한 version pin이나
 policy 예외는 추가하지 않는다.
+
+## GREEN
+
+GREEN은 다음 경계를 한 target에서 검증한다.
+
+- PostgreSQL DB clock, `SKIP LOCKED`, lease generation과 live-lease CAS
+- persisted retry/dead-letter와 stable `event_id`
+- Redis digest-only ticket, positive bounded TTL, concurrent `GETDEL`, Pub/Sub payload
+- ordered subscribe/unsubscribe, application ping/pong, heartbeat, denied cleanup,
+  access-expiry cleanup
+- dev seed → Bearer → R1 → WS subscribe → REST message → outbox worker → Redis → WS →
+  S1 terminal delta의 실제 loopback C1
+- 두 단계 delta observer의 join-gap, duplicate/out-of-order, non-progress와 unknown marker
+- default/all-feature clean-architecture 경계
+
+PostgreSQL과 Redis가 healthy인 상태에서 실행한다.
+
+```bash
+just --justfile scripts/tasks/task-4b/mod.just green
+printf 'task_4b_green_exit=%s\n' "$?"
+```
+
+성공 기준은 realtime target의 non-ignored test가 전부 통과하고 architecture 4개가
+통과하며 최종 exit가 `0`인 것이다. compile warning, test skip, Redis/PostgreSQL 연결
+실패는 성공 evidence가 아니다. 이 card는 service lifecycle을 변경하지 않는다.
+
+2026-08-25 첫 사용자 실행은 `tungstenite 0.29`의 `Utf8Bytes`가 여러 `AsRef`
+구현을 제공해 WebSocket close reason assertion 5곳에서 E0283으로 compile 실패했다.
+문자열 비교 의도를 `as_str()`로 명시한 뒤 재실행에서는 realtime 21/21과
+architecture 4/4가 모두 통과했고 `task_4b_green_exit=0`을 확인했다. recovery target
+한 개는 이 card에서 의도적으로 분리됐다.
+
+## 실제 Redis stop/start recovery
+
+GREEN 통과 뒤 다음 card를 별도로 실행한다.
+
+```bash
+just --justfile scripts/tasks/task-4b/mod.just redis-recovery
+printf 'task_4b_redis_recovery_exit=%s\n' "$?"
+```
+
+이 recipe가 Bash를 사용하는 이유는 `trap` cleanup, Rust test와의 marker coordination,
+bounded health wait, 중단 시 Redis 복구가 필요한 상태ful safety boundary이기 때문이다.
+일반 Cargo 순서와 dependency 검사는 계속 Just module에 직접 둔다.
+
+Recovery card는 exact `jamye-server-test` Compose project의 Redis container 하나만
+중지·재시작한다. PostgreSQL과 named-volume bytes는 보존하며 `infra-reset`을 호출하지
+않는다. 같은 in-process Router/worker가 다음을 증명해야 한다.
+
+1. Redis outage 중 outbox가 `pending` retry와 safe error code를 유지한다.
+2. ticket POST와 pre-upgrade WebSocket handshake는 safe `503 realtime_unavailable`이다.
+3. 같은 idempotency key REST retry와 PostgreSQL delta는 계속 성공한다.
+4. restart 전 ticket은 `4401 realtime_auth_failed`로 닫힌다.
+5. 새 ticket/subscription 뒤 같은 worker가 durable outbox를 publish하고 row를
+   `published`로 전환한다.
+
+중간에 중단되면 trap이 Redis를 다시 시작하고 최대 60초 동안 health를 기다린다.
+그 복구도 실패하면 다음을 먼저 실행해 exact project status를 확인한다.
+
+```bash
+just task-1 infra-status
+```
+
+volume 삭제는 기본 복구가 아니다. 전체 disposable reset은 별도의 파괴적
+`just task-1 infra-reset` 승인을 받은 경우에만 사용한다.
+
+2026-08-25 사용자 실행에서는 guarded Redis container만 실제로 중지·재시작하는
+ignored recovery target 1/1이 통과했다. 같은 Router와 worker가 재시작 뒤 복구됐고
+PostgreSQL outbox bytes가 보존됐으며 `task_4b_redis_recovery_exit=0`을 확인했다.
+
+설계 근거는 [ADR 0004](../../adr/0004-realtime-ticket-storage.md)에 기록한다.

@@ -128,7 +128,12 @@ impl AccessTokenVerifier for DevTokenCodec {
         .map_err(|_| AuthenticationError)?;
         let user_id = Uuid::try_parse(&token.claims.sub).map_err(|_| AuthenticationError)?;
         let session_id = Uuid::try_parse(&token.claims.sid).map_err(|_| AuthenticationError)?;
-        Ok(AccessIdentity::new(user_id, session_id, token.claims.iss))
+        let expires_at = i64::try_from(token.claims.exp)
+            .ok()
+            .and_then(|timestamp| OffsetDateTime::from_unix_timestamp(timestamp).ok())
+            .ok_or(AuthenticationError)?;
+        Ok(AccessIdentity::new(user_id, session_id, token.claims.iss)
+            .with_access_token_expiry(expires_at))
     }
 }
 

@@ -6,3 +6,4 @@ pub mod composition;
 pub mod dev_fixtures;
 pub mod health;
 pub mod messaging;
+pub mod realtime;

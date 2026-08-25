@@ -3,6 +3,7 @@
 use std::{error::Error, fmt};
 
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -10,6 +11,12 @@ pub struct AccessIdentity {
     pub user_id: Uuid,
     pub session_id: Uuid,
     pub issuer: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "time::serde::rfc3339::option"
+    )]
+    pub access_token_expires_at: Option<OffsetDateTime>,
 }
 
 impl AccessIdentity {
@@ -18,7 +25,13 @@ impl AccessIdentity {
             user_id,
             session_id,
             issuer: issuer.into(),
+            access_token_expires_at: None,
         }
+    }
+
+    pub fn with_access_token_expiry(mut self, expires_at: OffsetDateTime) -> Self {
+        self.access_token_expires_at = Some(expires_at);
+        self
     }
 }
 
