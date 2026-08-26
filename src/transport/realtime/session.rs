@@ -77,6 +77,7 @@ pub async fn run_socket_with_runtime(
     let connection = hub.register(session.user_id).await;
     let socket_id = connection.socket_id;
     let mut outbound = connection.outbound;
+    let mut evictions = connection.evictions;
     let (mut sender, mut receiver) = socket.split();
     let expires_after = duration_until(session.access_token_expires_at, clock.now());
     let expiry = tokio::time::sleep(expires_after);
@@ -95,6 +96,17 @@ pub async fn run_socket_with_runtime(
             () = &mut heartbeat => {
                 hub.cleanup(socket_id).await;
                 close(&mut sender, CLOSE_PROTOCOL_ERROR, "heartbeat_timeout").await;
+                break;
+            }
+            eviction = evictions.recv() => {
+                let Some(eviction) = eviction else {
+                    break;
+                };
+                close(
+                    &mut sender,
+                    CLOSE_MEMBERSHIP_REQUIRED,
+                    eviction.reason.as_str(),
+                ).await;
                 break;
             }
             message = receiver.next() => {

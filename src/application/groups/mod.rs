@@ -14,7 +14,7 @@ use crate::ports::{
         RedeemInviteCommand, RemoveMemberCommand, RenameGroupCommand, SetMemberRoleCommand,
     },
     rate_limit::{RateLimitOutcome, RateLimitRequest, RateLimiter},
-    transactions::{BoxTransactionHandle, TransactionManager},
+    transactions::{BoxTransactionHandle, TransactionHandle, TransactionManager},
 };
 
 pub const DEFAULT_GROUP_MEMBER_CAP: i32 = 12;
@@ -156,18 +156,53 @@ impl GroupsService {
     }
 
     pub async fn delete_group(&self, actor_id: Uuid, group_id: Uuid) -> Result<(), GroupsError> {
-        let command = GroupActorCommand { group_id, actor_id };
         let mut transaction = self.begin().await?;
         let result = self
-            .dependencies
-            .repository
-            .delete_group(transaction.as_mut(), &command)
+            .delete_group_in_transaction(transaction.as_mut(), actor_id, group_id)
             .await;
-        self.finish(transaction, result).await
+        self.finish_application_result(transaction, result).await
     }
 
     pub async fn remove_member(
         &self,
+        actor_id: Uuid,
+        group_id: Uuid,
+        target_user_id: Uuid,
+    ) -> Result<(), GroupsError> {
+        let mut transaction = self.begin().await?;
+        let result = self
+            .remove_member_in_transaction(
+                transaction.as_mut(),
+                actor_id,
+                group_id,
+                target_user_id,
+            )
+            .await;
+        self.finish_application_result(transaction, result).await
+    }
+
+    /// Applies the authoritative group soft-delete using a caller-owned transaction.
+    ///
+    /// Task-6c uses this cohesive task-6 boundary so the mutation and its durable
+    /// realtime control intent share the sole application transaction.
+    pub async fn delete_group_in_transaction(
+        &self,
+        transaction: &mut dyn TransactionHandle,
+        actor_id: Uuid,
+        group_id: Uuid,
+    ) -> Result<(), GroupsError> {
+        let command = GroupActorCommand { group_id, actor_id };
+        self.dependencies
+            .repository
+            .delete_group(transaction, &command)
+            .await
+            .map_err(GroupsError::from)
+    }
+
+    /// Applies member removal or voluntary leave using a caller-owned transaction.
+    pub async fn remove_member_in_transaction(
+        &self,
+        transaction: &mut dyn TransactionHandle,
         actor_id: Uuid,
         group_id: Uuid,
         target_user_id: Uuid,
@@ -177,13 +212,11 @@ impl GroupsService {
             actor_id,
             target_user_id,
         };
-        let mut transaction = self.begin().await?;
-        let result = self
-            .dependencies
+        self.dependencies
             .repository
-            .remove_member(transaction.as_mut(), &command)
-            .await;
-        self.finish(transaction, result).await
+            .remove_member(transaction, &command)
+            .await
+            .map_err(GroupsError::from)
     }
 
     pub async fn set_member_role(
@@ -338,6 +371,31 @@ impl GroupsService {
                     .await
                     .map_err(|_| GroupsError::DatabaseUnavailable)?;
                 Err(error.into())
+            }
+        }
+    }
+
+    async fn finish_application_result<T>(
+        &self,
+        transaction: BoxTransactionHandle,
+        result: Result<T, GroupsError>,
+    ) -> Result<T, GroupsError> {
+        match result {
+            Ok(value) => {
+                self.dependencies
+                    .transactions
+                    .commit(transaction)
+                    .await
+                    .map_err(|_| GroupsError::DatabaseUnavailable)?;
+                Ok(value)
+            }
+            Err(error) => {
+                self.dependencies
+                    .transactions
+                    .rollback(transaction)
+                    .await
+                    .map_err(|_| GroupsError::DatabaseUnavailable)?;
+                Err(error)
             }
         }
     }
