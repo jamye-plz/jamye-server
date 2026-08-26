@@ -1,0 +1,203 @@
+{
+  "$defs": {
+    "Chatroom": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "group_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "topic_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "enum": [
+            "main",
+            "topic"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "group_id",
+        "type",
+        "topic_id",
+        "created_at"
+      ],
+      "type": "object"
+    },
+    "ChatroomPage": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/Chatroom"
+          },
+          "type": "array"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor"
+      ],
+      "type": "object"
+    },
+    "DenormalizedMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "chatroom_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "client_msg_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "media": {
+          "items": false,
+          "maxItems": 0,
+          "type": "array"
+        },
+        "sender_avatar_url": {
+          "maxLength": 512,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sender_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sender_nickname": {
+          "maxLength": 64,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "enum": [
+            "user",
+            "system"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "chatroom_id",
+        "sender_id",
+        "sender_nickname",
+        "sender_avatar_url",
+        "client_msg_id",
+        "body",
+        "type",
+        "created_at",
+        "media"
+      ],
+      "type": "object"
+    },
+    "DenormalizedMessagePage": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/DenormalizedMessage"
+          },
+          "type": "array"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor"
+      ],
+      "type": "object"
+    },
+    "ReadCursorIn": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "pattern": "^[1-9][0-9]*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cursor"
+      ],
+      "type": "object"
+    },
+    "ReadMarker": {
+      "additionalProperties": false,
+      "properties": {
+        "chatroom_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "last_read_cursor": {
+          "pattern": "^[1-9][0-9]*$",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chatroom_id",
+        "last_read_cursor",
+        "updated_at"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://contracts.jamye.test/task-6b/chatrooms-wire.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Task-6b chatroom, history, and read-marker wire contribution",
+  "type": "object"
+}

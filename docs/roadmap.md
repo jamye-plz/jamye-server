@@ -1,8 +1,8 @@
 # jamye-server 로드맵 — FastAPI 전체 이관, 신뢰성 고도화, 모바일 계약
 
 > 세션: ultrawork/20260822-200110
-> 현재 단계: PLAN_GATE passed; M0·M1·M2·M3a·M3b·M4·M5(task-6) 완료
-> 상태: task-6 GREEN·guarded Redis stop/restart recovery 통과; 다음 task 준비 대기
+> 현재 단계: PLAN_GATE passed; M0·M1·M2·M3a·M3b·M4·M5(task-6)·M5b(task-6b) 완료; 다음 task 준비 대기
+> 상태: task-6b 사용자 실행 GREEN에서 chatrooms `13/13`, architecture `4/4`, exit `0` 확인
 > 기계 SSOT: .agents/results/plan-20260822-200110.json
 
 ## 1. 목표와 범위

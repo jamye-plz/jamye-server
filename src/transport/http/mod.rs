@@ -1,6 +1,7 @@
 //! HTTP transport and static process composition.
 
 pub mod auth;
+pub mod chatrooms;
 pub mod composition;
 #[cfg(feature = "dev-fixtures")]
 pub mod dev_fixtures;

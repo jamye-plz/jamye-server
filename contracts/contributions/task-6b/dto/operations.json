@@ -1,0 +1,38 @@
+{
+  "contract_version": "1",
+  "feature": "chatroom_history_reads",
+  "operations": [
+    {
+      "auth": "member",
+      "errors": "E2",
+      "id": "C1",
+      "method": "GET",
+      "pagination": "after+limit",
+      "path": "/api/v1/groups/{group_id}/chatrooms",
+      "request": null,
+      "response": "ChatroomPage",
+      "success_status": 200
+    },
+    {
+      "auth": "member",
+      "errors": "E2",
+      "id": "C2",
+      "method": "GET",
+      "pagination": "before+limit",
+      "path": "/api/v1/chatrooms/{chatroom_id}/messages",
+      "request": null,
+      "response": "DenormalizedMessagePage",
+      "success_status": 200
+    },
+    {
+      "auth": "member",
+      "errors": "E2",
+      "id": "C3",
+      "method": "POST",
+      "path": "/api/v1/chatrooms/{chatroom_id}/read",
+      "request": "ReadCursorIn",
+      "response": "ReadMarker",
+      "success_status": 200
+    }
+  ]
+}

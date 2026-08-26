@@ -1,0 +1,73 @@
+{
+  "c1": {
+    "page_1": {
+      "items": [
+        {
+          "created_at": "2026-08-26T00:00:00Z",
+          "group_id": "61000000-0000-4000-8000-000000000001",
+          "id": "62000000-0000-4000-8000-000000000001",
+          "topic_id": null,
+          "type": "main"
+        }
+      ],
+      "next_cursor": "62000000-0000-4000-8000-000000000001"
+    }
+  },
+  "c2": {
+    "history_is_independent_from_conversation_events": true,
+    "items_are_chronological_within_each_page": true,
+    "page": {
+      "items": [
+        {
+          "body": "먼저 온 메시지",
+          "chatroom_id": "62000000-0000-4000-8000-000000000001",
+          "client_msg_id": "64000000-0000-4000-8000-000000000001",
+          "created_at": "2026-08-26T00:00:01Z",
+          "id": "63000000-0000-4000-8000-000000000001",
+          "media": [],
+          "sender_avatar_url": "https://cdn.test/member.png",
+          "sender_id": "61000000-0000-4000-8000-000000000002",
+          "sender_nickname": "그룹 멤버",
+          "type": "user"
+        },
+        {
+          "body": "시스템 안내",
+          "chatroom_id": "62000000-0000-4000-8000-000000000001",
+          "client_msg_id": null,
+          "created_at": "2026-08-26T00:00:02Z",
+          "id": "63000000-0000-4000-8000-000000000002",
+          "media": [],
+          "sender_avatar_url": null,
+          "sender_id": null,
+          "sender_nickname": null,
+          "type": "system"
+        }
+      ],
+      "next_cursor": null
+    },
+    "system_sender_fields_are_null": true
+  },
+  "c3": {
+    "canonical_last_read_cursor": "140",
+    "commands": [
+      "101",
+      "99",
+      "101",
+      "140"
+    ],
+    "cross_conversation_cursor_mutates": false,
+    "response": {
+      "chatroom_id": "62000000-0000-4000-8000-000000000001",
+      "last_read_cursor": "140",
+      "updated_at": "2026-08-26T00:00:03Z"
+    },
+    "row_count": 1,
+    "unknown_cursor_mutates": false
+  },
+  "fixture": "chatroom-history-read",
+  "future_composition": {
+    "mark_conversation_read_owner": "task-12",
+    "notification_clear_owner": "task-9",
+    "shared_transaction_handle_owner": "task-4a"
+  }
+}

@@ -8,6 +8,7 @@ use sqlx::{
 };
 
 pub mod auth;
+pub mod chatrooms;
 #[cfg(feature = "dev-fixtures")]
 pub mod dev_fixtures;
 pub mod groups;
