@@ -54,12 +54,12 @@ fn dev_fixture_surface_is_feature_and_environment_guarded() -> TestResult {
 
     let manifest = fs::read_to_string("Cargo.toml")?;
     assert!(manifest.contains("default = []"));
-    assert!(manifest.contains("dev-fixtures = [\"dep:jsonwebtoken\"]"));
+    assert!(manifest.contains("dev-fixtures = []"));
     assert!(manifest.contains("jsonwebtoken = { version = \"11.0.0\""));
     assert!(manifest.contains("default-features = false"));
     assert!(manifest.contains("features = [\"aws_lc_rs\"]"));
     assert!(!manifest.contains("features = [\"rust_crypto\"]"));
-    assert!(manifest.contains("optional = true"));
+    assert!(!manifest.contains("optional = true"));
 
     let library_root = fs::read_to_string("src/lib.rs")?;
     assert!(library_root.contains("#[cfg(feature = \"dev-fixtures\")]"));

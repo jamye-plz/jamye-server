@@ -1,0 +1,60 @@
+{
+  "consumes": {
+    "fixture": "declarative_mobile_sqlite_outbox_and_two_phase_sync",
+    "ordinary_401_marker": "preserve_outbox_intent_and_client_msg_id"
+  },
+  "execution_owner": "jamye-app",
+  "fixture": "mobile_auth_two_send_one_refresh",
+  "initial_state": {
+    "outbox_commands": [
+      {
+        "client_msg_id": "30000000-0000-4000-8000-000000000001",
+        "id": "send_1",
+        "status": "paused_after_first_ordinary_401"
+      },
+      {
+        "client_msg_id": "30000000-0000-4000-8000-000000000002",
+        "id": "send_2",
+        "status": "paused_after_first_ordinary_401"
+      }
+    ],
+    "stored_refresh_credential": "opaque_secure_store_value"
+  },
+  "retry_taxonomy": {
+    "reauthenticate_without_loop": [
+      "refresh_token_invalid",
+      "refresh_token_reused",
+      "second_401_after_replay"
+    ],
+    "retry_with_cap": [
+      "network",
+      "timeout",
+      "429",
+      "5xx"
+    ],
+    "stop_for_upgrade": [
+      "426_contract_upgrade_required"
+    ],
+    "terminal_or_user_action": [
+      "403",
+      "404",
+      "409_idempotency_conflict",
+      "422"
+    ]
+  },
+  "server_execution": "none",
+  "single_flight": {
+    "a3_network_request_count": 1,
+    "operation_id": "A3",
+    "success_order": [
+      "replace_secure_store_refresh_credential",
+      "replay_send_1_once_with_original_client_msg_id",
+      "replay_send_2_once_with_original_client_msg_id"
+    ],
+    "waiters": [
+      "send_1",
+      "send_2"
+    ]
+  },
+  "task_12_role": "audit_and_assemble_only"
+}

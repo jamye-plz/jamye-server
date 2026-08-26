@@ -1,0 +1,194 @@
+{
+  "$defs": {
+    "OAuthAuthorizeIn": {
+      "additionalProperties": false,
+      "properties": {
+        "code_challenge": {
+          "pattern": "^[A-Za-z0-9_-]{43}$",
+          "type": "string"
+        },
+        "code_challenge_method": {
+          "const": "S256",
+          "type": "string"
+        },
+        "redirect_uri": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "redirect_uri",
+        "code_challenge",
+        "code_challenge_method"
+      ],
+      "type": "object"
+    },
+    "OAuthAuthorizeOut": {
+      "additionalProperties": false,
+      "properties": {
+        "authorization_url": {
+          "format": "uri",
+          "pattern": "^https://",
+          "type": "string"
+        },
+        "expires_in_seconds": {
+          "const": 600,
+          "type": "integer"
+        },
+        "state": {
+          "pattern": "^[A-Za-z0-9_-]{43}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "authorization_url",
+        "state",
+        "expires_in_seconds"
+      ],
+      "type": "object"
+    },
+    "OAuthExchangeIn": {
+      "additionalProperties": false,
+      "properties": {
+        "authorization_code": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "code_verifier": {
+          "maxLength": 128,
+          "minLength": 43,
+          "pattern": "^[A-Za-z0-9._~-]+$",
+          "type": "string"
+        },
+        "redirect_uri": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "pattern": "^[A-Za-z0-9_-]{43}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "authorization_code",
+        "state",
+        "code_verifier",
+        "redirect_uri"
+      ],
+      "type": "object"
+    },
+    "RefreshIn": {
+      "additionalProperties": false,
+      "properties": {
+        "refresh_token": {
+          "pattern": "^[A-Za-z0-9_-]{43}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "refresh_token"
+      ],
+      "type": "object"
+    },
+    "TokenPair": {
+      "additionalProperties": false,
+      "properties": {
+        "access_token": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "access_token_expires_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "refresh_token": {
+          "pattern": "^[A-Za-z0-9_-]{43}$",
+          "type": "string"
+        },
+        "refresh_token_expires_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "token_type": {
+          "const": "Bearer",
+          "type": "string"
+        }
+      },
+      "required": [
+        "token_type",
+        "access_token",
+        "access_token_expires_at",
+        "refresh_token",
+        "refresh_token_expires_at"
+      ],
+      "type": "object"
+    },
+    "User": {
+      "additionalProperties": false,
+      "properties": {
+        "avatar_url": {
+          "maxLength": 512,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "nickname": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "enum": [
+            "kakao",
+            "google"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "provider",
+        "nickname",
+        "avatar_url",
+        "created_at"
+      ],
+      "type": "object"
+    },
+    "UserPatch": {
+      "additionalProperties": false,
+      "properties": {
+        "avatar_url": {
+          "maxLength": 512,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "nickname": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$id": "https://contracts.jamye.example/contributions/task-5/auth-wire.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Task-5 feature contribution. Task-12 owns final C2 assembly.",
+  "title": "Jamye mobile authentication wire contribution",
+  "type": "object"
+}

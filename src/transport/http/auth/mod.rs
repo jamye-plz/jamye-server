@@ -1,5 +1,9 @@
 //! Bearer extraction and stable authentication failures.
 
+mod api;
+
+pub use api::{AuthHttpState, router};
+
 use std::sync::Arc;
 
 use axum::{

@@ -1,0 +1,270 @@
+{
+  "$defs": {
+    "Group": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "main_chatroom_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "max_members": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "member_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "owner_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "owner_id",
+        "max_members",
+        "member_count",
+        "created_at",
+        "main_chatroom_id"
+      ],
+      "type": "object"
+    },
+    "GroupCreate": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "GroupPage": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/Group"
+          },
+          "type": "array"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor"
+      ],
+      "type": "object"
+    },
+    "GroupPatch": {
+      "$ref": "#/$defs/GroupCreate"
+    },
+    "Invite": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 64,
+          "minLength": 16,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "created_by": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "group_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "max_uses": {
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "used_count": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "group_id",
+        "code",
+        "created_by",
+        "expires_at",
+        "max_uses",
+        "used_count",
+        "created_at"
+      ],
+      "type": "object"
+    },
+    "InviteCreate": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_at": {
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "max_uses": {
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "InviteJoinResult": {
+      "additionalProperties": false,
+      "properties": {
+        "group_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "joined": {
+          "type": "boolean"
+        },
+        "membership_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "group_id",
+        "membership_id",
+        "joined"
+      ],
+      "type": "object"
+    },
+    "Member": {
+      "additionalProperties": false,
+      "properties": {
+        "avatar_url": {
+          "maxLength": 512,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "joined_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "nickname": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "owner",
+            "member"
+          ],
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "nickname",
+        "avatar_url",
+        "role",
+        "joined_at"
+      ],
+      "type": "object"
+    },
+    "MemberPage": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/Member"
+          },
+          "type": "array"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "items",
+        "next_cursor"
+      ],
+      "type": "object"
+    },
+    "MemberRolePatch": {
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "enum": [
+            "owner",
+            "member"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "role"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://contracts.jamye.test/task-6/groups-wire.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Task-6 groups, memberships, and invites wire contribution",
+  "type": "object"
+}

@@ -16,6 +16,14 @@ pub struct TestDatabase {
 
 impl TestDatabase {
     pub async fn migrated() -> TestResult<Self> {
+        Self::create(None).await
+    }
+
+    pub async fn migrated_to(version: i64) -> TestResult<Self> {
+        Self::create(Some(version)).await
+    }
+
+    async fn create(target_version: Option<i64>) -> TestResult<Self> {
         let base_url = env::var("DATABASE_URL")
             .map_err(|_| test_error("DATABASE_URL is required for integration tests"))?;
         let mut parsed = validate_base_url(&base_url)?;
@@ -34,7 +42,10 @@ impl TestDatabase {
         let migration_result: TestResult = async {
             let migrator = sqlx::migrate::Migrator::new(Path::new("migrations")).await?;
             let mut connection = PgConnection::connect(&database_url).await?;
-            migrator.run(&mut connection).await?;
+            match target_version {
+                Some(version) => migrator.run_to(version, &mut connection).await?,
+                None => migrator.run(&mut connection).await?,
+            }
             connection.close().await?;
             Ok(())
         }
@@ -59,6 +70,10 @@ impl TestDatabase {
             database_name,
             database_url,
         })
+    }
+
+    pub async fn connection(&self) -> TestResult<PgConnection> {
+        Ok(PgConnection::connect(&self.database_url).await?)
     }
 
     pub fn pool(&self) -> TestResult<PgPool> {

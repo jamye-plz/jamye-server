@@ -24,3 +24,22 @@ locks: require-nix-shell
 # Reuse the repository-wide advisory, ban, license, and source policy.
 dependency-check: require-nix-shell
     just task-1 dependency-check
+
+# Prove OAuth/refresh/profile/rate-limit behavior, migration safety, and layer boundaries.
+green: require-nix-shell
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source scripts/tasks/task-1/_common.sh
+    load_local_env
+
+    cargo test --locked --test auth -- --nocapture
+    cargo test --locked --test auth_logging -- --nocapture
+    cargo test --locked --test profile -- --nocapture
+    cargo test --locked --test rate_limit -- \
+      --skip redis_stop_restart_recovers_same_limiter_without_touching_refresh_authority \
+      --nocapture
+    cargo test --locked --test architecture --all-features
+
+# Stop/restart only guarded local Redis and prove limiter recovery preserves PostgreSQL authority.
+redis-recovery: require-nix-shell
+    bash scripts/tasks/task-5/redis-recovery.sh

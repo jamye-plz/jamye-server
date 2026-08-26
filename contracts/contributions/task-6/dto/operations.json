@@ -1,0 +1,108 @@
+{
+  "contract_version": "1",
+  "feature": "groups_memberships_invites",
+  "operations": [
+    {
+      "auth": "Bearer",
+      "errors": "E1",
+      "id": "G1",
+      "method": "POST",
+      "path": "/api/v1/groups",
+      "request": "GroupCreate",
+      "response": "Group",
+      "success_status": 201
+    },
+    {
+      "auth": "Bearer",
+      "errors": "E1",
+      "id": "G2",
+      "method": "GET",
+      "pagination": "after+limit",
+      "path": "/api/v1/groups",
+      "request": null,
+      "response": "GroupPage",
+      "success_status": 200
+    },
+    {
+      "auth": "member",
+      "errors": "E2",
+      "id": "G3",
+      "method": "GET",
+      "path": "/api/v1/groups/{group_id}",
+      "request": null,
+      "response": "Group",
+      "success_status": 200
+    },
+    {
+      "auth": "member",
+      "errors": "E2",
+      "id": "G4",
+      "method": "GET",
+      "pagination": "after+limit",
+      "path": "/api/v1/groups/{group_id}/members",
+      "request": null,
+      "response": "MemberPage",
+      "success_status": 200
+    },
+    {
+      "auth": "owner",
+      "errors": "E3",
+      "id": "G5",
+      "method": "PATCH",
+      "path": "/api/v1/groups/{group_id}",
+      "request": "GroupPatch",
+      "response": "Group",
+      "success_status": 200
+    },
+    {
+      "auth": "owner",
+      "errors": "E3",
+      "id": "G6",
+      "method": "DELETE",
+      "path": "/api/v1/groups/{group_id}",
+      "request": null,
+      "response": null,
+      "success_status": 204
+    },
+    {
+      "auth": "owner|self",
+      "errors": "E3",
+      "id": "G7",
+      "method": "DELETE",
+      "path": "/api/v1/groups/{group_id}/members/{user_id}",
+      "request": null,
+      "response": null,
+      "success_status": 204
+    },
+    {
+      "auth": "owner",
+      "errors": "E3",
+      "id": "G8",
+      "method": "PATCH",
+      "path": "/api/v1/groups/{group_id}/members/{user_id}",
+      "request": "MemberRolePatch",
+      "response": null,
+      "success_status": 204
+    },
+    {
+      "auth": "owner",
+      "errors": "E3",
+      "id": "I1",
+      "method": "POST",
+      "path": "/api/v1/groups/{group_id}/invites",
+      "request": "InviteCreate",
+      "response": "Invite",
+      "success_status": 201
+    },
+    {
+      "auth": "Bearer",
+      "errors": "E1",
+      "id": "I2",
+      "method": "POST",
+      "path": "/api/v1/invites/{code}/join",
+      "request": null,
+      "response": "InviteJoinResult",
+      "success_status": 200
+    }
+  ]
+}

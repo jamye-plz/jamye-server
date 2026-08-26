@@ -1,5 +1,8 @@
 //! Environment-backed process configuration.
 
+pub mod auth;
+pub mod rate_limit;
+
 use std::{env, error::Error, fmt, net::SocketAddr, time::Duration};
 
 use url::Url;

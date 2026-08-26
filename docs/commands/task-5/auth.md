@@ -1,4 +1,4 @@
-# M4 task-5 mobile authentication RED and dependency cards
+# M4 task-5 mobile authentication cards
 
 ## 목적
 
@@ -106,3 +106,83 @@ printf 'task_5_dependency_exit=%s\n' "$?"
 Task-5 ADR은 기존 `0003` forward-only migration과 `0004` realtime 번호를 보존해
 `0005-rate-limit-coordination.md`, `0006-mobile-oauth.md`를 사용한다. Migration은
 forward-only `0002_auth_sessions.sql` 하나로 exact `0001` predecessor에서 검증한다.
+
+## GREEN
+
+### 목적
+
+다음 경계를 한 card에서 순서대로 검증한다.
+
+- exact `0001` predecessor에서 `0002` upgrade와 forced-failure rollback
+- Kakao/Google D12=A state+PKCE, fixed provider origins와 provider routing side-effect fence
+- provider identity convergence, hashed refresh-family rotation/reuse race와 D13=A logout
+- production issuer/audience/expiry 검증과 `jamye-dev` production 거부
+- A1-A4 DTO/error envelope, U1/U2 profile omission/null/clear 계약
+- Redis OAuth attempt digest-only one-time consume와 shared fixed-window atomicity
+- task-5 feature-local DTO/schema/two-send-one-refresh fixture contribution
+- application/adapter/transport architecture 경계
+
+### 선행 조건
+
+- `nix develop path:.` devShell 안이어야 한다.
+- `.env.local`은 task-1 card가 만든 mode-0600 local test 값이어야 한다.
+- `just task-1 infra-up` 뒤 loopback PostgreSQL과 Redis가 healthy여야 한다.
+- 실제 Kakao/Google credential이나 provider network access는 필요하지 않다. Concrete adapter
+  tests는 fixed origin/validation을 검증하고 provider exchange behavior는 fake boundary를
+  사용한다.
+
+### 실행
+
+```bash
+just --justfile scripts/tasks/task-5/mod.just green
+printf 'task_5_green_exit=%s\n' "$?"
+```
+
+이 card는 `tests/auth.rs`, subscriber-owning test를 별도 process로 격리한
+`tests/auth_logging.rs`, `tests/profile.rs`, 일반 `tests/rate_limit.rs`, all-feature
+architecture target을 실행한다. Ignored actual Redis stop/start test는 이 card에서 제외하고
+아래 recovery card가 단독 소유한다. 모든 target과 최종 exit가 `0`이어야 유효한 GREEN이다.
+
+2026-08-26 사용자 실행은 auth 22/22, isolated auth logging 1/1, profile 2/2,
+rate limit 2/2, architecture 4/4와 `task_5_green_exit=0`을 반환했다. 따라서 task-5
+GREEN evidence는 완료됐다. 출력의 `dead_code` warning은 test failure나 policy failure가
+아니며 이 evidence를 막지 않는다.
+
+### 부작용과 복구
+
+- UUID 이름의 disposable PostgreSQL database와 TTL Redis key만 만들며 test 종료 때 database를
+  제거한다. Redis key는 consume되거나 TTL로 만료된다.
+- OAuth provider, production database, API/worker, Git remote와 Podman lifecycle을 변경하지
+  않는다.
+- 실패 시 첫 compile/error/assertion을 그대로 보존한다. Source나 migration을 삭제해 RED를
+  재현하거나 shared volume을 reset하지 않는다.
+
+## Redis stop/start recovery
+
+### 목적
+
+Guarded local Redis container만 실제로 중지·재시작해 같은 limiter instance가 outage 동안
+fail-closed하고 재시작 뒤 다시 연결되는지 검증한다. 동시에 PostgreSQL refresh-session의
+digest bytes가 전후 동일함을 확인한다. Counter는 Redis persistence에 따라 유지되거나
+초기화될 수 있으며 어느 결과도 session authority를 바꾸지 않는다.
+
+### 실행
+
+```bash
+just --justfile scripts/tasks/task-5/mod.just redis-recovery
+printf 'task_5_redis_recovery_exit=%s\n' "$?"
+```
+
+### 안전 경계와 복구
+
+- Script는 compose project `jamye-server-test`, rootless Podman, loopback test env와 healthy
+  Redis를 먼저 확인한다.
+- PostgreSQL과 모든 named volume은 유지하고 Redis container 하나에만 `stop`/`start`를
+  호출한다. `infra-reset`은 호출하지 않는다.
+- Interrupt나 test 실패 때 trap이 Redis를 다시 시작하고 health를 기다린다. 자동 복구도
+  실패하면 `just task-1 infra-status`로 exact container 상태를 확인하고 raw output을
+  전달한다. 확인 없이 container/volume을 삭제하지 않는다.
+
+2026-08-26 사용자 실행은 guarded Redis container만 중지·재시작한 actual recovery
+target 1/1을 통과했다. 같은 limiter가 복구됐고 PostgreSQL refresh-session authority가
+변하지 않았으며 `task_5_redis_recovery_exit=0`을 반환했다. Task-5는 완료됐다.

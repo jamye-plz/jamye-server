@@ -1,0 +1,52 @@
+{
+  "default_member_cap": 12,
+  "fixture": "bounded_group_invite_flow",
+  "g1": {
+    "atomic_rows": [
+      "group",
+      "owner_membership",
+      "main_chatroom"
+    ],
+    "main_chatroom_id": "non_null_and_equal_to_the_committed_main_row",
+    "rollback_failure_points": [
+      "after_group_insert",
+      "after_owner_membership_insert",
+      "after_main_chatroom_insert"
+    ]
+  },
+  "i2": {
+    "existing_member": {
+      "checked_before": [
+        "expiry",
+        "exhaustion"
+      ],
+      "joined": false,
+      "membership_id": null,
+      "use_delta": 0
+    },
+    "lock_order": [
+      "live_group",
+      "invite"
+    ],
+    "new_member": {
+      "joined": true,
+      "membership_delta": 1,
+      "use_delta": 1
+    },
+    "races": {
+      "distinct_users_at_max_uses_1": "one_join_and_one_invite_exhausted",
+      "group_delete": "join_commits_wholly_first_or_delete_wins_with_zero_partial_state",
+      "same_user": "one_join_and_one_joined_false"
+    }
+  },
+  "rate_limit": {
+    "fail_closed_before_postgres_mutation": true,
+    "namespace": "jamye:rate-limit:v1",
+    "operations": [
+      "invite_issue",
+      "invite_redeem"
+    ],
+    "subject": "authenticated_actor_plus_source_ip"
+  },
+  "realtime_revocation_owner": "task-6c"
+}

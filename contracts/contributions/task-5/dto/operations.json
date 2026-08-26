@@ -1,0 +1,62 @@
+{
+  "contract_version": "1",
+  "feature": "mobile_authentication",
+  "operations": [
+    {
+      "errors": "EA1",
+      "id": "A1",
+      "method": "POST",
+      "path": "/api/v1/auth/oauth/{provider}/authorize",
+      "request": "OAuthAuthorizeIn",
+      "response": "OAuthAuthorizeOut"
+    },
+    {
+      "errors": "EA2",
+      "id": "A2",
+      "method": "POST",
+      "path": "/api/v1/auth/oauth/{provider}/exchange",
+      "request": "OAuthExchangeIn",
+      "response": "TokenPair"
+    },
+    {
+      "errors": "EA3",
+      "id": "A3",
+      "method": "POST",
+      "path": "/api/v1/auth/refresh",
+      "request": "RefreshIn",
+      "response": "TokenPair"
+    },
+    {
+      "errors": "E1",
+      "id": "A4",
+      "method": "POST",
+      "path": "/api/v1/auth/logout",
+      "request": null,
+      "response": null,
+      "success_status": 204
+    },
+    {
+      "errors": "E1",
+      "id": "U1",
+      "method": "GET",
+      "path": "/api/v1/me",
+      "request": null,
+      "response": "User"
+    },
+    {
+      "errors": "E1",
+      "id": "U2",
+      "method": "PATCH",
+      "path": "/api/v1/me",
+      "request": "UserPatch",
+      "response": "User"
+    }
+  ],
+  "provider_path_allowlist": [
+    "kakao",
+    "google"
+  ],
+  "provider_path_deferred": [
+    "apple"
+  ]
+}

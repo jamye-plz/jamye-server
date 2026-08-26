@@ -7,8 +7,10 @@ use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
 };
 
+pub mod auth;
 #[cfg(feature = "dev-fixtures")]
 pub mod dev_fixtures;
+pub mod groups;
 pub mod health;
 pub mod messaging;
 pub mod realtime;
