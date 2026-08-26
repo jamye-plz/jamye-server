@@ -8,4 +8,5 @@ pub mod oauth_attempt;
 pub mod oauth_provider;
 pub mod rate_limit;
 pub mod realtime;
+pub mod topics;
 pub mod transactions;

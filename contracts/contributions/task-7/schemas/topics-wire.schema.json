@@ -1,0 +1,149 @@
+{
+  "$defs": {
+    "CanonicalTopic": {
+      "additionalProperties": false,
+      "properties": {
+        "author_avatar_url": { "type": ["string", "null"] },
+        "author_id": { "format": "uuid", "type": "string" },
+        "author_nickname": { "maxLength": 64, "type": "string" },
+        "body": { "type": ["string", "null"] },
+        "chatroom_id": { "format": "uuid", "type": "string" },
+        "created_at": { "format": "date-time", "type": "string" },
+        "group_id": { "format": "uuid", "type": "string" },
+        "id": { "format": "uuid", "type": "string" },
+        "media": { "items": { "$ref": "#/$defs/TopicMedia" }, "type": "array" },
+        "status": { "enum": ["seed", "enriched"], "type": "string" },
+        "tags": { "items": { "$ref": "#/$defs/TopicTag" }, "type": "array" },
+        "title": { "maxLength": 256, "minLength": 1, "type": "string" },
+        "unread": { "type": "boolean" },
+        "updated_at": { "format": "date-time", "type": "string" }
+      },
+      "required": [
+        "id", "group_id", "author_id", "author_nickname", "author_avatar_url",
+        "title", "body", "status", "tags", "media", "chatroom_id", "unread",
+        "created_at", "updated_at"
+      ],
+      "type": "object"
+    },
+    "TagPage": {
+      "additionalProperties": false,
+      "properties": {
+        "items": { "items": { "$ref": "#/$defs/TopicTag" }, "type": "array" },
+        "next_cursor": { "type": ["string", "null"] }
+      },
+      "required": ["items", "next_cursor"],
+      "type": "object"
+    },
+    "TagReplace": {
+      "additionalProperties": false,
+      "properties": {
+        "tags": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "confidence": { "maximum": 1, "minimum": 0, "type": ["number", "null"] },
+              "source": { "enum": ["ai", "user"], "type": "string" },
+              "tag": { "maxLength": 64, "minLength": 1, "type": "string" }
+            },
+            "required": ["tag", "source"],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": ["tags"],
+      "type": "object"
+    },
+    "TopicCreate": {
+      "additionalProperties": false,
+      "properties": {
+        "title": { "maxLength": 256, "minLength": 1, "type": "string" }
+      },
+      "required": ["title"],
+      "type": "object"
+    },
+    "TopicCreatedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": { "format": "uuid", "type": "string" },
+        "cursor": { "pattern": "^[1-9][0-9]*$", "type": "string" },
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "author_id": { "format": "uuid", "type": "string" },
+            "chatroom_id": { "format": "uuid", "type": "string" },
+            "group_id": { "format": "uuid", "type": "string" },
+            "title": { "maxLength": 256, "minLength": 1, "type": "string" },
+            "topic_id": { "format": "uuid", "type": "string" }
+          },
+          "required": ["topic_id", "group_id", "chatroom_id", "author_id", "title"],
+          "type": "object"
+        },
+        "event_id": { "format": "uuid", "type": "string" },
+        "occurred_at": { "format": "date-time", "type": "string" },
+        "type": { "const": "topic.created" },
+        "version": { "const": 1 }
+      },
+      "required": ["version", "type", "event_id", "conversation_id", "cursor", "occurred_at", "data"],
+      "type": "object"
+    },
+    "TopicDatePage": {
+      "additionalProperties": false,
+      "properties": {
+        "dates": { "items": { "format": "date", "type": "string" }, "type": "array" },
+        "next_cursor": { "type": ["string", "null"] },
+        "today": { "format": "date", "type": "string" }
+      },
+      "required": ["dates", "today", "next_cursor"],
+      "type": "object"
+    },
+    "TopicMedia": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_size": { "minimum": 1, "type": ["integer", "null"] },
+        "content_type": { "minLength": 1, "type": "string" },
+        "created_at": { "format": "date-time", "type": "string" },
+        "height": { "minimum": 1, "type": ["integer", "null"] },
+        "id": { "format": "uuid", "type": "string" },
+        "object_key": { "maxLength": 512, "minLength": 1, "type": "string" },
+        "topic_id": { "format": "uuid", "type": "string" },
+        "width": { "minimum": 1, "type": ["integer", "null"] }
+      },
+      "required": ["id", "topic_id", "content_type", "object_key", "width", "height", "byte_size", "created_at"],
+      "type": "object"
+    },
+    "TopicPage": {
+      "additionalProperties": false,
+      "properties": {
+        "items": { "items": { "$ref": "#/$defs/CanonicalTopic" }, "type": "array" },
+        "next_cursor": { "type": ["string", "null"] }
+      },
+      "required": ["items", "next_cursor"],
+      "type": "object"
+    },
+    "TopicPatch": {
+      "additionalProperties": false,
+      "properties": {
+        "body": { "minLength": 1, "type": ["string", "null"] },
+        "title": { "maxLength": 256, "minLength": 1, "type": ["string", "null"] }
+      },
+      "type": "object"
+    },
+    "TopicTag": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": { "maximum": 1, "minimum": 0, "type": ["number", "null"] },
+        "id": { "format": "uuid", "type": "string" },
+        "source": { "enum": ["ai", "user"], "type": "string" },
+        "tag": { "maxLength": 64, "minLength": 1, "type": "string" },
+        "topic_id": { "format": "uuid", "type": "string" }
+      },
+      "required": ["id", "topic_id", "tag", "source", "confidence"],
+      "type": "object"
+    }
+  },
+  "$id": "https://contracts.jamye.test/task-7/topics-wire.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Task-7 topic, tag, unread, and topic.created wire contribution",
+  "type": "object"
+}

@@ -9,4 +9,5 @@ pub mod groups;
 pub mod health;
 pub mod messaging;
 pub mod realtime;
+pub mod topics;
 pub mod users;

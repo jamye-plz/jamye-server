@@ -1,8 +1,8 @@
 # jamye-server 로드맵 — FastAPI 전체 이관, 신뢰성 고도화, 모바일 계약
 
 > 세션: ultrawork/20260822-200110
-> 현재 단계: PLAN_GATE passed; M0·M1·M2·M3a·M3b·M4·M5(task-6)·M5b(task-6b) 완료; M5c(task-6c) GREEN 검증 대기
-> 상태: task-6c 유효 RED exit `101` 기록; atomic control·multi-node eviction·fail-closed delivery 구현 후 사용자 GREEN 실행 대기
+> 현재 단계: PLAN_GATE passed; M0·M1·M2·M3a·M3b·M4·M5(task-6)·M5b(task-6b)·M5c(task-6c)·M6(task-7) 완료
+> 상태: task-7 topics 16/16과 architecture 4/4, 최종 exit `0` 기록; M7(task-8) 미착수
 > 기계 SSOT: .agents/results/plan-20260822-200110.json
 
 ## 1. 목표와 범위

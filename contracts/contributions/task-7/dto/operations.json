@@ -1,0 +1,79 @@
+{
+  "contract_version": "1",
+  "feature": "topics_timeline_unread_tags",
+  "operations": [
+    {
+      "auth": "member",
+      "errors": "E2 + same-key/different-payload stable 409",
+      "id": "T1",
+      "method": "POST",
+      "path": "/api/v1/groups/{group_id}/topics",
+      "request": "TopicCreate + required Idempotency-Key",
+      "response": "CanonicalTopic",
+      "success_status": "201 new|200 retry"
+    },
+    {
+      "auth": "member",
+      "errors": "E2",
+      "id": "T2",
+      "method": "GET",
+      "pagination": "after+limit",
+      "path": "/api/v1/groups/{group_id}/topics/dates",
+      "request": null,
+      "response": "TopicDatePage",
+      "success_status": 200
+    },
+    {
+      "auth": "member",
+      "errors": "E2",
+      "id": "T3",
+      "method": "GET",
+      "pagination": "after+limit",
+      "path": "/api/v1/groups/{group_id}/topics",
+      "request": "optional date=YYYY-MM-DD",
+      "response": "TopicPage",
+      "success_status": 200
+    },
+    {
+      "auth": "member",
+      "errors": "E2",
+      "id": "T4",
+      "method": "GET",
+      "path": "/api/v1/groups/{group_id}/topics/{topic_id}",
+      "request": null,
+      "response": "CanonicalTopic",
+      "success_status": 200
+    },
+    {
+      "auth": "author",
+      "errors": "E3 + stable safe 403",
+      "id": "T5",
+      "method": "PATCH",
+      "path": "/api/v1/groups/{group_id}/topics/{topic_id}",
+      "request": "TopicPatch",
+      "response": "CanonicalTopic",
+      "success_status": 200
+    },
+    {
+      "auth": "author|owner",
+      "errors": "E3",
+      "id": "T6",
+      "method": "PUT",
+      "path": "/api/v1/groups/{group_id}/topics/{topic_id}/tags",
+      "request": "TagReplace",
+      "response": "TagPage",
+      "success_status": 200
+    },
+    {
+      "auth": "member",
+      "errors": "E2",
+      "id": "T7",
+      "method": "GET",
+      "pagination": "after+limit",
+      "path": "/api/v1/groups/{group_id}/topics/{topic_id}/tags",
+      "request": null,
+      "response": "TagPage",
+      "success_status": 200
+    }
+  ]
+}

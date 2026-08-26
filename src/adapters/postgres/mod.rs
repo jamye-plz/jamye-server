@@ -16,6 +16,7 @@ pub mod health;
 pub mod messaging;
 pub mod realtime;
 pub mod realtime_revocations;
+pub mod topics;
 pub mod transactions;
 
 pub fn runtime_pool(

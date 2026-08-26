@@ -1,0 +1,58 @@
+{
+  "fixture": "topic-create-enrich-read-tags",
+  "t1": {
+    "announcement": {
+      "author_attributed": true,
+      "body": "새로운 주제를 올렸어요: [첫 주제](/groups/71000000-0000-4000-8000-000000000001/topics/72000000-0000-4000-8000-000000000001/chat)",
+      "event_type": "message.created"
+    },
+    "idempotency": {
+      "different_payload": "409 topic_idempotency_conflict",
+      "same_payload": "200 canonical existing",
+      "storage_unique": "author_id+idempotency_key"
+    },
+    "new_status": 201,
+    "topic": {
+      "body": null,
+      "chatroom_id": "73000000-0000-4000-8000-000000000001",
+      "status": "seed",
+      "title": "첫 주제",
+      "unread": false
+    },
+    "topic_created": {
+      "conversation_id_is_topic_chatroom": true,
+      "event_type": "topic.created",
+      "is_distinct_from_announcement_event": true,
+      "marks_author_read_at_bootstrap_cursor": true
+    }
+  },
+  "t2_t3": {
+    "seoul_calendar_boundaries": true,
+    "unread_uses_server_cursor": true,
+    "unread_queries_are_constant_per_page": true
+  },
+  "t5": {
+    "body_promotes_enriched": true,
+    "null_title_is_no_change": true,
+    "owner_non_author": "403 topic_author_required",
+    "title_is_server_trimmed": true
+  },
+  "t6_t7": {
+    "replace_policy": "author|owner",
+    "sources": ["ai", "user"],
+    "stable_order": "tag+id"
+  },
+  "transaction": {
+    "one_commit": true,
+    "rows": [
+      "topic",
+      "topic_chatroom",
+      "topic.created conversation_event",
+      "topic.created outbox",
+      "author chatroom_read",
+      "main announcement message",
+      "announcement message.created conversation_event",
+      "announcement outbox"
+    ]
+  }
+}
