@@ -15,6 +15,8 @@ pub mod groups;
 pub mod health;
 pub mod media;
 pub mod messaging;
+pub mod notifications;
+pub mod push;
 pub mod realtime;
 pub mod realtime_revocations;
 pub mod topics;

@@ -1,0 +1,58 @@
+{
+  "contract_version": "1",
+  "feature": "notification_history_expo_push",
+  "localization": "structured type+args; client-owned rendering",
+  "operations": [
+    {
+      "auth": "Bearer self",
+      "errors": "E1",
+      "id": "N1",
+      "method": "GET",
+      "pagination": "after+limit",
+      "path": "/api/v1/notifications",
+      "request": "Query",
+      "response": "NotificationPage",
+      "success_status": 200
+    },
+    {
+      "auth": "Bearer owner",
+      "errors": "E1 + identical 404 notification_not_found",
+      "id": "N2",
+      "method": "POST",
+      "path": "/api/v1/notifications/{notification_id}/read",
+      "request": null,
+      "response": null,
+      "success_status": 204
+    },
+    {
+      "auth": "Bearer current owner",
+      "errors": "E1",
+      "id": "P2",
+      "method": "POST",
+      "path": "/api/v1/push/installations",
+      "request": "ExpoInstallationCreate",
+      "response": "PushInstallation",
+      "success_status": "201 create|200 canonical upsert"
+    },
+    {
+      "auth": "Bearer current owner",
+      "errors": "E1 + identical safe not-found",
+      "id": "P3",
+      "method": "PUT",
+      "path": "/api/v1/push/installations/{installation_id}",
+      "request": "ExpoInstallationPut",
+      "response": "PushInstallation",
+      "success_status": 200
+    },
+    {
+      "auth": "Bearer current owner",
+      "errors": "E1 + identical safe not-found",
+      "id": "P4",
+      "method": "DELETE",
+      "path": "/api/v1/push/installations/{installation_id}",
+      "request": null,
+      "response": null,
+      "success_status": 204
+    }
+  ]
+}

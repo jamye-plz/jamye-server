@@ -1,0 +1,194 @@
+{
+  "$defs": {
+    "ExpoInstallationCreate": {
+      "additionalProperties": false,
+      "properties": {
+        "environment": {
+          "enum": ["development", "production"],
+          "type": "string"
+        },
+        "expo_token": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "installation_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "type": "string"
+        },
+        "message_preview_enabled": {
+          "default": false,
+          "type": "boolean"
+        },
+        "platform": {
+          "enum": ["ios", "android"],
+          "type": "string"
+        }
+      },
+      "required": ["platform", "environment", "installation_id", "expo_token"],
+      "type": "object"
+    },
+    "ExpoInstallationPut": {
+      "additionalProperties": false,
+      "properties": {
+        "expo_token": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "message_preview_enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": ["expo_token"],
+      "type": "object"
+    },
+    "Notification": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "$ref": "#/$defs/NotificationArgs"
+        },
+        "conversation_id": {
+          "format": "uuid",
+          "type": ["string", "null"]
+        },
+        "created_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "read_at": {
+          "format": "date-time",
+          "type": ["string", "null"]
+        },
+        "source_cursor": {
+          "pattern": "^[1-9][0-9]*$",
+          "type": ["string", "null"]
+        },
+        "topic_id": {
+          "format": "uuid",
+          "type": ["string", "null"]
+        },
+        "type": {
+          "enum": ["new_topic", "chat_unread", "other"],
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "args",
+        "topic_id",
+        "conversation_id",
+        "source_cursor",
+        "read_at",
+        "created_at"
+      ],
+      "type": "object"
+    },
+    "NotificationArgs": {
+      "additionalProperties": {
+        "type": ["string", "number", "boolean", "null"]
+      },
+      "maxProperties": 16,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]{0,63}$"
+      },
+      "type": "object"
+    },
+    "NotificationPage": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/Notification"
+          },
+          "type": "array"
+        },
+        "next_cursor": {
+          "type": ["string", "null"]
+        },
+        "unread_count": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": ["items", "next_cursor", "unread_count"],
+      "type": "object"
+    },
+    "PushInstallation": {
+      "additionalProperties": false,
+      "properties": {
+        "disabled_at": {
+          "format": "date-time",
+          "type": ["string", "null"]
+        },
+        "environment": {
+          "enum": ["development", "production"],
+          "type": "string"
+        },
+        "installation_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "type": "string"
+        },
+        "last_seen_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "message_preview_enabled": {
+          "type": "boolean"
+        },
+        "platform": {
+          "enum": ["ios", "android"],
+          "type": "string"
+        },
+        "provider": {
+          "const": "expo"
+        }
+      },
+      "required": [
+        "installation_id",
+        "platform",
+        "environment",
+        "provider",
+        "message_preview_enabled",
+        "last_seen_at",
+        "disabled_at"
+      ],
+      "type": "object"
+    },
+    "PushTapHandoff": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "message_id": {
+          "format": "uuid",
+          "type": ["string", "null"]
+        },
+        "notification_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "type": {
+          "enum": ["new_topic", "chat_unread", "other"],
+          "type": "string"
+        }
+      },
+      "required": ["type", "notification_id", "conversation_id", "message_id"],
+      "type": "object"
+    }
+  },
+  "$id": "https://contracts.jamye.test/task-9/notifications-push-wire.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Task-9 D9=A notification history and Expo push wire contribution",
+  "type": "object"
+}

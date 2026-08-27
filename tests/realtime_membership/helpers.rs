@@ -4,7 +4,8 @@ use jamye_server::{
     adapters::{
         oauth::OsCredentialSource,
         postgres::{
-            groups::PostgresGroupsRepository, realtime_revocations::PostgresRealtimeRevocations,
+            groups::PostgresGroupsRepository, push::PostgresPushRepository,
+            realtime_revocations::PostgresRealtimeRevocations,
             transactions::SqlxTransactionManager,
         },
         redis::realtime_control::RealtimeControlWorkerConfig,
@@ -54,11 +55,12 @@ pub fn harness(pool: PgPool) -> TestResult<RevocationHarness> {
             },
         },
     )?);
-    let store = PostgresRealtimeRevocations::new(pool);
+    let store = PostgresRealtimeRevocations::new(pool.clone());
     let revocations = Arc::new(MembershipRevocationService::new(
         groups.clone(),
         transactions,
         Arc::new(store.clone()),
+        Arc::new(PostgresPushRepository::new(pool.clone())),
     ));
     Ok(RevocationHarness {
         groups,

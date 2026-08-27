@@ -5,6 +5,8 @@ pub mod chatrooms;
 pub mod groups;
 pub mod media;
 pub mod messaging;
+pub mod notifications;
+pub mod push;
 pub mod realtime;
 pub mod topics;
 pub mod users;

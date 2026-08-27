@@ -1,0 +1,45 @@
+{
+  "d9_a": {
+    "localization_owner": "client",
+    "notification": {
+      "args": {
+        "sender_display_name": "민지"
+      },
+      "conversation_id": "93000000-0000-4000-8000-000000000001",
+      "created_at": "2026-08-27T08:00:00Z",
+      "id": "91000000-0000-4000-8000-000000000001",
+      "read_at": null,
+      "source_cursor": "42",
+      "topic_id": "92000000-0000-4000-8000-000000000001",
+      "type": "chat_unread"
+    }
+  },
+  "fixture": "notification-coalescing-expo-delivery-and-tap-handoff",
+  "occurrences": {
+    "distinct_source_event_count": 2,
+    "retry_creates_new_occurrence": false,
+    "same_coalesced_notification_id": true,
+    "terminal_states_are_independent": true
+  },
+  "p2": {
+    "cross_account_rebind_increments_epoch": true,
+    "omitted_message_preview_enabled": false,
+    "provider": "expo",
+    "same_installation_other_environment_moves_canonical_row": true
+  },
+  "privacy": {
+    "destination_material_is_private": true,
+    "localization_is_client_owned": true,
+    "source_text_is_not_durable_delivery_state": true
+  },
+  "push_tap": {
+    "client_handoff": "delta_first_sync",
+    "payload": {
+      "conversation_id": "93000000-0000-4000-8000-000000000001",
+      "message_id": "94000000-0000-4000-8000-000000000001",
+      "notification_id": "91000000-0000-4000-8000-000000000001",
+      "type": "chat_unread"
+    },
+    "server_executes_navigation": false
+  }
+}

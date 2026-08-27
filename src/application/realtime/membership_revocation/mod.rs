@@ -7,7 +7,13 @@ use uuid::Uuid;
 
 use crate::{
     application::groups::{GroupsError, GroupsService},
-    ports::transactions::{BoxTransactionHandle, TransactionHandle, TransactionManager},
+    ports::{
+        push::{
+            FenceGroupPushCommand, FenceMembershipPushCommand, PushPrivacyFence,
+            PushRepositoryError,
+        },
+        transactions::{BoxTransactionHandle, TransactionHandle, TransactionManager},
+    },
 };
 
 pub const REALTIME_CONTROL_VERSION: i16 = 1;
@@ -112,6 +118,7 @@ pub struct MembershipRevocationService {
     groups: Arc<GroupsService>,
     transactions: Arc<dyn TransactionManager>,
     intents: Arc<dyn ControlIntentAppender>,
+    push_privacy: Arc<dyn PushPrivacyFence>,
 }
 
 impl MembershipRevocationService {
@@ -119,11 +126,13 @@ impl MembershipRevocationService {
         groups: Arc<GroupsService>,
         transactions: Arc<dyn TransactionManager>,
         intents: Arc<dyn ControlIntentAppender>,
+        push_privacy: Arc<dyn PushPrivacyFence>,
     ) -> Self {
         Self {
             groups,
             transactions,
             intents,
+            push_privacy,
         }
     }
 
@@ -140,6 +149,20 @@ impl MembershipRevocationService {
             .await
             .map_err(MembershipRevocationError::Group);
         if let Err(error) = mutation {
+            return self.finish(transaction, Err(error)).await;
+        }
+        let privacy = self
+            .push_privacy
+            .fence_membership_revocation(
+                transaction.as_mut(),
+                &FenceMembershipPushCommand {
+                    group_id,
+                    user_id: target_user_id,
+                },
+            )
+            .await
+            .map_err(MembershipRevocationError::Push);
+        if let Err(error) = privacy {
             return self.finish(transaction, Err(error)).await;
         }
         let intent = RealtimeControlIntent::membership_revoked(group_id, target_user_id);
@@ -164,6 +187,14 @@ impl MembershipRevocationService {
             .await
             .map_err(MembershipRevocationError::Group);
         if let Err(error) = mutation {
+            return self.finish(transaction, Err(error)).await;
+        }
+        let privacy = self
+            .push_privacy
+            .fence_group_deletion(transaction.as_mut(), &FenceGroupPushCommand { group_id })
+            .await
+            .map_err(MembershipRevocationError::Push);
+        if let Err(error) = privacy {
             return self.finish(transaction, Err(error)).await;
         }
         let intent = RealtimeControlIntent::group_deleted(group_id);
@@ -224,6 +255,7 @@ impl Error for ControlIntentError {}
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MembershipRevocationError {
     Group(GroupsError),
+    Push(PushRepositoryError),
     ControlIntent(ControlIntentError),
     Transaction,
 }
