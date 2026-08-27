@@ -1,8 +1,9 @@
 # jamye-server 로드맵 — FastAPI 전체 이관, 신뢰성 고도화, 모바일 계약
 
 > 세션: ultrawork/20260822-200110
-> 현재 단계: PLAN_GATE passed; M0·M1·M2·M3a·M3b·M4·M5(task-6)·M5b(task-6b)·M5c(task-6c)·M6(task-7)·M7(task-8) 완료
-> 상태: task-8 D11=B, MD1–MD5, C4 media/voice binding, C2/history projection, migration `0006`, contract, disposable MinIO boundary, resilience/log redaction을 모두 materialize했다. Repository-wide format/Clippy가 통과했고 process-isolated aggregate GREEN은 media 83/83 + resilience 3/3, architecture 4/4 및 최종 exit `0`을 기록했다. D9=A가 사용자 승인으로 locked되어 다음 materializer인 task-9/M8 착수 조건도 충족됐다.
+> 현재 단계: PLAN_GATE passed; M0·M1·M2·M2b·M3a·M3b·M4·M5(task-6)·M5b(task-6b)·M5c(task-6c)·M6(task-7)·M7(task-8)·M8(task-9) 완료
+> 상태: task-9는 D9=A structured notification, N1/N2 history/read, P2–P4 Expo installation lifecycle, canonical source-event별 durable occurrence, DB-time lease/generation CAS, send-authorization/privacy fence, migration `0007`, contract와 static push runtime을 materialize했다. Repository-wide format/strict Clippy가 통과했고 process-isolated aggregate GREEN은 notifications 54/54, architecture 4/4 및 최종 exit `0`을 기록했다. D5=A와 D10=A도 2026-08-27 사용자 승인으로 locked되어 task-11/M10 착수 조건이 충족됐다.
+> 진행률: 구현 task 14/17, 마일스톤 13/16 완료(단순 개수 기준); 남은 구현은 task-11·12·13과 최종 VERIFY/SHIP다.
 > 기계 SSOT: .agents/results/plan-20260822-200110.json
 
 ## 1. 목표와 범위
@@ -222,19 +223,21 @@ M1은 /Users/poby/Developer/jamye-plz의 정확한 PF1 source set을 determinist
 | D2 | PWA Web Push coexistence | A Expo-only | 후속 RN 교체 지시로 locked; Web Push는 non-goal |
 | D3 | STT/전사 범위 | C 전체 제외, voice media 보존 | 사용자 승인으로 locked non-goal |
 | D4 | Apple login/Guideline 4.8 | **A current server/C2에서는 deferred (사용자 재확인, locked)** | task-5는 Kakao/Google만 구현; Apple은 store-release gate |
-| D5 | account deletion sole-owner policy | A transfer required | M10 전 필요 |
+| D5 | account deletion sole-owner policy | **A transfer required (사용자 승인, locked)** | task-11은 이양 전 409+zero mutation을 materialize |
 | D6 | rate-limit algorithm | A configurable fixed window | locked technical default |
 | D7 | modular monolith | A | locked from initial prompt |
 | D8 | message duplicate response shape | **A same payload 200 canonical, different payload 409 (사용자 승인, locked)** | C0에 materialize |
 | D9 | notification localization representation | **A structured type+args + client localization (사용자 승인, locked)** | task-9/M8에 materialize |
-| D10 | account deletion data disposition | A tombstone/anonymize | M10 전 필요 |
+| D10 | account deletion data disposition | **A tombstone/anonymize (사용자 승인, locked)** | task-11은 private state 삭제+durable object cleanup을 materialize |
 | D11 | private bucket lifecycle owner | **B API `ensure_bucket` (사용자 승인, locked)** | task-8이 HEAD/no-op·404/create·기타 typed error를 materialize; task-13은 optional native MinIO만 제공 |
 | D12 | mobile OAuth exchange flow | **A Authorization Code + PKCE S256 (사용자 승인, locked)** | M4에 materialize |
 | D13 | logout/access/ticket/socket expiry | **A short token valid to exp, ticket capped by exp, socket 4401 at exp (사용자 승인, locked)** | C0에 materialize |
 
-현재 pending_user는 D5, D10의 2개다. 에이전트가 임의 선택하지 않는다. D1=A, D4=A current server/C2 deferred, D8=A, D12=A, D13=A는 2026-08-25 사용자 승인으로, D11=B는 2026-08-26 사용자 승인으로, D9=A는 2026-08-27 사용자 승인으로 locked됐고, D2는 Expo-only, D3=C는 STT 제외로 locked다. Apple 실제 구현 또는 Guideline 4.8 예외 판정은 별도 store-release gate로 남는다.
+현재 `pending_user` 결정은 0개다. D5=A는 sole-owner 그룹의 소유권 이양 전 계정 삭제를 stable 409 `group_ownership_transfer_required`와 zero mutation으로 차단한다. D10=A는 공유 그룹 content/media를 author tombstone으로 익명 보존하고 credential/profile/push/notification/read/membership을 삭제하며 invite를 폐기하고 unbound upload/object를 durable cleanup으로 넘긴다. 두 결정은 2026-08-27 task-11/M10 RED 전에 사용자 승인으로 locked됐다.
 
-결정 materializer는 `D1=task-3a/task-3b`, `D8/D13=task-3b`, `D12=task-5`, `D11=task-8`, `D9=task-9`, `D5/D10=task-11`로 고정한다. task-4a/task-4b/task-12/task-13과 VERIFY/SHIP는 이미 고정된 evidence를 소비할 뿐 같은 결정을 다시 gate로 열지 않는다.
+D1=A, D4=A current server/C2 deferred, D8=A, D12=A, D13=A는 2026-08-25 사용자 승인으로, D11=B는 2026-08-26 사용자 승인으로, D5=A, D9=A, D10=A는 2026-08-27 사용자 승인으로 locked됐고, D2는 Expo-only, D3=C는 STT 제외로 locked다. Apple 실제 구현 또는 Guideline 4.8 예외 판정은 별도 store-release gate로 남는다.
+
+결정 materializer는 `D1=task-3a/task-3b`, `D8/D13=task-3b`, `D12=task-5`, `D11=task-8`, `D9=task-9`, `D5/D10=task-11`로 고정한다. task-11은 locked D5=A/D10=A를 account-deletion contract/fixture/runtime evidence로 한 번 materialize하고, task-12/task-13과 VERIFY/SHIP는 그 evidence를 소비할 뿐 같은 결정을 다시 gate로 열지 않는다.
 
 현재 push 범위는 Expo installations, notification history, canonical source-event별 durable occurrence, installation preview policy다. Web Push 관련 파일/table/Nix surface는 만들지 않는다.
 
@@ -258,7 +261,7 @@ D3=C에 따라 이번 작업과 C2에는 STT contract, field, job, migration, ev
 | 7 | M6 | task-7 | topics/tags/unread/announcement transaction + 0005 FK | task-6,6b |
 | 8 | M7 | task-8 | private media upload/finalize/access | task-4a,6b,7 + D11 |
 | 9 | M8 | task-9 | notifications, Expo push, send-authorization fence | task-6c,8 + D9 |
-| 10 | M10 | task-11 | account deletion + durable object cleanup + `0008` | task-9 + D5,D10 |
+| 10 | M10 | task-11 | account deletion + durable object cleanup + `0008` | task-9 + locked D5=A,D10=A (충족) |
 | 11 | M11a | task-12 | backend static api/worker + three UoW compositions + selected C2 | task-11; frozen decision evidence 소비 |
 | 12 | M11b | task-13 | dual-system packages/checks/NixOS module/docs | task-12 |
 
@@ -291,16 +294,19 @@ task-10은 사용자 승인 STT non-goal로 삭제했다. 기존 참조 안정�
 
 ## 13. 다음 단계
 
-구조 계획은 SHA-256 `3961a5108d4fb384d7e92e7b9fdaeca4c96e8e303acea8fa330b0f393679c973`에서 fresh r16 completeness, meta, simplicity review를 material finding 0으로 통과했다. 이후 사용자 선택 D1=A, D4=A current server/C2 deferred, D8=A, D12=A, D13=A의 evidence를 추가한 현재 실행 snapshot은 SHA-256 `ff90657984a0eb601fa9890ba96dc041ba4a9ac4320022eb707a8db3f9750d87`이다. Task, dependency, contract count는 바뀌지 않았고 이미 점유된 ADR `0003`/`0004`를 보존하기 위해 task-5 ADR artifact path만 `0005`/`0006`으로 교정했다.
+구조 계획은 SHA-256 `3961a5108d4fb384d7e92e7b9fdaeca4c96e8e303acea8fa330b0f393679c973`에서 fresh r16 completeness, meta, simplicity review를 material finding 0으로 통과했다. D1=A, D4=A current server/C2 deferred, D8=A, D12=A, D13=A, D11=B, D9=A, D5=A, D10=A evidence와 현재 task-11 수용 기준을 반영한 실행 snapshot은 SHA-256 `9757feda2b7515daf0e71fe4689bb6ac4a037ddb6ac5f423ce0c9e2758e81b4a`이다. Task, dependency, contract count는 바뀌지 않았고 이미 점유된 ADR `0003`/`0004`를 보존하기 위해 task-5 ADR artifact path만 `0005`/`0006`으로 교정했다.
 
 다음 순서는 고정한다.
 
-1. task-1 M0 evidence는 commit `d285e75`까지 기준선으로 기록됐다.
-2. task-2는 PF1 89-file manifest와 40 operation·13 table·189 test·6 migration 양방향 matrix를 동결했다.
-3. 사용자가 L08=A를 선택해 P4를 installation-specific delete로 잠갔고 M1_SCOPE_LOCK을 통과했다.
-4. 사용자가 D1=A, D8=A, D13=A를 승인했다. task-3a는 no-pruning event schema와 lease-generation outbox foundation을 materialize했고, task-3b는 동일 payload 200/different payload 409 및 token-exp/ticket/socket lifetime을 C0에 materialize했다.
-5. 사용자가 D4=A와 D12=A를 승인해 task-5의 Kakao/Google system-browser Authorization Code + PKCE S256, Redis digest-only 10분 one-time attempt 경계를 잠갔다. Apple 실제 구현은 별도 store-release gate다.
-6. 이후에는 dependency, earliest materializer가 고정한 decision evidence, user-run evidence가 충족되면 별도 milestone-start 승인 없이 진행한다. production/release/추가 SCM 작업은 계속 별도 승인을 요구한다.
+1. task-1/M0과 task-2/M1은 platform 기준선, PF1 inventory/matrix, L08=A scope lock을 완료했다.
+2. task-3a/task-3b/task-3c는 core schema, C0 deterministic contract와 guarded dev identity/fixture lane을 완료했다.
+3. task-4a/task-4b는 atomic message/event/outbox, paginated delta, Redis/authorized WebSocket C1 delivery와 outage recovery를 완료했다.
+4. task-5/task-6/task-6b/task-6c는 Kakao/Google PKCE auth, profile/rate limit, groups/memberships/invites, chatroom history/read와 multi-node membership revocation fence를 완료했다.
+5. task-7/M6과 task-8/M7은 topics/unread/announcement transaction, private media/voice binding, migration `0005`/`0006`과 D11=B API bucket lifecycle을 완료했다.
+6. task-9/M8은 D9=A notification history, Expo installation/delivery, privacy/send-authorization fence와 migration `0007`을 commit `1dcef1f`로 완료했다. 최종 evidence는 notifications 54/54, architecture 4/4, strict Clippy/format 및 aggregate exit `0`이다.
+7. 사용자가 D5=A와 D10=A를 승인했다. 따라서 다음 구현은 task-11/M10이며 ownership-transfer 409 fence, tombstone/anonymize disposition, migration `0008`, durable object cleanup을 TDD로 materialize한다.
+8. task-11 이후 task-12/M11a final static api/worker·3 UoW·selected C2, task-13/M11b dual-system package/NixOS module, 최종 VERIFY/SHIP 순서로 진행한다.
+9. dependency, locked decision evidence와 user-run evidence가 충족되면 별도 milestone-start 승인은 필요하지 않다. production/release/추가 SCM 작업은 계속 별도 승인을 요구한다.
 
 아래 장문 단락은 task-5 RED 준비 시점까지의 누적 실행 이력을 보존한 historical
 snapshot이다. 현재 실행 상태는 문서 머리말과 task-owned command evidence가 우선하며,
