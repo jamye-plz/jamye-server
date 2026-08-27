@@ -8,10 +8,10 @@ mod control;
 mod delivery;
 #[path = "realtime_membership/helpers.rs"]
 mod helpers;
-#[path = "realtime_membership/transaction.rs"]
-mod transaction;
 #[path = "support/postgres.rs"]
 mod postgres_support;
+#[path = "realtime_membership/transaction.rs"]
+mod transaction;
 
 pub type TestResult<T = ()> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -26,11 +26,13 @@ fn production_realtime_membership_surface_is_statically_registered() -> io::Resu
         "docs/commands/task-6c/realtime-membership.md",
         "scripts/tasks/task-6c/mod.just",
     ] {
-        assert!(fs::metadata(path)?.is_file(), "missing task-6c surface: {path}");
+        assert!(
+            fs::metadata(path)?.is_file(),
+            "missing task-6c surface: {path}"
+        );
     }
 
-    let application =
-        fs::read_to_string("src/application/realtime/membership_revocation/mod.rs")?;
+    let application = fs::read_to_string("src/application/realtime/membership_revocation/mod.rs")?;
     let groups = fs::read_to_string("src/application/groups/mod.rs")?;
     let postgres = fs::read_to_string("src/adapters/postgres/realtime_revocations/mod.rs")?;
     assert!(!application.contains("crate::adapters"));

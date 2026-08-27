@@ -27,10 +27,7 @@ pub fn documents() -> Result<Vec<(String, Value)>, BoxError> {
                 "Jamye message.created event v1",
             )?,
         ),
-        (
-            "realtime/protocol.json".to_owned(),
-            protocol_document(),
-        ),
+        ("realtime/protocol.json".to_owned(), protocol_document()),
         (
             "realtime/server-frame.schema.json".to_owned(),
             schema_document::<ServerFrame>(
@@ -58,7 +55,10 @@ fn validate_discriminants() -> Result<(), BoxError> {
     if REALTIME_DISCRIMINANTS != ["message.created"] {
         return Err(invalid_data("C0 must contain only message.created").into());
     }
-    let unique = REALTIME_DISCRIMINANTS.iter().copied().collect::<BTreeSet<_>>();
+    let unique = REALTIME_DISCRIMINANTS
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
     if unique.len() != REALTIME_DISCRIMINANTS.len() {
         return Err(invalid_data("duplicate C0 realtime discriminant").into());
     }

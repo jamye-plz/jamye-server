@@ -105,11 +105,12 @@
         "created_at": { "format": "date-time", "type": "string" },
         "height": { "minimum": 1, "type": ["integer", "null"] },
         "id": { "format": "uuid", "type": "string" },
+        "media_upload_id": { "format": "uuid", "type": "string" },
         "object_key": { "maxLength": 512, "minLength": 1, "type": "string" },
         "topic_id": { "format": "uuid", "type": "string" },
         "width": { "minimum": 1, "type": ["integer", "null"] }
       },
-      "required": ["id", "topic_id", "content_type", "object_key", "width", "height", "byte_size", "created_at"],
+      "required": ["id", "media_upload_id", "topic_id", "content_type", "object_key", "width", "height", "byte_size", "created_at"],
       "type": "object"
     },
     "TopicPage": {

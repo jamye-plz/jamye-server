@@ -136,12 +136,7 @@ impl MembershipRevocationService {
         let mut transaction = self.begin().await?;
         let mutation = self
             .groups
-            .remove_member_in_transaction(
-                transaction.as_mut(),
-                actor_id,
-                group_id,
-                target_user_id,
-            )
+            .remove_member_in_transaction(transaction.as_mut(), actor_id, group_id, target_user_id)
             .await
             .map_err(MembershipRevocationError::Group);
         if let Err(error) = mutation {

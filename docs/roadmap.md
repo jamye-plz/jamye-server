@@ -1,8 +1,8 @@
 # jamye-server 로드맵 — FastAPI 전체 이관, 신뢰성 고도화, 모바일 계약
 
 > 세션: ultrawork/20260822-200110
-> 현재 단계: PLAN_GATE passed; M0·M1·M2·M3a·M3b·M4·M5(task-6)·M5b(task-6b)·M5c(task-6c)·M6(task-7) 완료
-> 상태: task-7 topics 16/16과 architecture 4/4, 최종 exit `0` 기록; M7(task-8) 미착수
+> 현재 단계: PLAN_GATE passed; M0·M1·M2·M3a·M3b·M4·M5(task-6)·M5b(task-6b)·M5c(task-6c)·M6(task-7)·M7(task-8) 완료
+> 상태: task-8 D11=B, MD1–MD5, C4 media/voice binding, C2/history projection, migration `0006`, contract, disposable MinIO boundary, resilience/log redaction을 모두 materialize했다. Repository-wide format/Clippy가 통과했고 process-isolated aggregate GREEN은 media 83/83 + resilience 3/3, architecture 4/4 및 최종 exit `0`을 기록했다. D9=A가 사용자 승인으로 locked되어 다음 materializer인 task-9/M8 착수 조건도 충족됐다.
 > 기계 SSOT: .agents/results/plan-20260822-200110.json
 
 ## 1. 목표와 범위
@@ -148,6 +148,11 @@ runtime contribution registry, plugin hook, 동적 feature 등록과 feature별 
 
 task-12/backend는 transaction port/adapter를 다시 만들지 않고 task-4a의 frozen handle을 소비해 다음 세 UoW의 최종 호출 순서만 정적 코드로 완성한다.
 
+Task-12 production composition은 task-5의 validated `AuthConfig` secret을 Kakao/Google
+provider와 access-token codec에 실제로 연결한다. 이 연결 전 반복되는 두 `dead_code` 경고는
+`src/config/auth/mod.rs`의 좁은 `#[expect(dead_code)]`로만 억제하며, task-12는 실제 사용 연결과
+동시에 두 expectation을 제거해 경고가 억제 없이 해소됐음을 검증한다.
+
 - `SendMessage`: message/event/outbox → media binding(voice는 bodyless exactly-one finalized audio) → unread notification/push occurrence
 - `CreateTopic`: topic/chatroom/bootstrap/announcement/read/event/outbox → notification/push occurrence
 - `MarkConversationRead`: monotonic read marker → bounded notification clear
@@ -207,7 +212,7 @@ M1은 /Users/poby/Developer/jamye-plz의 정확한 PF1 source set을 determinist
 - default-feature Rust tests와 all-feature Rust tests는 별도 card다.
 - coverage card는 구현 시 공식 확인한 all-target command로 library, binaries, integration targets를 모두 포함해 80% 이상을 요구한다.
 - STT worker/inference package와 관련 Nix input/config는 만들지 않는다.
-- NixOS module은 package, listenAddress, environmentFile, migration policy만 소유한다. DB/Redis/MinIO 서비스, host/domain/volume, SOPS secret, ingress, monitoring, backup/restore는 homelab 소유다.
+- NixOS module은 package, listenAddress, environmentFile, migration policy와 선택적 `objectStorage.createLocally`를 소유한다. 로컬 개발·통합 테스트는 rootless Podman Compose를 사용하고, production에서 이 옵션을 켜면 homelab이 소비하는 module이 native `services.minio`를 함께 실행한다. D11=B에 따라 별도 bucket oneshot은 두지 않고 API `ensure_bucket`만 버킷 lifecycle을 소유한다. DB/Redis와 host/domain/volume, SOPS secret, ingress, monitoring, backup/restore는 계속 homelab 소유다.
 
 ## 10. Pending decisions
 
@@ -221,13 +226,13 @@ M1은 /Users/poby/Developer/jamye-plz의 정확한 PF1 source set을 determinist
 | D6 | rate-limit algorithm | A configurable fixed window | locked technical default |
 | D7 | modular monolith | A | locked from initial prompt |
 | D8 | message duplicate response shape | **A same payload 200 canonical, different payload 409 (사용자 승인, locked)** | C0에 materialize |
-| D9 | notification localization representation | A structured type+args | M8 전 필요 |
+| D9 | notification localization representation | **A structured type+args + client localization (사용자 승인, locked)** | task-9/M8에 materialize |
 | D10 | account deletion data disposition | A tombstone/anonymize | M10 전 필요 |
-| D11 | private bucket lifecycle owner | A homelab admin provision | M7 전 선택; M11b는 frozen evidence 소비 |
+| D11 | private bucket lifecycle owner | **B API `ensure_bucket` (사용자 승인, locked)** | task-8이 HEAD/no-op·404/create·기타 typed error를 materialize; task-13은 optional native MinIO만 제공 |
 | D12 | mobile OAuth exchange flow | **A Authorization Code + PKCE S256 (사용자 승인, locked)** | M4에 materialize |
 | D13 | logout/access/ticket/socket expiry | **A short token valid to exp, ticket capped by exp, socket 4401 at exp (사용자 승인, locked)** | C0에 materialize |
 
-현재 pending_user는 D5, D9, D10, D11의 4개다. 에이전트가 임의 선택하지 않는다. D1=A, D4=A current server/C2 deferred, D8=A, D12=A, D13=A는 2026-08-25 사용자 승인으로 locked됐고, D2는 Expo-only, D3=C는 STT 제외로 locked다. Apple 실제 구현 또는 Guideline 4.8 예외 판정은 별도 store-release gate로 남는다.
+현재 pending_user는 D5, D10의 2개다. 에이전트가 임의 선택하지 않는다. D1=A, D4=A current server/C2 deferred, D8=A, D12=A, D13=A는 2026-08-25 사용자 승인으로, D11=B는 2026-08-26 사용자 승인으로, D9=A는 2026-08-27 사용자 승인으로 locked됐고, D2는 Expo-only, D3=C는 STT 제외로 locked다. Apple 실제 구현 또는 Guideline 4.8 예외 판정은 별도 store-release gate로 남는다.
 
 결정 materializer는 `D1=task-3a/task-3b`, `D8/D13=task-3b`, `D12=task-5`, `D11=task-8`, `D9=task-9`, `D5/D10=task-11`로 고정한다. task-4a/task-4b/task-12/task-13과 VERIFY/SHIP는 이미 고정된 evidence를 소비할 뿐 같은 결정을 다시 gate로 열지 않는다.
 

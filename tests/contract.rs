@@ -26,7 +26,8 @@ fn local_sha256_matches_standard_vectors() {
 }
 
 #[test]
-fn generation_is_byte_deterministic_and_c0_is_minimal() -> Result<(), Box<dyn Error + Send + Sync>> {
+fn generation_is_byte_deterministic_and_c0_is_minimal() -> Result<(), Box<dyn Error + Send + Sync>>
+{
     let first = TemporaryDirectory::new("first")?;
     let second = TemporaryDirectory::new("second")?;
     let provenance = provenance_path();
@@ -46,14 +47,17 @@ fn generation_is_byte_deterministic_and_c0_is_minimal() -> Result<(), Box<dyn Er
     }
 
     let openapi: Value = serde_json::from_slice(&fs::read(first.path().join("openapi.json"))?)?;
-    assert_eq!(openapi.get("openapi").and_then(Value::as_str), Some("3.1.0"));
-    assert_eq!(operation_ids(&openapi)?, BTreeSet::from(["C4", "H1", "H2", "R1", "S1"]));
+    assert_eq!(
+        openapi.get("openapi").and_then(Value::as_str),
+        Some("3.1.0")
+    );
+    assert_eq!(
+        operation_ids(&openapi)?,
+        BTreeSet::from(["C4", "H1", "H2", "R1", "S1"])
+    );
 
-    let realtime_schema = fs::read_to_string(
-        first
-            .path()
-            .join("realtime/message.created.schema.json"),
-    )?;
+    let realtime_schema =
+        fs::read_to_string(first.path().join("realtime/message.created.schema.json"))?;
     assert!(realtime_schema.contains("message.created"));
     assert!(!realtime_schema.contains("topic.created"));
     assert!(!realtime_schema.contains("transcript"));
@@ -61,7 +65,10 @@ fn generation_is_byte_deterministic_and_c0_is_minimal() -> Result<(), Box<dyn Er
     let handoff: Value = serde_json::from_slice(&fs::read(
         first.path().join("fixtures/mobile-sync-handoff.json"),
     )?)?;
-    assert_eq!(handoff.get("execution_owner").and_then(Value::as_str), Some("jamye-app"));
+    assert_eq!(
+        handoff.get("execution_owner").and_then(Value::as_str),
+        Some("jamye-app")
+    );
     assert_eq!(
         handoff.get("atomicity_contract").and_then(Value::as_str),
         Some(contract_generation::fixtures::SQLITE_ATOMICITY_SENTENCE)
@@ -124,7 +131,10 @@ fn future_publication_provenance_is_explicit_and_deterministic()
         manifest.get("server_commit").and_then(Value::as_str),
         Some("0123456789abcdef0123456789abcdef01234567")
     );
-    assert_eq!(manifest.get("server_tag").and_then(Value::as_str), Some("v0.1.0"));
+    assert_eq!(
+        manifest.get("server_tag").and_then(Value::as_str),
+        Some("v0.1.0")
+    );
     Ok(())
 }
 

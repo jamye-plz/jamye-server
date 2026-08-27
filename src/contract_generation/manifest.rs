@@ -7,8 +7,7 @@ use serde_json::Value;
 
 use super::{Artifact, BoxError, invalid_data, openapi, realtime, sha256};
 
-pub const CHECKSUM_ALGORITHM: &str =
-    "sha256 over lexicographic path,NUL,decimal-length,NUL,bytes entries; manifest.json uses recursively key-sorted compact JSON without sha256; v1";
+pub const CHECKSUM_ALGORITHM: &str = "sha256 over lexicographic path,NUL,decimal-length,NUL,bytes entries; manifest.json uses recursively key-sorted compact JSON without sha256; v1";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -68,10 +67,7 @@ pub fn load_provenance(path: &Path) -> Result<Provenance, BoxError> {
     Ok(provenance)
 }
 
-pub fn artifact(
-    provenance: &Provenance,
-    non_manifest: &[Artifact],
-) -> Result<Artifact, BoxError> {
+pub fn artifact(provenance: &Provenance, non_manifest: &[Artifact]) -> Result<Artifact, BoxError> {
     let mut artifact_paths = non_manifest
         .iter()
         .map(|artifact| artifact.path.clone())
@@ -107,7 +103,7 @@ pub fn artifact(
         realtime_discriminants: core.realtime_discriminants.clone(),
         sha256: checksum,
     };
-    Ok(Artifact::json("manifest.json", &manifest)?)
+    Artifact::json("manifest.json", &manifest)
 }
 
 pub fn verify(
@@ -181,14 +177,14 @@ fn validate_provenance(provenance: &Provenance) -> Result<(), BoxError> {
             .bytes()
             .all(|byte| byte.is_ascii_hexdigit());
     if !commit_is_hex {
-        return Err(invalid_data("published server_commit must be a 40- or 64-digit hex ID").into());
+        return Err(
+            invalid_data("published server_commit must be a 40- or 64-digit hex ID").into(),
+        );
     }
-    if provenance
-        .server_tag
-        .as_deref()
-        .is_none_or(str::is_empty)
-    {
-        return Err(invalid_data("published provenance must include a non-empty server_tag").into());
+    if provenance.server_tag.as_deref().is_none_or(str::is_empty) {
+        return Err(
+            invalid_data("published provenance must include a non-empty server_tag").into(),
+        );
     }
     Ok(())
 }

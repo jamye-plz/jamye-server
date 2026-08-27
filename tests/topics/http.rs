@@ -103,12 +103,7 @@ async fn t1_through_t7_http_use_the_locked_authenticated_mobile_shapes() -> Test
             json!({"title": "다른 HTTP 주제"}),
         )?)
         .await?;
-    assert_error(
-        conflict,
-        StatusCode::CONFLICT,
-        "topic_idempotency_conflict",
-    )
-    .await?;
+    assert_error(conflict, StatusCode::CONFLICT, "topic_idempotency_conflict").await?;
 
     let list = router
         .clone()
@@ -133,19 +128,22 @@ async fn t1_through_t7_http_use_the_locked_authenticated_mobile_shapes() -> Test
     assert_eq!(dates.status(), StatusCode::OK);
     let dates = response_json(dates).await?;
     assert!(dates["today"].as_str().is_some());
-    assert!(dates["dates"].as_array().is_some_and(|dates| !dates.is_empty()));
+    assert!(
+        dates["dates"]
+            .as_array()
+            .is_some_and(|dates| !dates.is_empty())
+    );
 
     let topic_uri = format!("{create_uri}/{topic_id}");
     let detail = router
         .clone()
-        .oneshot(empty_request(
-            "GET",
-            &topic_uri,
-            Some(fixture.member_id),
-        )?)
+        .oneshot(empty_request("GET", &topic_uri, Some(fixture.member_id))?)
         .await?;
     assert_eq!(detail.status(), StatusCode::OK);
-    assert_eq!(response_json(detail).await?["author_id"], fixture.author_id.to_string());
+    assert_eq!(
+        response_json(detail).await?["author_id"],
+        fixture.author_id.to_string()
+    );
     for actor_id in [fixture.owner_id, fixture.member_id] {
         let denied = router
             .clone()
@@ -189,21 +187,13 @@ async fn t1_through_t7_http_use_the_locked_authenticated_mobile_shapes() -> Test
     assert_eq!(response_json(tags).await?["items"][0]["tag"], "친구");
     let tags = router
         .clone()
-        .oneshot(empty_request(
-            "GET",
-            &tags_uri,
-            Some(fixture.member_id),
-        )?)
+        .oneshot(empty_request("GET", &tags_uri, Some(fixture.member_id))?)
         .await?;
     assert_eq!(tags.status(), StatusCode::OK);
     assert_eq!(response_json(tags).await?["items"][0]["source"], "user");
 
     let outsider = router
-        .oneshot(empty_request(
-            "GET",
-            &topic_uri,
-            Some(fixture.outsider_id),
-        )?)
+        .oneshot(empty_request("GET", &topic_uri, Some(fixture.outsider_id))?)
         .await?;
     assert_error(outsider, StatusCode::FORBIDDEN, "membership_required").await?;
 

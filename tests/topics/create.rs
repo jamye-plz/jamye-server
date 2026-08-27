@@ -21,7 +21,8 @@ use crate::{
 };
 
 #[tokio::test]
-async fn t1_is_atomic_idempotent_and_emits_distinct_bootstrap_and_announcement_events() -> TestResult {
+async fn t1_is_atomic_idempotent_and_emits_distinct_bootstrap_and_announcement_events() -> TestResult
+{
     let database = TestDatabase::migrated().await?;
     let pool = database.pool()?;
     let fixture = topology(&pool).await?;
@@ -70,8 +71,16 @@ async fn t1_is_atomic_idempotent_and_emits_distinct_bootstrap_and_announcement_e
     .await?;
     assert_eq!(outbox.len(), 2);
     assert_ne!(outbox[0].0, outbox[1].0);
-    assert!(outbox.iter().any(|row| row.1 == "topic.created" && row.2 == topic.chatroom_id));
-    assert!(outbox.iter().any(|row| row.1 == "message.created" && row.2 == fixture.main_chatroom_id));
+    assert!(
+        outbox
+            .iter()
+            .any(|row| row.1 == "topic.created" && row.2 == topic.chatroom_id)
+    );
+    assert!(
+        outbox
+            .iter()
+            .any(|row| row.1 == "message.created" && row.2 == fixture.main_chatroom_id)
+    );
     assert_ne!(outbox[0].3, outbox[1].3);
 
     let marker: (Uuid, i64) = sqlx::query_as(
@@ -81,12 +90,11 @@ async fn t1_is_atomic_idempotent_and_emits_distinct_bootstrap_and_announcement_e
     .fetch_one(&pool)
     .await?;
     assert_eq!(marker, (topic.chatroom_id, events[0].1));
-    let announcement: (Uuid, String, String) = sqlx::query_as(
-        "SELECT sender_id, type, body FROM messages WHERE chatroom_id = $1",
-    )
-    .bind(fixture.main_chatroom_id)
-    .fetch_one(&pool)
-    .await?;
+    let announcement: (Uuid, String, String) =
+        sqlx::query_as("SELECT sender_id, type, body FROM messages WHERE chatroom_id = $1")
+            .bind(fixture.main_chatroom_id)
+            .fetch_one(&pool)
+            .await?;
     assert_eq!(announcement.0, fixture.author_id);
     assert_eq!(announcement.1, "user");
     assert_eq!(
@@ -219,7 +227,10 @@ async fn t1_and_group_soft_delete_are_serialized_in_both_commit_orders() -> Test
     );
     transactions.commit(topic_transaction).await?;
     assert_eq!(delete_after_topic.await, Ok(()));
-    assert_eq!(group_counts(&pool, topic_first_group_id).await?, (1, 1, 2, 2, 1, 1));
+    assert_eq!(
+        group_counts(&pool, topic_first_group_id).await?,
+        (1, 1, 2, 2, 1, 1)
+    );
     assert_eq!(
         topics
             .service
@@ -260,11 +271,11 @@ async fn t1_and_group_soft_delete_are_serialized_in_both_commit_orders() -> Test
         "T1 bypassed the uncommitted group-delete lock"
     );
     transactions.commit(delete_transaction).await?;
+    assert_eq!(create_after_delete.await, Err(TopicsError::GroupNotFound));
     assert_eq!(
-        create_after_delete.await,
-        Err(TopicsError::GroupNotFound)
+        group_counts(&pool, delete_first_group_id).await?,
+        (0, 0, 0, 0, 0, 0)
     );
-    assert_eq!(group_counts(&pool, delete_first_group_id).await?, (0, 0, 0, 0, 0, 0));
 
     let source = std::fs::read_to_string("src/adapters/postgres/topics/mutation.rs")?;
     let group_lock = source
@@ -315,7 +326,14 @@ async fn first_topic_chat_message_adds_only_the_original_user_message() -> TestR
     .bind(topic.chatroom_id)
     .fetch_all(&pool)
     .await?;
-    assert_eq!(rows, vec![("user".to_owned(), Some(fixture.member_id), Some("첫 대화".to_owned()))]);
+    assert_eq!(
+        rows,
+        vec![(
+            "user".to_owned(),
+            Some(fixture.member_id),
+            Some("첫 대화".to_owned())
+        )]
+    );
 
     pool.close().await;
     database.dispose().await

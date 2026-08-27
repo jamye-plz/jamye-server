@@ -58,7 +58,11 @@ fn task_6b_contract_contribution_is_the_exact_selected_chatroom_wire() -> TestRe
     for field in ["sender_nickname", "sender_avatar_url", "media"] {
         assert!(message["properties"].get(field).is_some());
     }
-    assert_eq!(message["properties"]["media"]["maxItems"], 0);
+    assert_eq!(message["properties"]["media"]["maxItems"], 4);
+    assert_eq!(
+        message["properties"]["media"]["items"]["$ref"],
+        "https://contracts.jamye.test/task-8/media-wire.schema.json#/$defs/MessageAttachment"
+    );
     assert_eq!(
         schema["$defs"]["ReadCursorIn"]["properties"]["cursor"]["type"],
         "string"
@@ -72,10 +76,13 @@ fn task_6b_contract_contribution_is_the_exact_selected_chatroom_wire() -> TestRe
     let fixture: Value = serde_json::from_str(&fs::read_to_string(
         "contracts/contributions/task-6b/fixtures/chatroom-history-read.json",
     )?)?;
-    assert_eq!(
-        fixture["c2"]["page"]["items"][0]["media"],
-        serde_json::json!([])
-    );
+    let media = fixture["c2"]["page"]["items"][0]["media"]
+        .as_array()
+        .ok_or_else(|| io::Error::other("task-8 history media must be an array"))?;
+    assert_eq!(media.len(), 2);
+    assert_eq!(media[0]["position"], 0);
+    assert_eq!(media[1]["position"], 1);
+    assert!(media.iter().all(|item| item.get("object_key").is_none()));
     assert_eq!(
         fixture["c2"]["page"]["items"][1]["sender_nickname"],
         Value::Null

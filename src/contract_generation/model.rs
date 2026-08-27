@@ -157,7 +157,9 @@ pub enum ClientFrame {
         request_id: Uuid,
         conversation_id: Uuid,
     },
-    Ping { nonce: String },
+    Ping {
+        nonce: String,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]

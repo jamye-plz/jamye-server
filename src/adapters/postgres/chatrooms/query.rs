@@ -1,9 +1,11 @@
+use std::collections::HashMap;
+
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
-    domain::messaging::{CanonicalMessage, MessageKind},
+    domain::messaging::{CanonicalMessage, MessageAttachment, MessageKind},
     ports::chatrooms::{
         ChatroomKind, ChatroomPage, ChatroomRecord, ChatroomsRepositoryError, ListChatroomsQuery,
         MessageHistoryPage, MessageHistoryQuery, MessageHistoryRecord, ReadMarker, ReadMarkerQuery,
@@ -34,6 +36,19 @@ type MessageAccessRow = (
     Option<OffsetDateTime>,
     Option<String>,
     Option<String>,
+);
+
+type MessageMediaRow = (
+    Uuid,
+    Uuid,
+    Uuid,
+    String,
+    i64,
+    Option<i32>,
+    Option<i32>,
+    Option<i32>,
+    Option<String>,
+    i32,
 );
 
 type ReadMarkerAccessRow = (
@@ -181,11 +196,103 @@ pub(super) async fn message_history(
     if has_more {
         items.truncate(query.limit as usize);
     }
+    hydrate_message_media(pool, &mut items).await?;
     let next_cursor = has_more
         .then(|| items.last().map(|item| item.message.id.to_string()))
         .flatten();
     items.reverse();
     Ok(MessageHistoryPage { items, next_cursor })
+}
+
+async fn hydrate_message_media(
+    pool: &PgPool,
+    items: &mut [MessageHistoryRecord],
+) -> Result<(), ChatroomsRepositoryError> {
+    if items.is_empty() {
+        return Ok(());
+    }
+    let message_ids = items.iter().map(|item| item.message.id).collect::<Vec<_>>();
+    let message_positions = items
+        .iter()
+        .enumerate()
+        .map(|(position, item)| (item.message.id, position))
+        .collect::<HashMap<_, _>>();
+    let rows = sqlx::query_as::<_, MessageMediaRow>(
+        "SELECT id, message_id, media_upload_id, type, byte_size, width, height, \
+                duration, filename, position \
+         FROM message_media \
+         WHERE message_id = ANY($1) \
+         ORDER BY message_id, position",
+    )
+    .bind(&message_ids)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| database_error("message_media_hydrate", error))?;
+    for row in rows {
+        let message_position = message_positions
+            .get(&row.1)
+            .copied()
+            .ok_or(ChatroomsRepositoryError::InvalidData)?;
+        items[message_position]
+            .message
+            .media
+            .push(message_attachment_from_row(row)?);
+    }
+    if items.iter().any(|item| {
+        item.message
+            .media
+            .iter()
+            .enumerate()
+            .any(|(position, media)| usize::from(media.position) != position)
+    }) {
+        return Err(ChatroomsRepositoryError::InvalidData);
+    }
+    Ok(())
+}
+
+fn message_attachment_from_row(
+    row: MessageMediaRow,
+) -> Result<MessageAttachment, ChatroomsRepositoryError> {
+    Ok(MessageAttachment {
+        id: row.0,
+        media_upload_id: row.2,
+        content_type: row.3,
+        byte_size: positive_u64(row.4)?,
+        width: positive_optional_u32(row.5)?,
+        height: positive_optional_u32(row.6)?,
+        duration: positive_optional_u64(row.7)?,
+        filename: row.8,
+        position: u8::try_from(row.9).map_err(|_| ChatroomsRepositoryError::InvalidData)?,
+    })
+}
+
+fn positive_u64(value: i64) -> Result<u64, ChatroomsRepositoryError> {
+    if value <= 0 {
+        return Err(ChatroomsRepositoryError::InvalidData);
+    }
+    u64::try_from(value).map_err(|_| ChatroomsRepositoryError::InvalidData)
+}
+
+fn positive_optional_u32(value: Option<i32>) -> Result<Option<u32>, ChatroomsRepositoryError> {
+    value
+        .map(|value| {
+            if value <= 0 {
+                return Err(ChatroomsRepositoryError::InvalidData);
+            }
+            u32::try_from(value).map_err(|_| ChatroomsRepositoryError::InvalidData)
+        })
+        .transpose()
+}
+
+fn positive_optional_u64(value: Option<i32>) -> Result<Option<u64>, ChatroomsRepositoryError> {
+    value
+        .map(|value| {
+            if value <= 0 {
+                return Err(ChatroomsRepositoryError::InvalidData);
+            }
+            u64::try_from(value).map_err(|_| ChatroomsRepositoryError::InvalidData)
+        })
+        .transpose()
 }
 
 pub(super) async fn read_marker(

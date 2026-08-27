@@ -196,13 +196,11 @@ impl PostgresRealtimeRevocations {
         &self,
         group_id: Uuid,
     ) -> Result<Vec<Uuid>, RealtimeRevocationStoreError> {
-        sqlx::query_scalar::<_, Uuid>(
-            "SELECT id FROM chatrooms WHERE group_id = $1 ORDER BY id",
-        )
-        .bind(group_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|_| database_error("revocation_conversations"))
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM chatrooms WHERE group_id = $1 ORDER BY id")
+            .bind(group_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|_| database_error("revocation_conversations"))
     }
 
     pub async fn authorized_users(
@@ -240,8 +238,10 @@ impl ControlIntentAppender for PostgresRealtimeRevocations {
             if intent.version() != REALTIME_CONTROL_VERSION {
                 return Err(ControlIntentError::InvalidData);
             }
-            let payload = serde_json::to_value(intent).map_err(|_| ControlIntentError::InvalidData)?;
-            let connection = connection(transaction).map_err(|_| ControlIntentError::InvalidData)?;
+            let payload =
+                serde_json::to_value(intent).map_err(|_| ControlIntentError::InvalidData)?;
+            let connection =
+                connection(transaction).map_err(|_| ControlIntentError::InvalidData)?;
             sqlx::query(
                 "INSERT INTO outbox_events \
                  (id, intent_type, event_type, event_version, aggregate_type, aggregate_id, \

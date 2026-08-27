@@ -55,7 +55,11 @@ async fn topic_migration_upgrades_the_exact_0004_predecessor() -> TestResult {
     .into_iter()
     .map(|row| row.try_get::<String, _>("conname"))
     .collect::<Result<Vec<_>, _>>()?;
-    assert!(foreign_keys.iter().any(|name| name == "fk_chatrooms_topic_id"));
+    assert!(
+        foreign_keys
+            .iter()
+            .any(|name| name == "fk_chatrooms_topic_id")
+    );
 
     connection.close().await?;
     database.dispose().await
@@ -75,7 +79,10 @@ async fn a_failed_0005_upgrade_rolls_back_every_topic_relation_and_fk() -> TestR
         "0003_invites.sql",
         "0004_chatroom_reads.sql",
     ] {
-        fs::copy(format!("migrations/{migration}"), fixture_dir.join(migration))?;
+        fs::copy(
+            format!("migrations/{migration}"),
+            fixture_dir.join(migration),
+        )?;
     }
     let topics_sql = fs::read_to_string(TOPICS_MIGRATION)?;
     fs::write(
@@ -87,7 +94,10 @@ async fn a_failed_0005_upgrade_rolls_back_every_topic_relation_and_fk() -> TestR
         let migrator = sqlx::migrate::Migrator::new(fixture_dir.as_path()).await?;
         let mut connection = database.connection().await?;
         let migration = migrator.run_to(5, &mut connection).await;
-        assert!(migration.is_err(), "forced task-7 migration unexpectedly passed");
+        assert!(
+            migration.is_err(),
+            "forced task-7 migration unexpectedly passed"
+        );
         for table in ["topics", "topic_media", "topic_tags"] {
             assert!(!table_exists(&mut connection, table).await?);
         }

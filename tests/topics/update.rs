@@ -201,11 +201,7 @@ async fn t5_is_author_only_validates_trimmed_title_and_promotes_body() -> TestRe
             Err(TopicsError::AuthorRequired)
         );
     }
-    for invalid in [
-        "".to_owned(),
-        "   ".to_owned(),
-        "가".repeat(257),
-    ] {
+    for invalid in ["".to_owned(), "   ".to_owned(), "가".repeat(257)] {
         assert_eq!(
             topics
                 .service

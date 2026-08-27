@@ -10,9 +10,10 @@ use crate::{
     ports::{
         topics::{
             CreateTopicCommand, CreateTopicOutcome, GetTopicQuery, ListTopicDatesQuery,
-            ListTopicTagsQuery, ListTopicsQuery, PatchTopicCommand, ReplaceTopicTagsCommand,
-            TopicDatePage, TopicPage, TopicRecord, TopicStatus, TopicTagPage, TopicsRepository,
-            TopicsRepositoryError, TopicsRepositoryFuture,
+            ListTopicMediaQuery, ListTopicTagsQuery, ListTopicsQuery, PatchTopicCommand,
+            ReplaceTopicTagsCommand, TopicDatePage, TopicMediaPage, TopicPage, TopicRecord,
+            TopicStatus, TopicTagPage, TopicsRepository, TopicsRepositoryError,
+            TopicsRepositoryFuture,
         },
         transactions::TransactionHandle,
     },
@@ -93,18 +94,16 @@ impl TopicsRepository for PostgresTopicsRepository {
         Box::pin(query::get_topic(&self.pool, query))
     }
 
-    fn list_tags(
-        &self,
-        query: ListTopicTagsQuery,
-    ) -> TopicsRepositoryFuture<'_, TopicTagPage> {
+    fn list_tags(&self, query: ListTopicTagsQuery) -> TopicsRepositoryFuture<'_, TopicTagPage> {
         Box::pin(query::list_tags(&self.pool, query))
+    }
+
+    fn list_media(&self, query: ListTopicMediaQuery) -> TopicsRepositoryFuture<'_, TopicMediaPage> {
+        Box::pin(query::list_media(&self.pool, query))
     }
 }
 
-pub(super) fn database_error(
-    operation: &'static str,
-    error: sqlx::Error,
-) -> TopicsRepositoryError {
+pub(super) fn database_error(operation: &'static str, error: sqlx::Error) -> TopicsRepositoryError {
     if let sqlx::Error::Database(database) = &error {
         match database.constraint() {
             Some(

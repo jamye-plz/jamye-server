@@ -149,15 +149,10 @@ fn spawn_redis_forwarder(redis: Arc<RedisRealtimeAdapter>, hub: LocalRealtimeHub
                     continue;
                 }
             };
-            loop {
-                match subscriber.next_event().await {
-                    Ok(Some(event)) => {
-                        let conversation_id = event.conversation_id;
-                        if let Ok(payload) = serde_json::to_string(&event) {
-                            hub.publish(conversation_id, payload).await;
-                        }
-                    }
-                    Ok(None) | Err(_) => break,
+            while let Ok(Some(event)) = subscriber.next_event().await {
+                let conversation_id = event.conversation_id;
+                if let Ok(payload) = serde_json::to_string(&event) {
+                    hub.publish(conversation_id, payload).await;
                 }
             }
             tokio::time::sleep(std::time::Duration::from_millis(250)).await;

@@ -82,7 +82,10 @@ fn disposable_database_identifiers_are_allowlisted_before_sql_audit() -> TestRes
 async fn empty_database_is_the_immediate_prior_state_for_0001() -> TestResult {
     with_disposable_database(|database_url| async move {
         let mut connection = PgConnection::connect(&database_url).await?;
-        assert_eq!(application_tables(&mut connection).await?, Vec::<String>::new());
+        assert_eq!(
+            application_tables(&mut connection).await?,
+            Vec::<String>::new()
+        );
 
         let migrator = core_migrator().await?;
         migrator.run_to(1, &mut connection).await?;
@@ -434,9 +437,7 @@ async fn a_failed_sqlx_migration_leaves_no_partial_core_schema() -> TestResult {
         let fixture_path = fixture_dir.join("0001_forced_failure.sql");
         fs::write(
             &fixture_path,
-            format!(
-                "{migration_sql}\n\nSELECT * FROM task_3a_relation_that_must_not_exist;\n"
-            ),
+            format!("{migration_sql}\n\nSELECT * FROM task_3a_relation_that_must_not_exist;\n"),
         )?;
 
         let migration_result: TestResult = async {
@@ -444,7 +445,10 @@ async fn a_failed_sqlx_migration_leaves_no_partial_core_schema() -> TestResult {
             let mut connection = PgConnection::connect(&database_url).await?;
             let result = migrator.run(&mut connection).await;
             assert!(result.is_err(), "forced migration unexpectedly succeeded");
-            assert_eq!(application_tables(&mut connection).await?, Vec::<String>::new());
+            assert_eq!(
+                application_tables(&mut connection).await?,
+                Vec::<String>::new()
+            );
             connection.close().await?;
             Ok(())
         }
@@ -520,8 +524,8 @@ where
     sqlx::query(AssertSqlSafe(format!(
         "CREATE DATABASE {database_identifier}"
     )))
-        .execute(&mut admin)
-        .await?;
+    .execute(&mut admin)
+    .await?;
 
     parsed.set_path(&format!("/{database_name}"));
     let test_result = test(parsed.to_string()).await;
@@ -570,9 +574,9 @@ fn validate_disposable_database_url(database_url: &str) -> TestResult<Url> {
 
 fn quoted_disposable_identifier(identifier: &str) -> TestResult<String> {
     let valid = identifier.starts_with(DISPOSABLE_DATABASE_PREFIX)
-        && identifier
-            .chars()
-            .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_');
+        && identifier.chars().all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_'
+        });
     if !valid {
         return Err(test_error("refused unsafe disposable database identifier"));
     }

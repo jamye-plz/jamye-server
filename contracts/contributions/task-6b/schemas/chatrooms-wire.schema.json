@@ -90,8 +90,10 @@
           "type": "string"
         },
         "media": {
-          "items": false,
-          "maxItems": 0,
+          "items": {
+            "$ref": "https://contracts.jamye.test/task-8/media-wire.schema.json#/$defs/MessageAttachment"
+          },
+          "maxItems": 4,
           "type": "array"
         },
         "sender_avatar_url": {

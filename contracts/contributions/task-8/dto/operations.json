@@ -1,0 +1,57 @@
+{
+  "contract_version": "1",
+  "feature": "private_media_upload_finalize_access",
+  "operations": [
+    {
+      "auth": "member+target policy",
+      "errors": "E5",
+      "id": "MD1",
+      "method": "POST",
+      "path": "/api/v1/media/uploads",
+      "request": "UploadIntentCreate",
+      "response": "UploadIntent+PresignedPut",
+      "success_status": 201
+    },
+    {
+      "auth": "upload owner+target policy",
+      "errors": "E5",
+      "id": "MD2",
+      "method": "POST",
+      "path": "/api/v1/media/uploads/{upload_id}/finalize",
+      "request": "UploadFinalize",
+      "response": "UploadFinalizeResult",
+      "success_status": 200
+    },
+    {
+      "auth": "member",
+      "errors": "E2",
+      "id": "MD3",
+      "method": "GET",
+      "pagination": "after+limit",
+      "path": "/api/v1/topics/{topic_id}/media",
+      "request": "Query",
+      "response": "TopicMediaPage",
+      "success_status": 200
+    },
+    {
+      "auth": "member",
+      "errors": "E5",
+      "id": "MD4",
+      "method": "GET",
+      "path": "/api/v1/media/{media_id}/url",
+      "request": null,
+      "response": "MediaAccessUrl",
+      "success_status": 200
+    },
+    {
+      "auth": "member",
+      "errors": "E5",
+      "id": "MD5",
+      "method": "GET",
+      "path": "/api/v1/media/{media_id}/download",
+      "request": null,
+      "response": "307 short signed URL with safe Content-Disposition",
+      "success_status": 307
+    }
+  ]
+}

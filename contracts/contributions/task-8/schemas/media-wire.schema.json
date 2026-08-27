@@ -1,0 +1,256 @@
+{
+  "$defs": {
+    "ChatUploadFinalizeResult": {
+      "additionalProperties": false,
+      "properties": {
+        "bound": { "const": false, "type": "boolean" },
+        "scope": { "const": "chat", "type": "string" },
+        "status": { "const": "confirmed", "type": "string" },
+        "topic_media": { "type": "null" },
+        "topic_status": { "type": "null" },
+        "upload": { "$ref": "#/$defs/ConfirmedUpload" }
+      },
+      "required": ["scope", "status", "bound", "upload", "topic_media", "topic_status"],
+      "type": "object"
+    },
+    "ConfirmedUpload": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_size": { "minimum": 1, "type": "integer" },
+        "confirmed_at": { "format": "date-time", "type": "string" },
+        "content_type": { "minLength": 1, "type": "string" },
+        "duration": { "minimum": 1, "type": ["integer", "null"] },
+        "filename": { "maxLength": 255, "type": ["string", "null"] },
+        "id": { "format": "uuid", "type": "string" },
+        "kind": { "$ref": "#/$defs/MediaKind" },
+        "object_key": { "maxLength": 512, "minLength": 1, "type": "string" },
+        "scope": { "$ref": "#/$defs/MediaScope" },
+        "target_id": { "format": "uuid", "type": "string" }
+      },
+      "required": [
+        "id", "scope", "target_id", "object_key", "kind", "content_type",
+        "byte_size", "duration", "filename", "confirmed_at"
+      ],
+      "type": "object"
+    },
+    "MediaAccessUrl": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_size": { "minimum": 1, "type": "integer" },
+        "content_type": { "minLength": 1, "type": "string" },
+        "duration": { "minimum": 1, "type": ["integer", "null"] },
+        "expires_in": { "const": 600, "type": "integer" },
+        "filename": { "maxLength": 255, "type": ["string", "null"] },
+        "height": { "minimum": 1, "type": ["integer", "null"] },
+        "id": { "format": "uuid", "type": "string" },
+        "media_upload_id": { "format": "uuid", "type": "string" },
+        "url": { "format": "uri", "type": "string" },
+        "width": { "minimum": 1, "type": ["integer", "null"] }
+      },
+      "required": [
+        "id", "media_upload_id", "url", "content_type", "byte_size", "width",
+        "height", "duration", "filename", "expires_in"
+      ],
+      "type": "object"
+    },
+    "MediaKind": {
+      "enum": ["image", "video", "audio"],
+      "type": "string"
+    },
+    "MediaRef": {
+      "additionalProperties": false,
+      "properties": {
+        "media_upload_id": { "format": "uuid", "type": "string" }
+      },
+      "required": ["media_upload_id"],
+      "type": "object"
+    },
+    "MediaScope": {
+      "enum": ["chat", "topic"],
+      "type": "string"
+    },
+    "MessageAttachment": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_size": { "minimum": 1, "type": "integer" },
+        "duration": { "minimum": 1, "type": ["integer", "null"] },
+        "filename": { "maxLength": 255, "type": ["string", "null"] },
+        "height": { "minimum": 1, "type": ["integer", "null"] },
+        "id": { "format": "uuid", "type": "string" },
+        "media_upload_id": { "format": "uuid", "type": "string" },
+        "position": { "maximum": 3, "minimum": 0, "type": "integer" },
+        "type": {
+          "enum": [
+            "image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4",
+            "audio/webm", "audio/mp4", "audio/ogg"
+          ],
+          "type": "string"
+        },
+        "width": { "minimum": 1, "type": ["integer", "null"] }
+      },
+      "required": [
+        "id", "media_upload_id", "type", "byte_size", "width", "height",
+        "duration", "filename", "position"
+      ],
+      "type": "object"
+    },
+    "PresignedPut": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_in": { "const": 3600, "type": "integer" },
+        "url": { "format": "uri", "type": "string" }
+      },
+      "required": ["url", "expires_in"],
+      "type": "object"
+    },
+    "TopicMedia": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_size": { "minimum": 1, "type": ["integer", "null"] },
+        "content_type": { "minLength": 1, "type": "string" },
+        "created_at": { "format": "date-time", "type": "string" },
+        "height": { "minimum": 1, "type": ["integer", "null"] },
+        "id": { "format": "uuid", "type": "string" },
+        "media_upload_id": { "format": "uuid", "type": "string" },
+        "object_key": { "maxLength": 512, "minLength": 1, "type": "string" },
+        "topic_id": { "format": "uuid", "type": "string" },
+        "width": { "minimum": 1, "type": ["integer", "null"] }
+      },
+      "required": [
+        "id", "topic_id", "media_upload_id", "content_type", "object_key", "width",
+        "height", "byte_size", "created_at"
+      ],
+      "type": "object"
+    },
+    "TopicMediaPage": {
+      "additionalProperties": false,
+      "properties": {
+        "items": { "items": { "$ref": "#/$defs/TopicMedia" }, "type": "array" },
+        "next_cursor": { "type": ["string", "null"] }
+      },
+      "required": ["items", "next_cursor"],
+      "type": "object"
+    },
+    "TopicUploadFinalizeResult": {
+      "additionalProperties": false,
+      "properties": {
+        "bound": { "const": true, "type": "boolean" },
+        "scope": { "const": "topic", "type": "string" },
+        "status": { "const": "bound", "type": "string" },
+        "topic_media": { "$ref": "#/$defs/TopicMedia" },
+        "topic_status": { "const": "enriched", "type": "string" },
+        "upload": { "$ref": "#/$defs/ConfirmedUpload" }
+      },
+      "required": ["scope", "status", "bound", "upload", "topic_media", "topic_status"],
+      "type": "object"
+    },
+    "UploadFinalize": {
+      "additionalProperties": false,
+      "properties": {
+        "height": { "minimum": 1, "type": ["integer", "null"] },
+        "width": { "minimum": 1, "type": ["integer", "null"] }
+      },
+      "type": "object"
+    },
+    "UploadFinalizeResult": {
+      "discriminator": {
+        "mapping": {
+          "chat": "#/$defs/ChatUploadFinalizeResult",
+          "topic": "#/$defs/TopicUploadFinalizeResult"
+        },
+        "propertyName": "scope"
+      },
+      "oneOf": [
+        { "$ref": "#/$defs/ChatUploadFinalizeResult" },
+        { "$ref": "#/$defs/TopicUploadFinalizeResult" }
+      ]
+    },
+    "UploadIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_size": { "minimum": 1, "type": "integer" },
+        "content_type": { "minLength": 1, "type": "string" },
+        "created_at": { "format": "date-time", "type": "string" },
+        "expires_at": { "format": "date-time", "type": "string" },
+        "filename": { "maxLength": 255, "type": ["string", "null"] },
+        "id": { "format": "uuid", "type": "string" },
+        "kind": { "$ref": "#/$defs/MediaKind" },
+        "object_key": { "maxLength": 512, "minLength": 1, "type": "string" },
+        "scope": { "$ref": "#/$defs/MediaScope" },
+        "target_id": { "format": "uuid", "type": "string" }
+      },
+      "required": [
+        "id", "scope", "target_id", "object_key", "kind", "content_type",
+        "byte_size", "filename", "expires_at", "created_at"
+      ],
+      "type": "object"
+    },
+    "UploadIntentCreate": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "scope": { "const": "topic" } }, "required": ["scope"] },
+          "then": {
+            "properties": {
+              "content_type": {
+                "enum": ["image/jpeg", "image/png", "image/webp", "image/gif"]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "content_type": {
+                "enum": ["image/jpeg", "image/png", "image/webp", "image/gif"]
+              }
+            },
+            "required": ["content_type"]
+          },
+          "then": { "properties": { "byte_size": { "maximum": 10485760 } } }
+        },
+        {
+          "if": { "properties": { "content_type": { "const": "video/mp4" } }, "required": ["content_type"] },
+          "then": { "properties": { "byte_size": { "maximum": 52428800 } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "content_type": { "enum": ["audio/webm", "audio/mp4", "audio/ogg"] }
+            },
+            "required": ["content_type"]
+          },
+          "then": { "properties": { "byte_size": { "maximum": 15728640 } } }
+        }
+      ],
+      "properties": {
+        "byte_size": { "maximum": 52428800, "minimum": 1, "type": "integer" },
+        "content_type": {
+          "enum": [
+            "image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4",
+            "audio/webm", "audio/mp4", "audio/ogg"
+          ],
+          "type": "string"
+        },
+        "filename": { "maxLength": 255, "type": ["string", "null"] },
+        "scope": { "$ref": "#/$defs/MediaScope" },
+        "target_id": { "format": "uuid", "type": "string" }
+      },
+      "required": ["scope", "target_id", "content_type", "byte_size"],
+      "type": "object"
+    },
+    "UploadIntentWithPresignedPut": {
+      "additionalProperties": false,
+      "properties": {
+        "put": { "$ref": "#/$defs/PresignedPut" },
+        "upload": { "$ref": "#/$defs/UploadIntent" }
+      },
+      "required": ["upload", "put"],
+      "type": "object"
+    }
+  },
+  "$id": "https://contracts.jamye.test/task-8/media-wire.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Task-8 private media upload, finalize, access, and attachment wire contribution",
+  "type": "object"
+}

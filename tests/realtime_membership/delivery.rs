@@ -22,7 +22,10 @@ async fn dropped_control_signal_cannot_bypass_final_authoritative_delivery_check
 
     let hub = LocalRealtimeHub::default();
     let mut connection = hub.register(member_id).await;
-    assert!(hub.subscribe(connection.socket_id, group.main_chatroom_id).await);
+    assert!(
+        hub.subscribe(connection.socket_id, group.main_chatroom_id)
+            .await
+    );
     let delivery = AuthorizedRealtimeDelivery::new(hub.clone(), fixture.store.clone());
 
     assert_eq!(
@@ -31,7 +34,10 @@ async fn dropped_control_signal_cannot_bypass_final_authoritative_delivery_check
             .await?,
         1
     );
-    assert_eq!(connection.outbound.recv().await.as_deref(), Some("before-commit"));
+    assert_eq!(
+        connection.outbound.recv().await.as_deref(),
+        Some("before-commit")
+    );
 
     fixture
         .revocations
@@ -60,13 +66,13 @@ async fn deleted_group_and_database_uncertainty_both_fail_closed_without_deliver
     let group = create_group(&fixture, owner_id, "폐쇄 그룹").await?;
     let hub = LocalRealtimeHub::default();
     let mut connection = hub.register(owner_id).await;
-    assert!(hub.subscribe(connection.socket_id, group.main_chatroom_id).await);
+    assert!(
+        hub.subscribe(connection.socket_id, group.main_chatroom_id)
+            .await
+    );
     let delivery = AuthorizedRealtimeDelivery::new(hub, fixture.store.clone());
 
-    fixture
-        .revocations
-        .delete_group(owner_id, group.id)
-        .await?;
+    fixture.revocations.delete_group(owner_id, group.id).await?;
     assert_eq!(
         delivery
             .publish(group.main_chatroom_id, "deleted".to_owned())
@@ -87,8 +93,8 @@ async fn deleted_group_and_database_uncertainty_both_fail_closed_without_deliver
 }
 
 #[tokio::test]
-async fn every_delivery_check_started_after_revocation_commit_excludes_the_former_member(
-) -> TestResult {
+async fn every_delivery_check_started_after_revocation_commit_excludes_the_former_member()
+-> TestResult {
     let database = TestDatabase::migrated().await?;
     let pool = database.pool()?;
     let fixture = harness(pool.clone())?;
@@ -98,7 +104,10 @@ async fn every_delivery_check_started_after_revocation_commit_excludes_the_forme
     insert_member(&pool, group.id, member_id).await?;
     let hub = LocalRealtimeHub::default();
     let mut connection = hub.register(member_id).await;
-    assert!(hub.subscribe(connection.socket_id, group.main_chatroom_id).await);
+    assert!(
+        hub.subscribe(connection.socket_id, group.main_chatroom_id)
+            .await
+    );
     let delivery = AuthorizedRealtimeDelivery::new(hub.clone(), fixture.store.clone());
 
     fixture

@@ -7,6 +7,7 @@ pub mod composition;
 pub mod dev_fixtures;
 pub mod groups;
 pub mod health;
+pub mod media;
 pub mod messaging;
 pub mod realtime;
 pub mod topics;

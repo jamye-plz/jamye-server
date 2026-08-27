@@ -171,12 +171,7 @@ impl GroupsService {
     ) -> Result<(), GroupsError> {
         let mut transaction = self.begin().await?;
         let result = self
-            .remove_member_in_transaction(
-                transaction.as_mut(),
-                actor_id,
-                group_id,
-                target_user_id,
-            )
+            .remove_member_in_transaction(transaction.as_mut(), actor_id, group_id, target_user_id)
             .await;
         self.finish_application_result(transaction, result).await
     }

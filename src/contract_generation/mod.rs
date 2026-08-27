@@ -4,8 +4,7 @@ use std::{
     collections::BTreeSet,
     error::Error,
     ffi::OsStr,
-    fs,
-    io,
+    fs, io,
     path::{Component, Path},
 };
 
@@ -114,6 +113,10 @@ pub fn verify(input: &Path, provenance_path: &Path) -> Result<usize, BoxError> {
 }
 
 #[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "contract integration tests consume this helper through the included generator module"
+)]
 pub(crate) fn expected_paths(provenance_path: &Path) -> Result<Vec<String>, BoxError> {
     let provenance = manifest::load_provenance(provenance_path)?;
     Ok(expected_artifacts(&provenance)?
@@ -122,9 +125,7 @@ pub(crate) fn expected_paths(provenance_path: &Path) -> Result<Vec<String>, BoxE
         .collect())
 }
 
-fn expected_artifacts(
-    provenance: &manifest::Provenance,
-) -> Result<Vec<Artifact>, BoxError> {
+fn expected_artifacts(provenance: &manifest::Provenance) -> Result<Vec<Artifact>, BoxError> {
     let mut artifacts = Vec::new();
     artifacts.push(Artifact::json("openapi.json", &openapi::document()?)?);
     for (path, document) in realtime::documents()? {

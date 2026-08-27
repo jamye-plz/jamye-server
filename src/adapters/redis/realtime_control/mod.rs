@@ -103,7 +103,9 @@ impl RealtimeControlWorker {
         })
     }
 
-    pub async fn run_once(&self) -> Result<RealtimeControlWorkerReport, RealtimeControlWorkerError> {
+    pub async fn run_once(
+        &self,
+    ) -> Result<RealtimeControlWorkerReport, RealtimeControlWorkerError> {
         let claims = self
             .repository
             .claim_controls(&ControlClaimRequest {
@@ -117,12 +119,7 @@ impl RealtimeControlWorker {
             claimed: claims.len(),
             ..RealtimeControlWorkerReport::default()
         };
-        let outcomes = join_all(
-            claims
-                .into_iter()
-                .map(|claim| self.process_claim(claim)),
-        )
-        .await;
+        let outcomes = join_all(claims.into_iter().map(|claim| self.process_claim(claim))).await;
         for outcome in outcomes {
             report.merge(outcome?);
         }

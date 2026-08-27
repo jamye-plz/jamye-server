@@ -6,16 +6,37 @@ pub const SQLITE_ATOMICITY_SENTENCE: &str = "One exclusive SQLite transaction cr
 
 pub fn documents() -> Vec<(String, Value)> {
     vec![
-        ("fixtures/c4-content-validation.json".to_owned(), c4_content_validation()),
+        (
+            "fixtures/c4-content-validation.json".to_owned(),
+            c4_content_validation(),
+        ),
         ("fixtures/c4-duplicate.json".to_owned(), c4_duplicate()),
         ("fixtures/c4-normal.json".to_owned(), c4_normal()),
         ("fixtures/c4-permission.json".to_owned(), c4_permission()),
-        ("fixtures/message.created.json".to_owned(), message_created()),
-        ("fixtures/manifest-provenance.json".to_owned(), manifest_provenance()),
-        ("fixtures/mobile-sync-handoff.json".to_owned(), mobile_sync_handoff()),
-        ("fixtures/realtime-lifecycle.json".to_owned(), realtime_lifecycle()),
-        ("fixtures/unknown-event-recovery.json".to_owned(), unknown_event_recovery()),
-        ("fixtures/version-negotiation.json".to_owned(), version_negotiation()),
+        (
+            "fixtures/message.created.json".to_owned(),
+            message_created(),
+        ),
+        (
+            "fixtures/manifest-provenance.json".to_owned(),
+            manifest_provenance(),
+        ),
+        (
+            "fixtures/mobile-sync-handoff.json".to_owned(),
+            mobile_sync_handoff(),
+        ),
+        (
+            "fixtures/realtime-lifecycle.json".to_owned(),
+            realtime_lifecycle(),
+        ),
+        (
+            "fixtures/unknown-event-recovery.json".to_owned(),
+            unknown_event_recovery(),
+        ),
+        (
+            "fixtures/version-negotiation.json".to_owned(),
+            version_negotiation(),
+        ),
     ]
 }
 

@@ -4,8 +4,7 @@ use jamye_server::{
     adapters::{
         oauth::OsCredentialSource,
         postgres::{
-            groups::PostgresGroupsRepository,
-            realtime_revocations::PostgresRealtimeRevocations,
+            groups::PostgresGroupsRepository, realtime_revocations::PostgresRealtimeRevocations,
             transactions::SqlxTransactionManager,
         },
         redis::realtime_control::RealtimeControlWorkerConfig,
@@ -78,21 +77,15 @@ pub async fn insert_user(pool: &PgPool, nickname: &str) -> TestResult<Uuid> {
     Ok(user_id)
 }
 
-pub async fn insert_member(
-    pool: &PgPool,
-    group_id: Uuid,
-    user_id: Uuid,
-) -> TestResult<Uuid> {
+pub async fn insert_member(pool: &PgPool, group_id: Uuid, user_id: Uuid) -> TestResult<Uuid> {
     let membership_id = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO memberships (id, group_id, user_id, role) VALUES ($1, $2, $3, $4)",
-    )
-    .bind(membership_id)
-    .bind(group_id)
-    .bind(user_id)
-    .bind(GroupRole::Member.as_str())
-    .execute(pool)
-    .await?;
+    sqlx::query("INSERT INTO memberships (id, group_id, user_id, role) VALUES ($1, $2, $3, $4)")
+        .bind(membership_id)
+        .bind(group_id)
+        .bind(user_id)
+        .bind(GroupRole::Member.as_str())
+        .execute(pool)
+        .await?;
     Ok(membership_id)
 }
 
@@ -114,10 +107,7 @@ pub async fn create_group(
 
 pub fn guarded_redis_url() -> TestResult<String> {
     if env::var("JAMYE_ENVIRONMENT").as_deref() != Ok("test") {
-        return Err(io::Error::other(
-            "task-6c Redis tests require JAMYE_ENVIRONMENT=test",
-        )
-        .into());
+        return Err(io::Error::other("task-6c Redis tests require JAMYE_ENVIRONMENT=test").into());
     }
     let redis_url = env::var("REDIS_URL")
         .map_err(|_| io::Error::other("REDIS_URL is required for task-6c tests"))?;
@@ -125,10 +115,9 @@ pub fn guarded_redis_url() -> TestResult<String> {
     if parsed.scheme() != "redis"
         || !matches!(parsed.host_str(), Some("127.0.0.1" | "localhost" | "::1"))
     {
-        return Err(io::Error::other(
-            "task-6c Redis tests accept only a loopback redis:// URL",
-        )
-        .into());
+        return Err(
+            io::Error::other("task-6c Redis tests accept only a loopback redis:// URL").into(),
+        );
     }
     Ok(redis_url)
 }

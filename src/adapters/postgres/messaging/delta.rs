@@ -106,20 +106,20 @@ fn project_event(
 }
 
 fn project_v1_event(event: ConversationEvent) -> Result<DeltaItem, MessagingRepositoryError> {
-    if event.event_type == "message.created" && event.event_version == 1 {
-        if let Ok(message) = serde_json::from_value::<CanonicalMessage>(event.payload.clone())
-            && message.chatroom_id == event.conversation_id
-        {
-            return Ok(DeltaItem::Known(MessageCreatedEvent {
-                version: 1,
-                event_type: MessageCreatedType::MessageCreated,
-                event_id: event.id,
-                conversation_id: message.chatroom_id,
-                cursor: event.cursor.to_string(),
-                occurred_at: event.occurred_at,
-                data: message,
-            }));
-        }
+    if event.event_type == "message.created"
+        && event.event_version == 1
+        && let Ok(message) = serde_json::from_value::<CanonicalMessage>(event.payload.clone())
+        && message.chatroom_id == event.conversation_id
+    {
+        return Ok(DeltaItem::Known(MessageCreatedEvent {
+            version: 1,
+            event_type: MessageCreatedType::MessageCreated,
+            event_id: event.id,
+            conversation_id: message.chatroom_id,
+            cursor: event.cursor.to_string(),
+            occurred_at: event.occurred_at,
+            data: message,
+        }));
     }
     let reconcile_scope = safe_reconcile_scope(&event)?;
     Ok(DeltaItem::Unsupported(UnsupportedEventMarker {

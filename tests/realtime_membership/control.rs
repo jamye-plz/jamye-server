@@ -11,10 +11,7 @@ use jamye_server::{
     adapters::redis::realtime_control::{
         RealtimeControlError, RealtimeControlWorker, RedisControlSubscriber, RedisRealtimeControl,
     },
-    application::realtime::{
-        RealtimeSession,
-        membership_revocation::RealtimeControlIntent,
-    },
+    application::realtime::{RealtimeSession, membership_revocation::RealtimeControlIntent},
     ports::realtime::{ConversationAuthorizer, RealtimeClock, RealtimeFuture},
     transport::realtime::{
         CLOSE_MEMBERSHIP_REQUIRED, LocalRealtimeHub, RealtimeEvictionReason, SocketTiming,
@@ -89,17 +86,18 @@ async fn durable_redis_control_evicts_two_nodes_before_exact_websocket_close() -
     // Registry entries are synchronously removed before the socket task sees its close signal.
     assert_eq!(hub_a.registry_counts().await, (0, 0, 0));
     assert_eq!(hub_b.registry_counts().await, (0, 0, 0));
-    for close in [next_close(&mut socket_a).await?, next_close(&mut socket_b).await?] {
+    for close in [
+        next_close(&mut socket_a).await?,
+        next_close(&mut socket_b).await?,
+    ] {
         assert_eq!(u16::from(close.code), CLOSE_MEMBERSHIP_REQUIRED);
         assert_eq!(close.reason.as_str(), "membership_revoked");
     }
 
-    let status = sqlx::query_scalar::<_, String>(
-        "SELECT status FROM outbox_events WHERE id = $1",
-    )
-    .bind(intent.control_id())
-    .fetch_one(&pool)
-    .await?;
+    let status = sqlx::query_scalar::<_, String>("SELECT status FROM outbox_events WHERE id = $1")
+        .bind(intent.control_id())
+        .fetch_one(&pool)
+        .await?;
     assert_eq!(status, "published");
     stop(shutdown_a, server_a).await?;
     stop(shutdown_b, server_b).await?;
@@ -121,11 +119,11 @@ async fn group_delete_evicts_every_local_group_connection_with_stable_reason() -
     let mut owner = hub.register(owner_id).await;
     let mut member = hub.register(member_id).await;
     assert!(hub.subscribe(owner.socket_id, group.main_chatroom_id).await);
-    assert!(hub.subscribe(member.socket_id, group.main_chatroom_id).await);
-    let intent = fixture
-        .revocations
-        .delete_group(owner_id, group.id)
-        .await?;
+    assert!(
+        hub.subscribe(member.socket_id, group.main_chatroom_id)
+            .await
+    );
+    let intent = fixture.revocations.delete_group(owner_id, group.id).await?;
     let consumer = RealtimeControlConsumer::new(hub.clone(), fixture.store.clone());
     assert_eq!(consumer.apply(&intent).await?, 2);
     assert_eq!(hub.registry_counts().await, (0, 0, 0));
@@ -248,20 +246,18 @@ async fn subscribe(socket: &mut TestSocket, conversation_id: Uuid) -> TestResult
 async fn next_text(socket: &mut TestSocket) -> TestResult<String> {
     match next_message(socket).await? {
         ClientMessage::Text(payload) => Ok(payload.to_string()),
-        other => Err(io::Error::other(format!(
-            "expected task-6c text frame, got {other:?}"
-        ))
-        .into()),
+        other => {
+            Err(io::Error::other(format!("expected task-6c text frame, got {other:?}")).into())
+        }
     }
 }
 
 async fn next_close(socket: &mut TestSocket) -> TestResult<CloseFrame> {
     match next_message(socket).await? {
         ClientMessage::Close(Some(frame)) => Ok(frame),
-        other => Err(io::Error::other(format!(
-            "expected task-6c close frame, got {other:?}"
-        ))
-        .into()),
+        other => {
+            Err(io::Error::other(format!("expected task-6c close frame, got {other:?}")).into())
+        }
     }
 }
 

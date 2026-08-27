@@ -29,10 +29,7 @@ async fn remove_leave_and_group_delete_commit_exact_typed_control_intents() -> T
         .revocations
         .remove_member(leaving_id, group.id, leaving_id)
         .await?;
-    let deleted = fixture
-        .revocations
-        .delete_group(owner_id, group.id)
-        .await?;
+    let deleted = fixture.revocations.delete_group(owner_id, group.id).await?;
 
     assert!(matches!(
         removed,
@@ -42,7 +39,10 @@ async fn remove_leave_and_group_delete_commit_exact_typed_control_intents() -> T
         left,
         RealtimeControlIntent::MembershipRevoked { user_id, .. } if user_id == leaving_id
     ));
-    assert!(matches!(deleted, RealtimeControlIntent::GroupDeleted { .. }));
+    assert!(matches!(
+        deleted,
+        RealtimeControlIntent::GroupDeleted { .. }
+    ));
 
     let membership_count = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM memberships WHERE group_id = $1 AND user_id = ANY($2::UUID[])",
@@ -52,12 +52,11 @@ async fn remove_leave_and_group_delete_commit_exact_typed_control_intents() -> T
     .fetch_one(&pool)
     .await?;
     assert_eq!(membership_count, 0);
-    let deleted_at_exists = sqlx::query_scalar::<_, bool>(
-        "SELECT deleted_at IS NOT NULL FROM groups WHERE id = $1",
-    )
-    .bind(group.id)
-    .fetch_one(&pool)
-    .await?;
+    let deleted_at_exists =
+        sqlx::query_scalar::<_, bool>("SELECT deleted_at IS NOT NULL FROM groups WHERE id = $1")
+            .bind(group.id)
+            .fetch_one(&pool)
+            .await?;
     assert!(deleted_at_exists);
 
     let rows = sqlx::query_as::<_, (String, i16, String, Value)>(
@@ -142,12 +141,11 @@ async fn forced_control_insert_failure_rolls_back_the_real_task_6_mutation() -> 
     .fetch_one(&pool)
     .await?;
     assert!(membership_exists);
-    let group_is_live = sqlx::query_scalar::<_, bool>(
-        "SELECT deleted_at IS NULL FROM groups WHERE id = $1",
-    )
-    .bind(group.id)
-    .fetch_one(&pool)
-    .await?;
+    let group_is_live =
+        sqlx::query_scalar::<_, bool>("SELECT deleted_at IS NULL FROM groups WHERE id = $1")
+            .bind(group.id)
+            .fetch_one(&pool)
+            .await?;
     assert!(group_is_live);
     let control_count = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM outbox_events WHERE intent_type = 'control'",

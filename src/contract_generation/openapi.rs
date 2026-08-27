@@ -182,7 +182,10 @@ pub fn document() -> Result<Value, BoxError> {
         "jsonSchemaDialect".to_owned(),
         Value::String("https://json-schema.org/draft/2020-12/schema".to_owned()),
     );
-    root.insert("x-jamye-contract-stage".to_owned(), Value::String("C0".to_owned()));
+    root.insert(
+        "x-jamye-contract-stage".to_owned(),
+        Value::String("C0".to_owned()),
+    );
 
     enforce_exact_null_details(&mut value)?;
     enforce_message_content_rule(&mut value)?;

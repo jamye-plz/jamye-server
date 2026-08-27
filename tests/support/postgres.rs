@@ -1,3 +1,8 @@
+#![allow(
+    dead_code,
+    reason = "integration test crates compile different subsets of the shared PostgreSQL helpers"
+)]
+
 use std::{env, error::Error, io, path::Path};
 
 use sqlx::{AssertSqlSafe, Connection, PgConnection, PgPool, postgres::PgPoolOptions};

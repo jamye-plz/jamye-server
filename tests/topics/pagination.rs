@@ -1,9 +1,7 @@
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
 
-use jamye_server::application::topics::{
-    TopicDatePageInput, TopicPageInput, TopicsError,
-};
+use jamye_server::application::topics::{TopicDatePageInput, TopicPageInput, TopicsError};
 
 use crate::{
     TestResult,
@@ -92,7 +90,11 @@ async fn timeline_pages_are_strictly_descending_and_use_seoul_calendar_boundarie
         )
         .await?;
     assert_eq!(
-        second.items.iter().map(|topic| topic.id).collect::<Vec<_>>(),
+        second
+            .items
+            .iter()
+            .map(|topic| topic.id)
+            .collect::<Vec<_>>(),
         vec![at_midnight.id, before_midnight.id]
     );
     assert!(second.next_cursor.is_none());
@@ -110,7 +112,11 @@ async fn timeline_pages_are_strictly_descending_and_use_seoul_calendar_boundarie
         )
         .await?;
     assert_eq!(
-        january.items.iter().map(|topic| topic.id).collect::<Vec<_>>(),
+        january
+            .items
+            .iter()
+            .map(|topic| topic.id)
+            .collect::<Vec<_>>(),
         vec![later.id, at_midnight.id]
     );
     let december = topics

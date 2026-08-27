@@ -32,10 +32,10 @@ impl RedisOAuthAttemptStore {
         attempt: &OAuthAttempt,
         ttl: Duration,
     ) -> Result<CreateAttemptOutcome, OAuthAttemptError> {
-        let ttl_seconds = u64::try_from(ttl.as_secs())
-            .ok()
-            .filter(|ttl| *ttl > 0)
-            .ok_or(OAuthAttemptError::InvalidData)?;
+        let ttl_seconds = ttl.as_secs();
+        if ttl_seconds == 0 {
+            return Err(OAuthAttemptError::InvalidData);
+        }
         let payload = serde_json::to_string(attempt).map_err(|_| OAuthAttemptError::InvalidData)?;
         let mut connection = self
             .client

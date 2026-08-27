@@ -92,7 +92,7 @@ pub(crate) fn digest_hex(input: &[u8]) -> String {
     padded.extend_from_slice(&bit_length.to_be_bytes());
 
     let mut state = INITIAL_STATE;
-    for chunk in padded.chunks_exact(64) {
+    for chunk in padded.as_chunks::<64>().0 {
         let mut schedule = [0_u32; 64];
         for index in 0..16 {
             let offset = index * 4;

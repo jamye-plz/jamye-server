@@ -9,9 +9,9 @@ use uuid::Uuid;
 use crate::ports::{
     topics::{
         CreateTopicCommand, CreateTopicOutcome, GetTopicQuery, ListTopicDatesQuery,
-        ListTopicTagsQuery, ListTopicsQuery, NewTopicTag, PatchTopicCommand,
-        ReplaceTopicTagsCommand, TopicDatePage, TopicPage, TopicRecord, TopicStatus,
-        TopicTagPage, TopicTagSource, TopicsRepository, TopicsRepositoryError,
+        ListTopicMediaQuery, ListTopicTagsQuery, ListTopicsQuery, NewTopicTag, PatchTopicCommand,
+        ReplaceTopicTagsCommand, TopicDatePage, TopicMediaPage, TopicPage, TopicRecord,
+        TopicStatus, TopicTagPage, TopicTagSource, TopicsRepository, TopicsRepositoryError,
     },
     transactions::{BoxTransactionHandle, TransactionHandle, TransactionManager},
 };
@@ -19,6 +19,7 @@ use crate::ports::{
 pub const DEFAULT_TOPIC_PAGE_LIMIT: u32 = 20;
 pub const DEFAULT_DATE_PAGE_LIMIT: u32 = 31;
 pub const DEFAULT_TAG_PAGE_LIMIT: u32 = 50;
+pub const DEFAULT_MEDIA_PAGE_LIMIT: u32 = 20;
 pub const MAX_PAGE_LIMIT: u32 = 100;
 pub const MAX_DATE_PAGE_LIMIT: u32 = 366;
 
@@ -101,11 +102,7 @@ impl TopicsService {
         group_id: Uuid,
         input: TopicDatePageInput,
     ) -> Result<TopicDatePage, TopicsError> {
-        let limit = validate_limit(
-            input.limit,
-            DEFAULT_DATE_PAGE_LIMIT,
-            MAX_DATE_PAGE_LIMIT,
-        )?;
+        let limit = validate_limit(input.limit, DEFAULT_DATE_PAGE_LIMIT, MAX_DATE_PAGE_LIMIT)?;
         let after = input.after.map(|value| parse_date(&value)).transpose()?;
         self.dependencies
             .repository
@@ -183,6 +180,26 @@ impl TopicsService {
             .repository
             .list_tags(ListTopicTagsQuery {
                 group_id,
+                topic_id,
+                actor_id,
+                after,
+                limit,
+            })
+            .await
+            .map_err(TopicsError::from)
+    }
+
+    pub async fn list_media(
+        &self,
+        actor_id: Uuid,
+        topic_id: Uuid,
+        input: TopicMediaPageInput,
+    ) -> Result<TopicMediaPage, TopicsError> {
+        let limit = validate_limit(input.limit, DEFAULT_MEDIA_PAGE_LIMIT, MAX_PAGE_LIMIT)?;
+        let after = parse_uuid_cursor(input.after)?;
+        self.dependencies
+            .repository
+            .list_media(ListTopicMediaQuery {
                 topic_id,
                 actor_id,
                 after,
@@ -303,8 +320,7 @@ fn tags_command(
         {
             return Err(TopicsError::RequestValidation);
         }
-        let source = TopicTagSource::parse(&input.source)
-            .ok_or(TopicsError::RequestValidation)?;
+        let source = TopicTagSource::parse(&input.source).ok_or(TopicsError::RequestValidation)?;
         tags.push(NewTopicTag {
             id: Uuid::new_v4(),
             tag,
@@ -329,11 +345,7 @@ fn normalize_title(title: String) -> Result<String, TopicsError> {
     Ok(title)
 }
 
-fn validate_limit(
-    limit: Option<u32>,
-    default: u32,
-    maximum: u32,
-) -> Result<u32, TopicsError> {
+fn validate_limit(limit: Option<u32>, default: u32, maximum: u32) -> Result<u32, TopicsError> {
     let limit = limit.unwrap_or(default);
     if !(1..=maximum).contains(&limit) {
         return Err(TopicsError::RequestValidation);
@@ -391,9 +403,7 @@ fn announcement_body(group_id: Uuid, topic_id: Uuid, title: &str) -> String {
     for character in ['\\', '[', ']', '(', ')'] {
         escaped = escaped.replace(character, &format!("\\{character}"));
     }
-    format!(
-        "새로운 주제를 올렸어요: [{escaped}](/groups/{group_id}/topics/{topic_id}/chat)"
-    )
+    format!("새로운 주제를 올렸어요: [{escaped}](/groups/{group_id}/topics/{topic_id}/chat)")
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -435,6 +445,12 @@ pub struct TopicTagInput {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TopicTagPageInput {
+    pub after: Option<String>,
+    pub limit: Option<u32>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TopicMediaPageInput {
     pub after: Option<String>,
     pub limit: Option<u32>,
 }

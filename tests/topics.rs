@@ -4,8 +4,6 @@ use std::{error::Error, fs, io};
 mod contract;
 #[path = "topics/create.rs"]
 mod create;
-#[path = "topics/helpers.rs"]
-mod topic_helpers;
 #[path = "topics/http.rs"]
 mod http;
 #[path = "topics/migration.rs"]
@@ -14,6 +12,8 @@ mod migration;
 mod pagination;
 #[path = "support/postgres.rs"]
 mod postgres_support;
+#[path = "topics/helpers.rs"]
+mod topic_helpers;
 #[path = "topics/update.rs"]
 mod update;
 
@@ -35,7 +35,10 @@ fn production_topics_surface_is_statically_registered() -> io::Result<()> {
         "docs/commands/task-7/topics.md",
         "scripts/tasks/task-7/mod.just",
     ] {
-        assert!(fs::metadata(path)?.is_file(), "missing task-7 surface: {path}");
+        assert!(
+            fs::metadata(path)?.is_file(),
+            "missing task-7 surface: {path}"
+        );
     }
 
     let application = fs::read_to_string("src/application/topics/mod.rs")?;

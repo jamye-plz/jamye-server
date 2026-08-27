@@ -44,10 +44,9 @@ pub trait TopicsRepository: Send + Sync {
 
     fn get_topic(&self, query: GetTopicQuery) -> TopicsRepositoryFuture<'_, TopicRecord>;
 
-    fn list_tags(
-        &self,
-        query: ListTopicTagsQuery,
-    ) -> TopicsRepositoryFuture<'_, TopicTagPage>;
+    fn list_tags(&self, query: ListTopicTagsQuery) -> TopicsRepositoryFuture<'_, TopicTagPage>;
+
+    fn list_media(&self, query: ListTopicMediaQuery) -> TopicsRepositoryFuture<'_, TopicMediaPage>;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -152,6 +151,14 @@ pub struct ListTopicTagsQuery {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ListTopicMediaQuery {
+    pub topic_id: Uuid,
+    pub actor_id: Uuid,
+    pub after: Option<Uuid>,
+    pub limit: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TopicStatus {
     Seed,
     Enriched,
@@ -228,6 +235,7 @@ pub struct TopicTagRecord {
 pub struct TopicMediaRecord {
     pub id: Uuid,
     pub topic_id: Uuid,
+    pub media_upload_id: Uuid,
     pub content_type: String,
     pub object_key: String,
     pub width: Option<i32>,
@@ -252,6 +260,12 @@ pub struct TopicDatePage {
 #[derive(Clone, Debug, PartialEq)]
 pub struct TopicTagPage {
     pub items: Vec<TopicTagRecord>,
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TopicMediaPage {
+    pub items: Vec<TopicMediaRecord>,
     pub next_cursor: Option<String>,
 }
 

@@ -19,8 +19,16 @@ fn task_7_contract_contribution_is_the_exact_selected_topic_wire() -> TestResult
         ("T3", "GET", "/api/v1/groups/{group_id}/topics"),
         ("T4", "GET", "/api/v1/groups/{group_id}/topics/{topic_id}"),
         ("T5", "PATCH", "/api/v1/groups/{group_id}/topics/{topic_id}"),
-        ("T6", "PUT", "/api/v1/groups/{group_id}/topics/{topic_id}/tags"),
-        ("T7", "GET", "/api/v1/groups/{group_id}/topics/{topic_id}/tags"),
+        (
+            "T6",
+            "PUT",
+            "/api/v1/groups/{group_id}/topics/{topic_id}/tags",
+        ),
+        (
+            "T7",
+            "GET",
+            "/api/v1/groups/{group_id}/topics/{topic_id}/tags",
+        ),
     ]
     .into_iter()
     .enumerate()
@@ -37,10 +45,22 @@ fn task_7_contract_contribution_is_the_exact_selected_topic_wire() -> TestResult
     let schema: Value = serde_json::from_str(&fs::read_to_string(
         "contracts/contributions/task-7/schemas/topics-wire.schema.json",
     )?)?;
-    assert_eq!(schema["$defs"]["TopicCreatedEvent"]["properties"]["type"]["const"], "topic.created");
-    assert_eq!(schema["$defs"]["TopicCreatedEvent"]["properties"]["version"]["const"], 1);
-    assert_eq!(schema["$defs"]["CanonicalTopic"]["properties"]["status"]["enum"], serde_json::json!(["seed", "enriched"]));
-    assert_eq!(schema["$defs"]["TopicPatch"]["properties"]["title"]["type"], serde_json::json!(["string", "null"]));
+    assert_eq!(
+        schema["$defs"]["TopicCreatedEvent"]["properties"]["type"]["const"],
+        "topic.created"
+    );
+    assert_eq!(
+        schema["$defs"]["TopicCreatedEvent"]["properties"]["version"]["const"],
+        1
+    );
+    assert_eq!(
+        schema["$defs"]["CanonicalTopic"]["properties"]["status"]["enum"],
+        serde_json::json!(["seed", "enriched"])
+    );
+    assert_eq!(
+        schema["$defs"]["TopicPatch"]["properties"]["title"]["type"],
+        serde_json::json!(["string", "null"])
+    );
     assert_eq!(
         schema["$defs"]["TagReplace"]["properties"]["tags"]["items"]["required"],
         serde_json::json!(["tag", "source"])
@@ -49,9 +69,21 @@ fn task_7_contract_contribution_is_the_exact_selected_topic_wire() -> TestResult
     let fixture: Value = serde_json::from_str(&fs::read_to_string(
         "contracts/contributions/task-7/fixtures/topic-flow.json",
     )?)?;
-    assert_eq!(fixture["t1"]["idempotency"]["same_payload"], "200 canonical existing");
-    assert_eq!(fixture["t1"]["topic_created"]["is_distinct_from_announcement_event"], true);
-    assert_eq!(fixture["t5"]["owner_non_author"], "403 topic_author_required");
-    assert_eq!(fixture["transaction"]["rows"].as_array().map(Vec::len), Some(8));
+    assert_eq!(
+        fixture["t1"]["idempotency"]["same_payload"],
+        "200 canonical existing"
+    );
+    assert_eq!(
+        fixture["t1"]["topic_created"]["is_distinct_from_announcement_event"],
+        true
+    );
+    assert_eq!(
+        fixture["t5"]["owner_non_author"],
+        "403 topic_author_required"
+    );
+    assert_eq!(
+        fixture["transaction"]["rows"].as_array().map(Vec::len),
+        Some(8)
+    );
     Ok(())
 }

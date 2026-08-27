@@ -4,9 +4,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
-    domain::messaging::{
-        CanonicalMessage, MessageCreatedEvent, MessageCreatedType, MessageKind,
-    },
+    domain::messaging::{CanonicalMessage, MessageCreatedEvent, MessageCreatedType, MessageKind},
     ports::topics::{
         CreateTopicCommand, CreateTopicOutcome, PatchTopicCommand, ReplaceTopicTagsCommand,
         TopicRecord, TopicStatus, TopicTagPage, TopicTagRecord, TopicsRepositoryError,
@@ -48,8 +46,8 @@ pub(super) async fn create_topic(
     connection: &mut PgConnection,
     command: &CreateTopicCommand,
 ) -> Result<CreateTopicOutcome, TopicsRepositoryError> {
-    let membership = lock_group_and_membership(connection, command.group_id, command.author_id)
-        .await?;
+    let membership =
+        lock_group_and_membership(connection, command.group_id, command.author_id).await?;
     let inserted = sqlx::query_as::<_, (OffsetDateTime, OffsetDateTime)>(
         "INSERT INTO topics \
              (id, group_id, author_id, idempotency_key, request_fingerprint, title) \
@@ -88,8 +86,8 @@ pub(super) async fn create_topic(
         author_id: command.author_id,
         title: command.title.clone(),
     };
-    let topic_payload = serde_json::to_value(&topic_data)
-        .map_err(|_| TopicsRepositoryError::InvalidData)?;
+    let topic_payload =
+        serde_json::to_value(&topic_data).map_err(|_| TopicsRepositoryError::InvalidData)?;
     let (topic_cursor, topic_occurred_at) = sqlx::query_as::<_, (i64, OffsetDateTime)>(
         "INSERT INTO conversation_events \
              (id, conversation_id, event_type, event_version, payload) \
@@ -166,8 +164,8 @@ pub(super) async fn create_topic(
         created_at: announcement_created_at,
         media: Vec::new(),
     };
-    let announcement_payload = serde_json::to_value(&announcement)
-        .map_err(|_| TopicsRepositoryError::InvalidData)?;
+    let announcement_payload =
+        serde_json::to_value(&announcement).map_err(|_| TopicsRepositoryError::InvalidData)?;
     let (announcement_cursor, announcement_occurred_at) =
         sqlx::query_as::<_, (i64, OffsetDateTime)>(
             "INSERT INTO conversation_events \
@@ -196,8 +194,7 @@ pub(super) async fn create_topic(
         main_chatroom_id,
         command.announcement_event_id,
         "message.created",
-        serde_json::to_value(announcement_event)
-            .map_err(|_| TopicsRepositoryError::InvalidData)?,
+        serde_json::to_value(announcement_event).map_err(|_| TopicsRepositoryError::InvalidData)?,
     )
     .await?;
 
@@ -281,8 +278,8 @@ pub(super) async fn replace_tags(
     connection: &mut PgConnection,
     command: &ReplaceTopicTagsCommand,
 ) -> Result<TopicTagPage, TopicsRepositoryError> {
-    let membership = lock_group_and_membership(connection, command.group_id, command.actor_id)
-        .await?;
+    let membership =
+        lock_group_and_membership(connection, command.group_id, command.actor_id).await?;
     let author_id = sqlx::query_scalar::<_, Uuid>(
         "SELECT author_id FROM topics WHERE id = $1 AND group_id = $2 FOR UPDATE",
     )
@@ -424,7 +421,7 @@ async fn load_topic(
         .map(tag_from_row)
         .collect::<Result<Vec<_>, _>>()?;
     let media = sqlx::query_as::<_, TopicMediaRow>(
-        "SELECT id, topic_id, type, object_key, width, height, byte_size, created_at \
+        "SELECT id, topic_id, media_upload_id, type, object_key, width, height, byte_size, created_at \
          FROM topic_media WHERE topic_id = $1 ORDER BY created_at, id",
     )
     .bind(topic_id)

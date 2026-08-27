@@ -141,17 +141,12 @@ struct UserPatchBody {
     avatar_url: NullableField,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 enum NullableField {
+    #[default]
     Omitted,
     Null,
     Value(String),
-}
-
-impl Default for NullableField {
-    fn default() -> Self {
-        Self::Omitted
-    }
 }
 
 impl<'de> Deserialize<'de> for NullableField {

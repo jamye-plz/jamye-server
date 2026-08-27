@@ -98,7 +98,7 @@ impl TryFrom<AuthConfigInput> for AuthConfig {
             Duration::from_millis,
         )?;
         let access_token_secret = required("JAMYE_ACCESS_TOKEN_SECRET", input.access_token_secret)?;
-        if access_token_secret.as_bytes().len() < 32 {
+        if access_token_secret.len() < 32 {
             return Err(AuthConfigError::new(
                 "JAMYE_ACCESS_TOKEN_SECRET",
                 "must contain at least 32 bytes",
@@ -159,9 +159,17 @@ pub struct ProviderConfig {
 }
 
 #[derive(Clone)]
+#[expect(
+    dead_code,
+    reason = "task-12 production composition will consume validated auth secrets"
+)]
 pub struct SensitiveValue(String);
 
 impl SensitiveValue {
+    #[expect(
+        dead_code,
+        reason = "task-12 production composition will wire auth secrets into concrete adapters"
+    )]
     pub(crate) fn expose_secret(&self) -> &str {
         &self.0
     }
