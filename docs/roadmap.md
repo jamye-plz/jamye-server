@@ -1,9 +1,9 @@
 # jamye-server 로드맵 — FastAPI 전체 이관, 신뢰성 고도화, 모바일 계약
 
 > 세션: ultrawork/20260822-200110
-> 현재 단계: PLAN_GATE passed; M0·M1·M2·M2b·M3a·M3b·M4·M5(task-6)·M5b(task-6b)·M5c(task-6c)·M6(task-7)·M7(task-8)·M8(task-9) 완료
-> 상태: task-9는 D9=A structured notification, N1/N2 history/read, P2–P4 Expo installation lifecycle, canonical source-event별 durable occurrence, DB-time lease/generation CAS, send-authorization/privacy fence, migration `0007`, contract와 static push runtime을 materialize했다. Repository-wide format/strict Clippy가 통과했고 process-isolated aggregate GREEN은 notifications 54/54, architecture 4/4 및 최종 exit `0`을 기록했다. D5=A와 D10=A도 2026-08-27 사용자 승인으로 locked되어 task-11/M10 착수 조건이 충족됐다.
-> 진행률: 구현 task 14/17, 마일스톤 13/16 완료(단순 개수 기준); 남은 구현은 task-11·12·13과 최종 VERIFY/SHIP다.
+> 현재 단계: PLAN_GATE passed; M0·M1·M2·M2b·M3a·M3b·M4·M5(task-6)·M5b(task-6b)·M5c(task-6c)·M6(task-7)·M7(task-8)·M8(task-9)·M10(task-11) 완료, M11a(task-12) 새 ultrawork 인계
+> 상태: task-11은 D5=A/D10=A, migration `0008`, 원자적 tombstone/private-state 전환, durable object cleanup, U3 HTTP와 push interleaving을 네 TDD sprint로 materialize했고 final VERIFY, REFINE, SHIP Steps 14-17 및 2026-08-31 사용자 최종 승인을 통과했다. 최종 사용자 실행 format apply/check와 strict Clippy가 exit `0`, aggregate는 account deletion 25/25와 architecture 4/4 및 exit `0`이다. 재현 가능한 all-target/all-feature 80% coverage는 면제하지 않고 Task-12 최종 바이너리 조합 뒤 Task-13 선언 도구 게이트로 이동한다.
+> 진행률: 구현 task 15/17, 마일스톤 14/16 완료(단순 개수 기준); task-12·13과 최종 통합 VERIFY/SHIP이 남는다.
 > 기계 SSOT: .agents/results/plan-20260822-200110.json
 
 ## 1. 목표와 범위
@@ -211,7 +211,7 @@ M1은 /Users/poby/Developer/jamye-plz의 정확한 PF1 source set을 determinist
 - flake는 supported system마다 api/worker package, checks, devShell, nixosModules.default를 export한다.
 - api/worker package matrix는 두 system 모두를 대상으로 한다. x86_64-linux builder가 없으면 production lane blocker이며 skip 성공으로 기록하지 않는다.
 - default-feature Rust tests와 all-feature Rust tests는 별도 card다.
-- coverage card는 구현 시 공식 확인한 all-target command로 library, binaries, integration targets를 모두 포함해 80% 이상을 요구한다.
+- coverage card는 Task-12 최종 api/worker 조합 뒤 Task-13이 재현 가능한 도구를 선언할 때 구현한다. 공식 확인한 all-target/all-feature command로 library, binaries, integration targets를 모두 포함해 80% 이상을 요구한다. 이 순서 이동은 2026-08-31 사용자 승인으로 locked됐으며 coverage 자체를 면제하지 않는다.
 - STT worker/inference package와 관련 Nix input/config는 만들지 않는다.
 - NixOS module은 package, listenAddress, environmentFile, migration policy와 선택적 `objectStorage.createLocally`를 소유한다. 로컬 개발·통합 테스트는 rootless Podman Compose를 사용하고, production에서 이 옵션을 켜면 homelab이 소비하는 module이 native `services.minio`를 함께 실행한다. D11=B에 따라 별도 bucket oneshot은 두지 않고 API `ensure_bucket`만 버킷 lifecycle을 소유한다. DB/Redis와 host/domain/volume, SOPS secret, ingress, monitoring, backup/restore는 계속 homelab 소유다.
 
@@ -304,8 +304,8 @@ task-10은 사용자 승인 STT non-goal로 삭제했다. 기존 참조 안정�
 4. task-5/task-6/task-6b/task-6c는 Kakao/Google PKCE auth, profile/rate limit, groups/memberships/invites, chatroom history/read와 multi-node membership revocation fence를 완료했다.
 5. task-7/M6과 task-8/M7은 topics/unread/announcement transaction, private media/voice binding, migration `0005`/`0006`과 D11=B API bucket lifecycle을 완료했다.
 6. task-9/M8은 D9=A notification history, Expo installation/delivery, privacy/send-authorization fence와 migration `0007`을 commit `1dcef1f`로 완료했다. 최종 evidence는 notifications 54/54, architecture 4/4, strict Clippy/format 및 aggregate exit `0`이다.
-7. 사용자가 D5=A와 D10=A를 승인했다. 따라서 다음 구현은 task-11/M10이며 ownership-transfer 409 fence, tombstone/anonymize disposition, migration `0008`, durable object cleanup을 TDD로 materialize한다.
-8. task-11 이후 task-12/M11a final static api/worker·3 UoW·selected C2, task-13/M11b dual-system package/NixOS module, 최종 VERIFY/SHIP 순서로 진행한다.
+7. 사용자가 D5=A와 D10=A를 승인했고 task-11/M10은 ownership-transfer 409 fence, tombstone/anonymize disposition, migration `0008`, durable object cleanup을 네 TDD sprint와 25+4 aggregate로 materialize했다. Final VERIFY, REFINE, SHIP Steps 14-17 및 2026-08-31 사용자 최종 승인을 통과해 완료됐다.
+8. task-12/M11a 새 ultrawork에서 final static api/worker·3 UoW·selected C2를 진행한 뒤, task-13/M11b dual-system package/NixOS module과 재현 가능한 all-target/all-feature 80% coverage, 최종 VERIFY/SHIP 순서로 진행한다.
 9. dependency, locked decision evidence와 user-run evidence가 충족되면 별도 milestone-start 승인은 필요하지 않다. production/release/추가 SCM 작업은 계속 별도 승인을 요구한다.
 
 아래 장문 단락은 task-5 RED 준비 시점까지의 누적 실행 이력을 보존한 historical

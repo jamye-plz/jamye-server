@@ -7,6 +7,7 @@ use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
 };
 
+pub mod account_deletion;
 pub mod auth;
 pub mod chatrooms;
 #[cfg(feature = "dev-fixtures")]

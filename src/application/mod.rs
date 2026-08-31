@@ -1,5 +1,6 @@
 //! Product use cases and transaction boundaries.
 
+pub mod account_deletion;
 pub mod auth;
 pub mod chatrooms;
 pub mod groups;
