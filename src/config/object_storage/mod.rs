@@ -1,6 +1,6 @@
 //! Feature-local private object-storage configuration.
 
-use std::{fmt, net::Ipv4Addr};
+use std::{env, fmt, net::Ipv4Addr};
 
 use url::{Host, Url};
 
@@ -35,6 +35,9 @@ pub struct ObjectStorageConfig {
 }
 
 impl ObjectStorageConfig {
+    pub fn from_env(environment: AppEnvironment) -> Result<Option<Self>, ConfigError> {
+        Self::resolve(environment, ObjectStorageConfigInput::from_env())
+    }
     pub fn resolve(
         environment: AppEnvironment,
         input: ObjectStorageConfigInput,
@@ -96,6 +99,19 @@ impl ObjectStorageConfig {
 
     pub(crate) fn secret_access_key(&self) -> &str {
         self.secret_access_key.expose()
+    }
+}
+
+impl ObjectStorageConfigInput {
+    pub fn from_env() -> Self {
+        Self {
+            endpoint: env::var(ENDPOINT_KEY).ok(),
+            public_endpoint: env::var(PUBLIC_ENDPOINT_KEY).ok(),
+            region: env::var(REGION_KEY).ok(),
+            bucket: env::var(BUCKET_KEY).ok(),
+            access_key_id: env::var(ACCESS_KEY_ID_KEY).ok(),
+            secret_access_key: env::var(SECRET_ACCESS_KEY_KEY).ok(),
+        }
     }
 }
 

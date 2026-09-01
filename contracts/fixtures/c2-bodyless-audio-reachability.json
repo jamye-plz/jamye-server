@@ -1,0 +1,33 @@
+{
+  "c4": {
+    "request": {
+      "body": null,
+      "client_msg_id": "30000000-0000-4000-8000-000000000001",
+      "media": [
+        {
+          "mime_type": "audio/m4a",
+          "state": "finalized"
+        }
+      ]
+    },
+    "retry": {
+      "client_msg_id": "30000000-0000-4000-8000-000000000001"
+    }
+  },
+  "mobile_execution": {
+    "playback": "jamye-app-owned",
+    "server_execution": "none"
+  },
+  "server_path": {
+    "composition": "SendMessage",
+    "delivery": [
+      "worker",
+      "Redis",
+      "WebSocket message.created",
+      "offline delta",
+      "history",
+      "MD4 metadata-only reissue",
+      "MD5 metadata-only reissue"
+    ]
+  }
+}

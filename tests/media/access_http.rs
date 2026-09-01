@@ -49,6 +49,7 @@ async fn media_resilience_structured_json_logs_exclude_access_secrets() -> TestR
     let output = writer.clone();
     let subscriber = build_json_subscriber(writer, "jamye_server=info")?;
     let _guard = tracing::subscriber::set_default(subscriber);
+    let _interest_sentinel = crate::logging_interest_sentinel();
 
     let view_success = harness(RepositoryMode::Success, StorageMode::Success)
         .oneshot(request(

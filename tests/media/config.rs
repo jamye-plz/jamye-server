@@ -1,8 +1,9 @@
-use std::io;
+use std::{io, time::Duration};
 
 use jamye_server::config::{
     AppEnvironment,
     object_storage::{ObjectStorageConfig, ObjectStorageConfigInput},
+    rate_limit::{RateLimitConfig, RateLimitConfigInput},
 };
 
 use crate::TestResult;
@@ -123,6 +124,34 @@ fn invalid_bucket_name_is_rejected_without_echoing_it() {
         Some("JAMYE_OBJECT_STORAGE_BUCKET")
     );
     assert!(!format!("{error:?}").contains(invalid_bucket));
+}
+
+#[test]
+fn media_upload_presign_rate_limit_override_is_materialized() -> TestResult {
+    let config = RateLimitConfig::try_from(RateLimitConfigInput {
+        media_upload_presign_limit: Some("17".to_owned()),
+        media_upload_presign_window_seconds: Some("45".to_owned()),
+        ..RateLimitConfigInput::default()
+    })?;
+
+    assert_eq!(config.media_upload_presign.limit, 17);
+    assert_eq!(config.media_upload_presign.window, Duration::from_secs(45));
+    Ok(())
+}
+
+#[test]
+fn media_upload_presign_rate_limit_rejects_an_invalid_bound() -> TestResult {
+    let error = RateLimitConfig::try_from(RateLimitConfigInput {
+        media_upload_presign_limit: Some("0".to_owned()),
+        ..RateLimitConfigInput::default()
+    })
+    .err();
+    let Some(error) = error else {
+        return Err(io::Error::other("zero media upload-presign rate limit was accepted").into());
+    };
+
+    assert_eq!(error.key(), "JAMYE_RATE_LIMIT_MEDIA_UPLOAD_PRESIGN_LIMIT");
+    Ok(())
 }
 
 fn complete_input(public_endpoint: &str) -> ObjectStorageConfigInput {

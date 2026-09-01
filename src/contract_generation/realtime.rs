@@ -5,13 +5,16 @@ use std::collections::BTreeSet;
 use schemars::{JsonSchema, generate::SchemaSettings};
 use serde_json::Value;
 
-use super::model::{ClientFrame, MessageCreatedEvent, ServerFrame};
+use super::model::{
+    ClientFrame, MessageCreatedEvent, ReleaseCandidateServerFrame, ServerFrame, TopicCreatedEvent,
+};
 use super::{BoxError, invalid_data};
 
-pub const REALTIME_DISCRIMINANTS: &[&str] = &["message.created"];
+pub const C0_REALTIME_DISCRIMINANTS: &[&str] = &["message.created"];
+pub const REALTIME_DISCRIMINANTS: &[&str] = &["message.created", "topic.created"];
 
 pub fn documents() -> Result<Vec<(String, Value)>, BoxError> {
-    validate_discriminants()?;
+    validate_discriminants(C0_REALTIME_DISCRIMINANTS, "C0")?;
     Ok(vec![
         (
             "realtime/client-frame.schema.json".to_owned(),
@@ -27,10 +30,51 @@ pub fn documents() -> Result<Vec<(String, Value)>, BoxError> {
                 "Jamye message.created event v1",
             )?,
         ),
-        ("realtime/protocol.json".to_owned(), protocol_document()),
+        (
+            "realtime/protocol.json".to_owned(),
+            protocol_document(C0_REALTIME_DISCRIMINANTS, "C0"),
+        ),
         (
             "realtime/server-frame.schema.json".to_owned(),
             schema_document::<ServerFrame>(
+                "https://contracts.jamye.local/realtime/server-frame.schema.json",
+                "Jamye realtime server frames",
+            )?,
+        ),
+    ])
+}
+
+pub fn documents_release_candidate() -> Result<Vec<(String, Value)>, BoxError> {
+    validate_discriminants(REALTIME_DISCRIMINANTS, "C2")?;
+    Ok(vec![
+        (
+            "realtime/client-frame.schema.json".to_owned(),
+            schema_document::<ClientFrame>(
+                "https://contracts.jamye.local/realtime/client-frame.schema.json",
+                "Jamye realtime client frames",
+            )?,
+        ),
+        (
+            "realtime/message.created.schema.json".to_owned(),
+            schema_document::<MessageCreatedEvent>(
+                "https://contracts.jamye.local/realtime/message.created.schema.json",
+                "Jamye message.created event v1",
+            )?,
+        ),
+        (
+            "realtime/topic.created.schema.json".to_owned(),
+            schema_document::<TopicCreatedEvent>(
+                "https://contracts.jamye.local/realtime/topic.created.schema.json",
+                "Jamye topic.created event v1",
+            )?,
+        ),
+        (
+            "realtime/protocol.json".to_owned(),
+            protocol_document(REALTIME_DISCRIMINANTS, "C2"),
+        ),
+        (
+            "realtime/server-frame.schema.json".to_owned(),
+            schema_document::<ReleaseCandidateServerFrame>(
                 "https://contracts.jamye.local/realtime/server-frame.schema.json",
                 "Jamye realtime server frames",
             )?,
@@ -51,23 +95,25 @@ fn schema_document<T: JsonSchema>(schema_id: &str, title: &str) -> Result<Value,
     Ok(value)
 }
 
-fn validate_discriminants() -> Result<(), BoxError> {
-    if REALTIME_DISCRIMINANTS != ["message.created"] {
-        return Err(invalid_data("C0 must contain only message.created").into());
+fn validate_discriminants(discriminants: &[&str], stage: &str) -> Result<(), BoxError> {
+    let expected = if stage == "C0" {
+        C0_REALTIME_DISCRIMINANTS
+    } else {
+        REALTIME_DISCRIMINANTS
+    };
+    if discriminants != expected {
+        return Err(invalid_data(format!("{stage} realtime discriminants differ")).into());
     }
-    let unique = REALTIME_DISCRIMINANTS
-        .iter()
-        .copied()
-        .collect::<BTreeSet<_>>();
-    if unique.len() != REALTIME_DISCRIMINANTS.len() {
-        return Err(invalid_data("duplicate C0 realtime discriminant").into());
+    let unique = discriminants.iter().copied().collect::<BTreeSet<_>>();
+    if unique.len() != discriminants.len() {
+        return Err(invalid_data(format!("duplicate {stage} realtime discriminant")).into());
     }
     Ok(())
 }
 
-fn protocol_document() -> Value {
+fn protocol_document(discriminants: &[&str], stage: &str) -> Value {
     serde_json::json!({
-        "stage": "C0",
+        "stage": stage,
         "url": "wss://{host}/api/v1/realtime/ws?ticket={one_time_ticket}",
         "contract_versions": {
             "current": "1",
@@ -98,7 +144,7 @@ fn protocol_document() -> Value {
         },
         "client_frames": ["subscribe", "unsubscribe", "ping"],
         "server_control_frames": ["subscribed", "unsubscribed", "pong", "error"],
-        "known_event_discriminants": REALTIME_DISCRIMINANTS,
+        "known_event_discriminants": discriminants,
         "join_ack": "subscribed is emitted only after authoritative membership validation and local registration",
         "denied_subscribe": {
             "indistinguishable_cases": [

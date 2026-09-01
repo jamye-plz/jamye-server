@@ -122,6 +122,37 @@ pub struct MessageCreatedEvent {
     pub data: CanonicalMessage,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, Serialize, ToSchema)]
+pub enum TopicCreatedType {
+    #[serde(rename = "topic.created")]
+    TopicCreated,
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TopicCreatedData {
+    pub topic_id: Uuid,
+    pub group_id: Uuid,
+    pub chatroom_id: Uuid,
+    pub author_id: Uuid,
+    pub title: String,
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TopicCreatedEvent {
+    #[schemars(range(min = 1, max = 1))]
+    #[schema(minimum = 1, maximum = 1)]
+    pub version: u8,
+    #[serde(rename = "type")]
+    pub event_type: TopicCreatedType,
+    pub event_id: Uuid,
+    pub conversation_id: Uuid,
+    pub cursor: String,
+    pub occurred_at: String,
+    pub data: TopicCreatedData,
+}
+
 #[derive(Clone, Debug, Deserialize, JsonSchema, Serialize, ToSchema)]
 #[serde(untagged)]
 pub enum DeltaItem {
@@ -188,4 +219,12 @@ pub enum ServerControlFrame {
 pub enum ServerFrame {
     Control(ServerControlFrame),
     MessageCreated(MessageCreatedEvent),
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(untagged)]
+pub enum ReleaseCandidateServerFrame {
+    Control(ServerControlFrame),
+    MessageCreated(MessageCreatedEvent),
+    TopicCreated(TopicCreatedEvent),
 }

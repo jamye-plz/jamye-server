@@ -216,6 +216,41 @@ pub(super) async fn create_topic(
     }))
 }
 
+pub(super) async fn notification_context(
+    connection: &mut PgConnection,
+    topic: &TopicRecord,
+) -> Result<crate::ports::topics::TopicNotificationContext, TopicsRepositoryError> {
+    let rows = sqlx::query_as::<_, (Uuid, Uuid, Uuid, Uuid, String)>(
+        "SELECT topic.group_id, topic.id, chatroom.id, event.id, author.nickname \
+         FROM topics AS topic \
+         JOIN chatrooms AS chatroom ON chatroom.topic_id = topic.id \
+           AND chatroom.group_id = topic.group_id AND chatroom.type = 'topic' \
+         JOIN conversation_events AS event ON event.conversation_id = chatroom.id \
+           AND event.event_type = 'topic.created' AND event.event_version = 1 \
+           AND event.payload ->> 'topic_id' = topic.id::text \
+         JOIN users AS author ON author.id = topic.author_id \
+         WHERE topic.id = $1 AND topic.group_id = $2 AND topic.author_id = $3 \
+         FOR SHARE OF topic, chatroom, event, author",
+    )
+    .bind(topic.id)
+    .bind(topic.group_id)
+    .bind(topic.author_id)
+    .fetch_all(&mut *connection)
+    .await
+    .map_err(|error| database_error("topic_notification_context", error))?;
+    let [row] = rows.as_slice() else {
+        return Err(TopicsRepositoryError::InvalidData);
+    };
+    Ok(crate::ports::topics::TopicNotificationContext {
+        group_id: row.0,
+        topic_id: row.1,
+        conversation_id: row.2,
+        source_event_id: row.3,
+        author_id: topic.author_id,
+        author_display_name: row.4.clone(),
+    })
+}
+
 pub(super) async fn patch_topic(
     connection: &mut PgConnection,
     command: &PatchTopicCommand,

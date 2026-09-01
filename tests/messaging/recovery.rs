@@ -163,6 +163,7 @@ async fn structured_logs_exclude_message_and_database_secrets() -> TestResult {
     let output = writer.clone();
     let subscriber = build_json_subscriber(writer, "info")?;
     let _guard = tracing::subscriber::set_default(subscriber);
+    let _interest_sentinel = tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
     let sentinel = "TASK_4A_SENTINEL_MESSAGE_BODY";
 
     let created = app

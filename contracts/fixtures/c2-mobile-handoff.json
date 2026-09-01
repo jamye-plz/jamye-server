@@ -1,0 +1,9 @@
+{
+  "atomicity_contract": "One exclusive SQLite transaction creates both messages(status=pending) and the persisted outbox command with the unchanged client_msg_id; after process reopen, both rows are visible or neither is.",
+  "execution_owner": "jamye-app",
+  "references": {
+    "task_3b_task_4b_two_phase_delta": "contracts/fixtures/mobile-sync-handoff.json;tests/realtime/c1.rs::dev_c1_flows_from_seed_to_rest_outbox_redis_websocket_and_delta",
+    "task_5_auth_trace": "contracts/contributions/task-5/fixtures/mobile-auth-handoff.json"
+  },
+  "server_execution": "none"
+}

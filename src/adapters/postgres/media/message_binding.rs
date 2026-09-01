@@ -14,8 +14,54 @@ use crate::{
         },
         messaging::MessageAttachment,
     },
-    ports::media::{BindMessageMediaCommand, MediaRepositoryError},
+    ports::media::{
+        AuthoritativeMessageMediaCommand, BindMessageMediaCommand, BindMessageMediaItem,
+        MediaRepositoryError,
+    },
 };
+
+pub(super) async fn bind_authoritative_message_media(
+    connection: &mut PgConnection,
+    command: &AuthoritativeMessageMediaCommand,
+) -> Result<Vec<MessageAttachment>, MediaRepositoryError> {
+    let binding = BindMessageMediaCommand {
+        actor_id: command.actor_id,
+        chatroom_id: command.chatroom_id,
+        message_id: command.message_id,
+        media: command
+            .upload_ids
+            .iter()
+            .copied()
+            .map(|upload_id| BindMessageMediaItem {
+                upload_id,
+                // The first bind pass only uses IDs to acquire all authorized upload locks.
+                // The derived value is replaced from the locked row immediately below.
+                finalized: crate::domain::media::FinalizedObject {
+                    kind: MediaKind::Image,
+                    content_type: String::new(),
+                    byte_size: 0,
+                    duration_seconds: None,
+                },
+            })
+            .collect(),
+    };
+    let _body = lock_authorized_message(connection, &binding).await?;
+    validate_request_identity(&binding)?;
+    let uploads = lock_uploads_in_request_order(connection, &binding).await?;
+    let authoritative = BindMessageMediaCommand {
+        media: uploads
+            .iter()
+            .map(|upload| {
+                Ok(BindMessageMediaItem {
+                    upload_id: upload.id,
+                    finalized: upload.finalized_object()?,
+                })
+            })
+            .collect::<Result<Vec<_>, MediaRepositoryError>>()?,
+        ..binding
+    };
+    bind_message_media(connection, &authoritative).await
+}
 
 pub(super) async fn bind_message_media(
     connection: &mut PgConnection,

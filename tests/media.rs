@@ -13,6 +13,13 @@ fn lock_test_mutex<'a, T>(mutex: &'a Mutex<T>, name: &str) -> MutexGuard<'a, T> 
     }
 }
 
+fn logging_interest_sentinel() -> tracing::Dispatch {
+    // Keep two scoped dispatchers registered while a private writer is active.
+    // This prevents tracing-core's single-dispatch fast path from caching a new
+    // callsite as disabled when a parallel test thread observes it first.
+    tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default())
+}
+
 #[path = "media/access_adapters.rs"]
 mod access_adapters;
 #[path = "media/access_http.rs"]

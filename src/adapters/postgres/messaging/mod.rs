@@ -6,9 +6,13 @@ mod send;
 use sqlx::PgPool;
 
 use crate::{
+    adapters::postgres::transactions::connection,
     domain::messaging::{EventPage, SendMessageCommand},
     ports::{
-        messaging::{DeltaQuery, MessagingFuture, MessagingRepository, PersistMessageOutcome},
+        messaging::{
+            DeltaQuery, MessageDeliveryContext, MessagingFuture, MessagingRepository,
+            MessagingRepositoryError, PersistMessageOutcome, PersistedMessage,
+        },
         transactions::TransactionHandle,
     },
 };
@@ -35,5 +39,17 @@ impl MessagingRepository for PostgresMessagingRepository {
 
     fn events(&self, query: DeltaQuery) -> MessagingFuture<'_, EventPage> {
         Box::pin(delta::page(&self.pool, query))
+    }
+
+    fn delivery_context<'a>(
+        &'a self,
+        handle: &'a mut dyn TransactionHandle,
+        message: &'a PersistedMessage,
+    ) -> MessagingFuture<'a, MessageDeliveryContext> {
+        Box::pin(async move {
+            let connection =
+                connection(handle).map_err(|_| MessagingRepositoryError::DatabaseUnavailable)?;
+            send::delivery_context(connection, message).await
+        })
     }
 }

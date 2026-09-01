@@ -159,17 +159,9 @@ pub struct ProviderConfig {
 }
 
 #[derive(Clone)]
-#[expect(
-    dead_code,
-    reason = "task-12 production composition will consume validated auth secrets"
-)]
 pub struct SensitiveValue(String);
 
 impl SensitiveValue {
-    #[expect(
-        dead_code,
-        reason = "task-12 production composition will wire auth secrets into concrete adapters"
-    )]
     pub(crate) fn expose_secret(&self) -> &str {
         &self.0
     }

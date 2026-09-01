@@ -5,12 +5,14 @@ use std::{env, fmt, time::Duration};
 use crate::application::{
     auth::{AuthRateLimitPolicy, EndpointRateLimit},
     groups::{GroupsEndpointRateLimit, GroupsRateLimitPolicy},
+    media::MediaEndpointRateLimit,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RateLimitConfig {
     pub auth: AuthRateLimitPolicy,
     pub groups: GroupsRateLimitPolicy,
+    pub media_upload_presign: MediaEndpointRateLimit,
 }
 
 impl RateLimitConfig {
@@ -51,6 +53,10 @@ impl Default for RateLimitConfig {
                     window: one_minute,
                 },
             },
+            media_upload_presign: MediaEndpointRateLimit {
+                limit: 30,
+                window: one_minute,
+            },
         }
     }
 }
@@ -69,6 +75,8 @@ pub struct RateLimitConfigInput {
     pub invite_issue_window_seconds: Option<String>,
     pub invite_redeem_limit: Option<String>,
     pub invite_redeem_window_seconds: Option<String>,
+    pub media_upload_presign_limit: Option<String>,
+    pub media_upload_presign_window_seconds: Option<String>,
 }
 
 impl RateLimitConfigInput {
@@ -90,6 +98,12 @@ impl RateLimitConfigInput {
             invite_redeem_limit: env::var("JAMYE_RATE_LIMIT_INVITE_REDEEM_LIMIT").ok(),
             invite_redeem_window_seconds: env::var("JAMYE_RATE_LIMIT_INVITE_REDEEM_WINDOW_SECONDS")
                 .ok(),
+            media_upload_presign_limit: env::var("JAMYE_RATE_LIMIT_MEDIA_UPLOAD_PRESIGN_LIMIT")
+                .ok(),
+            media_upload_presign_window_seconds: env::var(
+                "JAMYE_RATE_LIMIT_MEDIA_UPLOAD_PRESIGN_WINDOW_SECONDS",
+            )
+            .ok(),
         }
     }
 }
@@ -145,6 +159,17 @@ impl TryFrom<RateLimitConfigInput> for RateLimitConfig {
                     input.invite_redeem_window_seconds,
                 )?,
             },
+            media_upload_presign: endpoint(
+                "JAMYE_RATE_LIMIT_MEDIA_UPLOAD_PRESIGN_LIMIT",
+                input.media_upload_presign_limit,
+                30,
+                "JAMYE_RATE_LIMIT_MEDIA_UPLOAD_PRESIGN_WINDOW_SECONDS",
+                input.media_upload_presign_window_seconds,
+            )
+            .map(|policy| MediaEndpointRateLimit {
+                limit: policy.limit,
+                window: policy.window,
+            })?,
         })
     }
 }

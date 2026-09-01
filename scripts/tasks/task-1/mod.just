@@ -82,6 +82,25 @@ secret-scan: require-nix-shell
 local-env-create: require-nix-shell
     bash scripts/tasks/task-1/local-env-create.sh
 
+# Stable, independently evidenced quality targets used by Task-12 G5.
+format-check: require-nix-shell
+    cargo fmt --all -- --check
+
+clippy: require-nix-shell
+    CARGO_NET_OFFLINE=true cargo clippy --locked --all-targets --all-features -- --deny warnings
+
+architecture: require-nix-shell
+    CARGO_NET_OFFLINE=true cargo test --locked --test architecture --all-features
+
+aggregate: require-nix-shell
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source scripts/tasks/task-1/_common.sh
+    load_local_env
+    CARGO_NET_OFFLINE=true cargo test --locked --all-targets
+    JAMYE_ENABLE_DEV_FIXTURES=true CARGO_NET_OFFLINE=true \
+      cargo test --locked --all-targets --all-features
+
 # Run formatting, warning-as-error lint, all test modes, and architecture checks.
 platform-check: require-nix-shell
     cargo fmt --all -- --check

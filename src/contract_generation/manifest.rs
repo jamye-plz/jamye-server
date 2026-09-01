@@ -5,7 +5,7 @@ use std::{fs, path::Path};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{Artifact, BoxError, invalid_data, openapi, realtime, sha256};
+use super::{Artifact, BoxError, SnapshotProfile, invalid_data, openapi, realtime, sha256};
 
 pub const CHECKSUM_ALGORITHM: &str = "sha256 over lexicographic path,NUL,decimal-length,NUL,bytes entries; manifest.json uses recursively key-sorted compact JSON without sha256; v1";
 
@@ -45,6 +45,35 @@ struct Manifest {
     sha256: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ReleaseCandidateManifestCore {
+    stage: String,
+    server_tag: Option<String>,
+    server_commit: String,
+    contract_version: String,
+    server_version: String,
+    checksum_algorithm: String,
+    artifacts: Vec<String>,
+    operation_ids: Vec<String>,
+    realtime_discriminants: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ReleaseCandidateManifest {
+    stage: String,
+    server_tag: Option<String>,
+    server_commit: String,
+    contract_version: String,
+    server_version: String,
+    checksum_algorithm: String,
+    artifacts: Vec<String>,
+    operation_ids: Vec<String>,
+    realtime_discriminants: Vec<String>,
+    sha256: String,
+}
+
 impl Manifest {
     fn core(&self) -> ManifestCore {
         ManifestCore {
@@ -67,7 +96,11 @@ pub fn load_provenance(path: &Path) -> Result<Provenance, BoxError> {
     Ok(provenance)
 }
 
-pub fn artifact(provenance: &Provenance, non_manifest: &[Artifact]) -> Result<Artifact, BoxError> {
+pub fn artifact(
+    provenance: &Provenance,
+    non_manifest: &[Artifact],
+    profile: SnapshotProfile,
+) -> Result<Artifact, BoxError> {
     let mut artifact_paths = non_manifest
         .iter()
         .map(|artifact| artifact.path.clone())
@@ -82,17 +115,41 @@ pub fn artifact(provenance: &Provenance, non_manifest: &[Artifact]) -> Result<Ar
         server_version: provenance.server_version.clone(),
         checksum_algorithm: CHECKSUM_ALGORITHM.to_owned(),
         artifacts: artifact_paths,
-        operation_ids: openapi::OPERATION_IDS
-            .iter()
-            .map(|value| (*value).to_owned())
-            .collect(),
-        realtime_discriminants: realtime::REALTIME_DISCRIMINANTS
-            .iter()
-            .map(|value| (*value).to_owned())
-            .collect(),
+        operation_ids: (if profile == SnapshotProfile::C0 {
+            openapi::C0_OPERATION_IDS
+        } else {
+            openapi::OPERATION_IDS
+        })
+        .iter()
+        .map(|value| (*value).to_owned())
+        .collect(),
+        realtime_discriminants: (if profile == SnapshotProfile::C0 {
+            realtime::C0_REALTIME_DISCRIMINANTS
+        } else {
+            realtime::REALTIME_DISCRIMINANTS
+        })
+        .iter()
+        .map(|value| (*value).to_owned())
+        .collect(),
     };
-    let checksum = checksum(&core, non_manifest)?;
-    let manifest = Manifest {
+    if profile == SnapshotProfile::C0 {
+        let checksum = checksum(&core, non_manifest)?;
+        let manifest = Manifest {
+            server_tag: core.server_tag.clone(),
+            server_commit: core.server_commit.clone(),
+            contract_version: core.contract_version.clone(),
+            server_version: core.server_version.clone(),
+            checksum_algorithm: core.checksum_algorithm.clone(),
+            artifacts: core.artifacts.clone(),
+            operation_ids: core.operation_ids.clone(),
+            realtime_discriminants: core.realtime_discriminants.clone(),
+            sha256: checksum,
+        };
+        return Artifact::json("manifest.json", &manifest);
+    }
+
+    let release_core = ReleaseCandidateManifestCore {
+        stage: "release_candidate".to_owned(),
         server_tag: core.server_tag.clone(),
         server_commit: core.server_commit.clone(),
         contract_version: core.contract_version.clone(),
@@ -101,6 +158,18 @@ pub fn artifact(provenance: &Provenance, non_manifest: &[Artifact]) -> Result<Ar
         artifacts: core.artifacts.clone(),
         operation_ids: core.operation_ids.clone(),
         realtime_discriminants: core.realtime_discriminants.clone(),
+    };
+    let checksum = checksum(&release_core, non_manifest)?;
+    let manifest = ReleaseCandidateManifest {
+        stage: release_core.stage.clone(),
+        server_tag: release_core.server_tag.clone(),
+        server_commit: release_core.server_commit.clone(),
+        contract_version: release_core.contract_version.clone(),
+        server_version: release_core.server_version.clone(),
+        checksum_algorithm: release_core.checksum_algorithm.clone(),
+        artifacts: release_core.artifacts.clone(),
+        operation_ids: release_core.operation_ids.clone(),
+        realtime_discriminants: release_core.realtime_discriminants.clone(),
         sha256: checksum,
     };
     Artifact::json("manifest.json", &manifest)
@@ -110,7 +179,11 @@ pub fn verify(
     manifest_bytes: &[u8],
     provenance: &Provenance,
     non_manifest: &[Artifact],
+    profile: SnapshotProfile,
 ) -> Result<(), BoxError> {
+    if profile == SnapshotProfile::ReleaseCandidate {
+        return verify_release_candidate(manifest_bytes, provenance, non_manifest);
+    }
     let manifest: Manifest = serde_json::from_slice(manifest_bytes)?;
     let actual_provenance = Provenance {
         server_tag: manifest.server_tag.clone(),
@@ -134,6 +207,67 @@ pub fn verify(
     if manifest.artifacts != expected_paths {
         return Err(invalid_data("manifest artifact allowlist differs").into());
     }
+    let expected_operations = openapi::C0_OPERATION_IDS
+        .iter()
+        .map(|value| (*value).to_owned())
+        .collect::<Vec<_>>();
+    if manifest.operation_ids != expected_operations {
+        return Err(invalid_data("manifest operation IDs differ").into());
+    }
+    let expected_discriminants = realtime::C0_REALTIME_DISCRIMINANTS
+        .iter()
+        .map(|value| (*value).to_owned())
+        .collect::<Vec<_>>();
+    if manifest.realtime_discriminants != expected_discriminants {
+        return Err(invalid_data("manifest realtime discriminants differ").into());
+    }
+
+    let expected_checksum = checksum(&manifest.core(), non_manifest)?;
+    if manifest.sha256 != expected_checksum {
+        return Err(invalid_data(format!(
+            "manifest checksum differs: expected {expected_checksum}, got {}",
+            manifest.sha256
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+pub fn is_release_candidate(manifest_bytes: &[u8]) -> Result<bool, BoxError> {
+    let value: Value = serde_json::from_slice(manifest_bytes)?;
+    Ok(value.get("stage").and_then(Value::as_str) == Some("release_candidate"))
+}
+
+fn verify_release_candidate(
+    manifest_bytes: &[u8],
+    provenance: &Provenance,
+    non_manifest: &[Artifact],
+) -> Result<(), BoxError> {
+    let manifest: ReleaseCandidateManifest = serde_json::from_slice(manifest_bytes)?;
+    if manifest.stage != "release_candidate" {
+        return Err(invalid_data("release manifest stage differs").into());
+    }
+    let actual_provenance = Provenance {
+        server_tag: manifest.server_tag.clone(),
+        server_commit: manifest.server_commit.clone(),
+        contract_version: manifest.contract_version.clone(),
+        server_version: manifest.server_version.clone(),
+    };
+    if &actual_provenance != provenance {
+        return Err(invalid_data("manifest provenance differs from the explicit input").into());
+    }
+    if manifest.checksum_algorithm != CHECKSUM_ALGORITHM {
+        return Err(invalid_data("manifest checksum algorithm differs").into());
+    }
+    let mut expected_paths = non_manifest
+        .iter()
+        .map(|artifact| artifact.path.clone())
+        .collect::<Vec<_>>();
+    expected_paths.push("manifest.json".to_owned());
+    expected_paths.sort();
+    if manifest.artifacts != expected_paths {
+        return Err(invalid_data("manifest artifact allowlist differs").into());
+    }
     let expected_operations = openapi::OPERATION_IDS
         .iter()
         .map(|value| (*value).to_owned())
@@ -148,8 +282,18 @@ pub fn verify(
     if manifest.realtime_discriminants != expected_discriminants {
         return Err(invalid_data("manifest realtime discriminants differ").into());
     }
-
-    let expected_checksum = checksum(&manifest.core(), non_manifest)?;
+    let core = ReleaseCandidateManifestCore {
+        stage: manifest.stage.clone(),
+        server_tag: manifest.server_tag.clone(),
+        server_commit: manifest.server_commit.clone(),
+        contract_version: manifest.contract_version.clone(),
+        server_version: manifest.server_version.clone(),
+        checksum_algorithm: manifest.checksum_algorithm.clone(),
+        artifacts: manifest.artifacts.clone(),
+        operation_ids: manifest.operation_ids.clone(),
+        realtime_discriminants: manifest.realtime_discriminants.clone(),
+    };
+    let expected_checksum = checksum(&core, non_manifest)?;
     if manifest.sha256 != expected_checksum {
         return Err(invalid_data(format!(
             "manifest checksum differs: expected {expected_checksum}, got {}",
@@ -189,7 +333,7 @@ fn validate_provenance(provenance: &Provenance) -> Result<(), BoxError> {
     Ok(())
 }
 
-fn checksum(core: &ManifestCore, non_manifest: &[Artifact]) -> Result<String, BoxError> {
+fn checksum<T: Serialize>(core: &T, non_manifest: &[Artifact]) -> Result<String, BoxError> {
     let mut entries = non_manifest
         .iter()
         .map(|artifact| (artifact.path.clone(), artifact.bytes.clone()))

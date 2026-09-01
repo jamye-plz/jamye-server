@@ -1,6 +1,6 @@
 //! Deterministic OpenAPI 3.1 document for the C0 slice.
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use utoipa::{Modify, OpenApi};
 
 use jamye_server::transport::http::health::{
@@ -13,9 +13,46 @@ use super::model::{
     MessageCreate, MessageCreatedEvent, MessageCreatedType, MessageKind, RealtimeTicket,
     ReconcileScope, UnsupportedEventMarker,
 };
-use super::{BoxError, invalid_data};
+use super::{BoxError, invalid_data, selected};
 
-pub const OPERATION_IDS: &[&str] = &["H1", "H2", "C4", "S1", "R1"];
+pub const C0_OPERATION_IDS: &[&str] = &["H1", "H2", "C4", "S1", "R1"];
+pub const OPERATION_IDS: &[&str] = &[
+    "H1", "H2", "A1", "A2", "A3", "A4", "U1", "U2", "U3", "G1", "G2", "G3", "G4", "G5", "G6", "G7",
+    "G8", "I1", "I2", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "MD1", "MD2", "MD3", "C1", "C2",
+    "C3", "C4", "MD4", "MD5", "S1", "R1", "P2", "P3", "P4", "N1", "N2",
+];
+
+struct OwnerOperationContribution {
+    path: &'static str,
+    document: &'static str,
+}
+
+const OWNER_OPERATION_CONTRIBUTIONS: &[OwnerOperationContribution] = &[
+    OwnerOperationContribution {
+        path: "contracts/contributions/task-5/dto/operations.json",
+        document: include_str!("../../contracts/contributions/task-5/dto/operations.json"),
+    },
+    OwnerOperationContribution {
+        path: "contracts/contributions/task-6/dto/operations.json",
+        document: include_str!("../../contracts/contributions/task-6/dto/operations.json"),
+    },
+    OwnerOperationContribution {
+        path: "contracts/contributions/task-6b/dto/operations.json",
+        document: include_str!("../../contracts/contributions/task-6b/dto/operations.json"),
+    },
+    OwnerOperationContribution {
+        path: "contracts/contributions/task-7/dto/operations.json",
+        document: include_str!("../../contracts/contributions/task-7/dto/operations.json"),
+    },
+    OwnerOperationContribution {
+        path: "contracts/contributions/task-8/dto/operations.json",
+        document: include_str!("../../contracts/contributions/task-8/dto/operations.json"),
+    },
+    OwnerOperationContribution {
+        path: "contracts/contributions/task-9/dto/operations.json",
+        document: include_str!("../../contracts/contributions/task-9/dto/operations.json"),
+    },
+];
 
 #[utoipa::path(
     get,
@@ -190,8 +227,111 @@ pub fn document() -> Result<Value, BoxError> {
     enforce_exact_null_details(&mut value)?;
     enforce_message_content_rule(&mut value)?;
     enforce_contract_version_headers(&mut value)?;
-    validate_operation_ids(&value)?;
+    validate_operation_ids(&value, C0_OPERATION_IDS, "C0")?;
     Ok(value)
+}
+
+pub fn document_release_candidate() -> Result<Value, BoxError> {
+    let mut value = document()?;
+    let root = value
+        .as_object_mut()
+        .ok_or_else(|| invalid_data("OpenAPI root must be an object"))?;
+    root.insert(
+        "x-jamye-contract-stage".to_owned(),
+        Value::String("C2".to_owned()),
+    );
+    root.get_mut("info")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| invalid_data("OpenAPI info is missing"))?
+        .insert(
+            "title".to_owned(),
+            Value::String("Jamye Server C2 API".to_owned()),
+        );
+    let paths = root
+        .get_mut("paths")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| invalid_data("OpenAPI paths are missing"))?;
+    for surface in selected::REST_SURFACES {
+        let path = paths
+            .entry(surface.path.to_owned())
+            .or_insert_with(|| json!({}));
+        let methods = path
+            .as_object_mut()
+            .ok_or_else(|| invalid_data("OpenAPI path item must be an object"))?;
+        if let Some(existing) = methods.get(surface.method) {
+            if existing.get("operationId").and_then(Value::as_str) != Some(surface.operation_id) {
+                return Err(invalid_data(
+                    "C2 static surface conflicts with a typed OpenAPI operation",
+                )
+                .into());
+            }
+            continue;
+        }
+        methods.insert(
+            surface.method.to_owned(),
+            release_candidate_operation(surface)?,
+        );
+    }
+    validate_operation_ids(&value, OPERATION_IDS, "C2")?;
+    Ok(value)
+}
+
+fn release_candidate_operation(surface: &selected::RestSurface) -> Result<Value, BoxError> {
+    if surface.operation_id == "U3" {
+        return Ok(json!({
+            "operationId": "U3",
+            "summary": "Selected U3 operation",
+            "responses": {"204": {"description": "Account deletion completed"}}
+        }));
+    }
+    let (contribution_path, operation) =
+        owner_operation(surface.operation_id)?.ok_or_else(|| {
+            invalid_data(format!(
+                "C2 operation {} has neither a typed C0 operation nor an owner contribution",
+                surface.operation_id
+            ))
+        })?;
+    let success_status = operation.get("success_status");
+    let responses = match success_status {
+        Some(Value::Number(status)) => {
+            let mut responses = serde_json::Map::new();
+            responses.insert(
+                status.to_string(),
+                json!({"description": "Success status from the owner contribution"}),
+            );
+            Value::Object(responses)
+        }
+        Some(Value::String(status)) => json!({
+            "default": {"description": format!("Owner contribution success_status: {status}")}
+        }),
+        _ => json!({
+            "default": {"description": "Owner contribution defines this operation without a published numeric success status"}
+        }),
+    };
+    Ok(json!({
+        "operationId": surface.operation_id,
+        "summary": format!("Selected {} operation", surface.operation_id),
+        "x-jamye-owner-contribution": contribution_path,
+        "responses": responses,
+    }))
+}
+
+fn owner_operation(operation_id: &str) -> Result<Option<(&'static str, Value)>, BoxError> {
+    for contribution in OWNER_OPERATION_CONTRIBUTIONS {
+        let document: Value = serde_json::from_str(contribution.document)?;
+        let Some(operations) = document.get("operations").and_then(Value::as_array) else {
+            return Err(
+                invalid_data("owner operation contribution has no operations array").into(),
+            );
+        };
+        if let Some(operation) = operations
+            .iter()
+            .find(|operation| operation.get("id").and_then(Value::as_str) == Some(operation_id))
+        {
+            return Ok(Some((contribution.path, operation.clone())));
+        }
+    }
+    Ok(None)
 }
 
 fn enforce_exact_null_details(openapi: &mut Value) -> Result<(), BoxError> {
@@ -288,7 +428,11 @@ fn enforce_contract_version_headers(openapi: &mut Value) -> Result<(), BoxError>
     Ok(())
 }
 
-fn validate_operation_ids(openapi: &Value) -> Result<(), BoxError> {
+fn validate_operation_ids(
+    openapi: &Value,
+    expected_ids: &[&str],
+    stage: &str,
+) -> Result<(), BoxError> {
     let paths = openapi
         .get("paths")
         .and_then(Value::as_object)
@@ -305,19 +449,19 @@ fn validate_operation_ids(openapi: &Value) -> Result<(), BoxError> {
         }
     }
     actual.sort();
-    let mut expected = OPERATION_IDS
+    let mut expected = expected_ids
         .iter()
         .map(|operation_id| (*operation_id).to_owned())
         .collect::<Vec<_>>();
     expected.sort();
     if actual != expected {
         return Err(invalid_data(format!(
-            "C0 operation IDs differ: expected {expected:?}, got {actual:?}"
+            "{stage} operation IDs differ: expected {expected:?}, got {actual:?}"
         ))
         .into());
     }
     if actual.windows(2).any(|pair| pair[0] == pair[1]) {
-        return Err(invalid_data("duplicate C0 operation ID").into());
+        return Err(invalid_data(format!("duplicate {stage} operation ID")).into());
     }
     Ok(())
 }

@@ -9,10 +9,10 @@ use crate::{
     domain::messaging::{CanonicalMessage, EventPage, SendMessageCommand},
     ports::{
         messaging::{
-            ContractProjection, DeltaQuery, MessagingRepository, MessagingRepositoryError,
-            PersistMessageOutcome,
+            ContractProjection, DeltaQuery, MessageDeliveryContext, MessagingRepository,
+            MessagingRepositoryError, PersistMessageOutcome,
         },
-        transactions::{BoxTransactionHandle, TransactionManager},
+        transactions::{BoxTransactionHandle, TransactionHandle, TransactionManager},
     },
 };
 
@@ -55,8 +55,69 @@ impl MessagingService {
             .begin()
             .await
             .map_err(|_| MessagingError::DatabaseUnavailable)?;
-        let result = self.repository.send(handle.as_mut(), &command).await;
+        let result = self
+            .send_command_in_transaction(handle.as_mut(), &command)
+            .await;
         self.finish_send(handle, result).await
+    }
+
+    /// Persists an already-constructed messaging command on a caller-owned
+    /// Task-4a transaction.  The caller owns the transaction outcome.
+    pub(crate) async fn send_command_in_transaction(
+        &self,
+        transaction: &mut dyn TransactionHandle,
+        command: &SendMessageCommand,
+    ) -> Result<PersistMessageOutcome, MessagingError> {
+        self.repository
+            .send(transaction, command)
+            .await
+            .map_err(MessagingError::from)
+    }
+
+    /// Validates the mounted HTTP input and creates the feature command before
+    /// a caller decides whether opening a transaction is appropriate.
+    ///
+    /// This bridge deliberately permits exactly one media upload.  The
+    /// standalone messaging wrapper retains its legacy media-unavailable
+    /// projection and its own begin/commit/rollback lifecycle.
+    pub(crate) fn prepare_http_send(
+        &self,
+        actor_id: Uuid,
+        input: &SendMessageInput,
+    ) -> Result<SendMessageCommand, MessagingError> {
+        validate_composed_http_message(input)?;
+        Ok(SendMessageCommand {
+            chatroom_id: input.chatroom_id,
+            sender_id: actor_id,
+            client_msg_id: input.client_msg_id,
+            body: input.body.clone(),
+        })
+    }
+
+    /// Persists a validated mounted-HTTP command and obtains the authoritative
+    /// delivery context on the caller-owned transaction.
+    pub(crate) async fn send_http_command_in_transaction(
+        &self,
+        transaction: &mut dyn TransactionHandle,
+        command: &SendMessageCommand,
+    ) -> Result<ComposedMessageSend, MessagingError> {
+        let outcome = self
+            .send_command_in_transaction(transaction, command)
+            .await?;
+        let persisted = match &outcome {
+            PersistMessageOutcome::Created(message) | PersistMessageOutcome::Existing(message) => {
+                message
+            }
+        };
+        let delivery_context = self
+            .repository
+            .delivery_context(transaction, persisted)
+            .await
+            .map_err(MessagingError::from)?;
+        Ok(ComposedMessageSend {
+            outcome,
+            delivery_context,
+        })
     }
 
     pub async fn events(
@@ -84,7 +145,7 @@ impl MessagingService {
     async fn finish_send(
         &self,
         handle: BoxTransactionHandle,
-        result: Result<PersistMessageOutcome, MessagingRepositoryError>,
+        result: Result<PersistMessageOutcome, MessagingError>,
     ) -> Result<SendMessageOutcome, MessagingError> {
         match result {
             Ok(outcome) => {
@@ -99,13 +160,36 @@ impl MessagingService {
                     .rollback(handle)
                     .await
                     .map_err(|_| MessagingError::DatabaseUnavailable)?;
-                Err(error.into())
+                Err(error)
             }
         }
     }
 }
 
+/// Feature-owned data retained by Task-12 while it appends media and
+/// notification operations to the same transaction.
+pub(crate) struct ComposedMessageSend {
+    pub outcome: PersistMessageOutcome,
+    pub delivery_context: MessageDeliveryContext,
+}
+
 fn validate_message(input: &SendMessageInput) -> Result<(), MessagingError> {
+    validate_message_base(input)?;
+    if !input.media_upload_ids.is_empty() {
+        return Err(MessagingError::MediaNotAvailable);
+    }
+    Ok(())
+}
+
+fn validate_composed_http_message(input: &SendMessageInput) -> Result<(), MessagingError> {
+    validate_message_base(input)?;
+    if input.media_upload_ids.len() > 1 {
+        return Err(MessagingError::MediaNotAvailable);
+    }
+    Ok(())
+}
+
+fn validate_message_base(input: &SendMessageInput) -> Result<(), MessagingError> {
     if input
         .idempotency_key
         .is_some_and(|header| header != input.client_msg_id)
@@ -115,9 +199,6 @@ fn validate_message(input: &SendMessageInput) -> Result<(), MessagingError> {
     let body_present = input.body.as_ref().is_some_and(|body| !body.is_empty());
     if !body_present && input.media_upload_ids.is_empty() {
         return Err(MessagingError::MessageContentRequired);
-    }
-    if !input.media_upload_ids.is_empty() {
-        return Err(MessagingError::MediaNotAvailable);
     }
     Ok(())
 }
@@ -148,8 +229,8 @@ pub enum SendMessageOutcome {
 impl From<PersistMessageOutcome> for SendMessageOutcome {
     fn from(outcome: PersistMessageOutcome) -> Self {
         match outcome {
-            PersistMessageOutcome::Created(message) => Self::Created(message),
-            PersistMessageOutcome::Existing(message) => Self::Existing(message),
+            PersistMessageOutcome::Created(message) => Self::Created(message.into_message()),
+            PersistMessageOutcome::Existing(message) => Self::Existing(message.into_message()),
         }
     }
 }

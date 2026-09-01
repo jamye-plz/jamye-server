@@ -52,6 +52,17 @@ pub trait MediaRepository: Send + Sync {
         Box::pin(async { Err(MediaRepositoryError::Unavailable) })
     }
 
+    /// Re-authorize and bind caller-selected upload identifiers without accepting
+    /// caller-controlled finalized-object metadata. The implementation owns the
+    /// same-handle upload locks, confirmation/retry checks, and object metadata.
+    fn bind_authoritative_message_media<'a>(
+        &'a self,
+        _transaction: &'a mut dyn TransactionHandle,
+        _command: &'a AuthoritativeMessageMediaCommand,
+    ) -> MediaRepositoryFuture<'a, Vec<MessageAttachment>> {
+        Box::pin(async { Err(MediaRepositoryError::Unavailable) })
+    }
+
     /// Authorize one persisted attachment for the actor without exposing its object key.
     ///
     /// Implementations must derive group membership from the attachment's authoritative
@@ -176,6 +187,14 @@ pub struct BindMessageMediaCommand {
 pub struct BindMessageMediaItem {
     pub upload_id: Uuid,
     pub finalized: FinalizedObject,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthoritativeMessageMediaCommand {
+    pub actor_id: Uuid,
+    pub chatroom_id: Uuid,
+    pub message_id: Uuid,
+    pub upload_ids: Vec<Uuid>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

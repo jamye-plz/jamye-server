@@ -1,5 +1,6 @@
 //! Environment-backed process configuration.
 
+pub mod account_deletion;
 pub mod auth;
 pub mod object_storage;
 pub mod push;
@@ -186,7 +187,7 @@ pub struct ConfigError {
 }
 
 impl ConfigError {
-    fn new(key: &'static str, reason: &'static str) -> Self {
+    pub(crate) fn new(key: &'static str, reason: &'static str) -> Self {
         Self { key, reason }
     }
 

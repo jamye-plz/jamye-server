@@ -11,9 +11,9 @@ use crate::{
         topics::{
             CreateTopicCommand, CreateTopicOutcome, GetTopicQuery, ListTopicDatesQuery,
             ListTopicMediaQuery, ListTopicTagsQuery, ListTopicsQuery, PatchTopicCommand,
-            ReplaceTopicTagsCommand, TopicDatePage, TopicMediaPage, TopicPage, TopicRecord,
-            TopicStatus, TopicTagPage, TopicsRepository, TopicsRepositoryError,
-            TopicsRepositoryFuture,
+            ReplaceTopicTagsCommand, TopicDatePage, TopicMediaPage, TopicNotificationContext,
+            TopicPage, TopicRecord, TopicStatus, TopicTagPage, TopicsRepository,
+            TopicsRepositoryError, TopicsRepositoryFuture,
         },
         transactions::TransactionHandle,
     },
@@ -100,6 +100,18 @@ impl TopicsRepository for PostgresTopicsRepository {
 
     fn list_media(&self, query: ListTopicMediaQuery) -> TopicsRepositoryFuture<'_, TopicMediaPage> {
         Box::pin(query::list_media(&self.pool, query))
+    }
+
+    fn notification_context<'a>(
+        &'a self,
+        transaction: &'a mut dyn TransactionHandle,
+        topic: &'a TopicRecord,
+    ) -> TopicsRepositoryFuture<'a, TopicNotificationContext> {
+        Box::pin(async move {
+            let connection =
+                connection(transaction).map_err(|_| TopicsRepositoryError::InvalidData)?;
+            mutation::notification_context(connection, topic).await
+        })
     }
 }
 

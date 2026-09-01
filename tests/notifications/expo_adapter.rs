@@ -203,6 +203,7 @@ async fn structured_logs_exclude_destination_auth_and_preview_material() -> Test
     let output = writer.clone();
     let subscriber = build_json_subscriber(writer, "jamye_server=info")?;
     let _guard = tracing::subscriber::set_default(subscriber);
+    let _interest_sentinel = tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
     let server = ScriptedExpo::start([
         ScriptedResponse::json(
             StatusCode::OK,

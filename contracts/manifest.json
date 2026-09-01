@@ -1,10 +1,14 @@
 {
+  "stage": "release_candidate",
   "server_tag": null,
   "server_commit": "dirty",
   "contract_version": "1",
   "server_version": "0.1.0",
   "checksum_algorithm": "sha256 over lexicographic path,NUL,decimal-length,NUL,bytes entries; manifest.json uses recursively key-sorted compact JSON without sha256; v1",
   "artifacts": [
+    "fixtures/c2-bodyless-audio-reachability.json",
+    "fixtures/c2-health-profile-account.json",
+    "fixtures/c2-mobile-handoff.json",
     "fixtures/c4-content-validation.json",
     "fixtures/c4-duplicate.json",
     "fixtures/c4-normal.json",
@@ -13,6 +17,7 @@
     "fixtures/message.created.json",
     "fixtures/mobile-sync-handoff.json",
     "fixtures/realtime-lifecycle.json",
+    "fixtures/selected-surface-mapping.json",
     "fixtures/unknown-event-recovery.json",
     "fixtures/version-negotiation.json",
     "manifest.json",
@@ -20,17 +25,56 @@
     "realtime/client-frame.schema.json",
     "realtime/message.created.schema.json",
     "realtime/protocol.json",
-    "realtime/server-frame.schema.json"
+    "realtime/server-frame.schema.json",
+    "realtime/topic.created.schema.json"
   ],
   "operation_ids": [
     "H1",
     "H2",
+    "A1",
+    "A2",
+    "A3",
+    "A4",
+    "U1",
+    "U2",
+    "U3",
+    "G1",
+    "G2",
+    "G3",
+    "G4",
+    "G5",
+    "G6",
+    "G7",
+    "G8",
+    "I1",
+    "I2",
+    "T1",
+    "T2",
+    "T3",
+    "T4",
+    "T5",
+    "T6",
+    "T7",
+    "MD1",
+    "MD2",
+    "MD3",
+    "C1",
+    "C2",
+    "C3",
     "C4",
+    "MD4",
+    "MD5",
     "S1",
-    "R1"
+    "R1",
+    "P2",
+    "P3",
+    "P4",
+    "N1",
+    "N2"
   ],
   "realtime_discriminants": [
-    "message.created"
+    "message.created",
+    "topic.created"
   ],
-  "sha256": "ff85acb1bb910786368400fe83753fdb4f6c2a6a089ab8c2d51be3de18323f45"
+  "sha256": "1465fdee708cadaa459a7dc0939b4db8d2a56c19f278c430c316cd7e7f11a942"
 }

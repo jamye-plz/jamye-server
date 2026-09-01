@@ -22,15 +22,20 @@ async fn chatroom_pages_are_strictly_forward_complete_and_membership_safe() -> T
     let fixture = topology(&pool).await?;
     let service = harness(pool.clone()).service;
     let tied_at = OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1);
-    for _ in 0..5 {
-        insert_chatroom(
-            &pool,
-            fixture.group_id,
-            "topic",
-            Some(Uuid::new_v4()),
-            tied_at,
+    for index in 0..5 {
+        let topic_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO topics (id, group_id, author_id, idempotency_key, request_fingerprint, title) VALUES ($1, $2, $3, $4, $5, $6)",
         )
+        .bind(topic_id)
+        .bind(fixture.group_id)
+        .bind(fixture.owner_id)
+        .bind(Uuid::new_v4())
+        .bind("a".repeat(64))
+        .bind(format!("페이지 주제 {index}"))
+        .execute(&pool)
         .await?;
+        insert_chatroom(&pool, fixture.group_id, "topic", Some(topic_id), tied_at).await?;
     }
 
     let expected = sqlx::query_scalar::<_, Uuid>(

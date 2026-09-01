@@ -19,6 +19,7 @@ use crate::{
         DEFAULT_DELTA_LIMIT, DeltaInput, MAX_DELTA_LIMIT, MessagingError, MessagingService,
         SendMessageInput, SendMessageOutcome,
     },
+    application::transactions::TransactionCompositions,
     transport::http::auth::{AuthVerifierState, AuthenticatedAccess, error_response, request_id},
 };
 
@@ -30,11 +31,21 @@ const CONTRACT_VERSION: &str = "x-jamye-contract-version";
 pub struct MessagingHttpState {
     service: Arc<MessagingService>,
     auth: AuthVerifierState,
+    compositions: Option<Arc<TransactionCompositions>>,
 }
 
 impl MessagingHttpState {
     pub fn new(service: Arc<MessagingService>, auth: AuthVerifierState) -> Self {
-        Self { service, auth }
+        Self {
+            service,
+            auth,
+            compositions: None,
+        }
+    }
+
+    pub fn with_compositions(mut self, compositions: Arc<TransactionCompositions>) -> Self {
+        self.compositions = Some(compositions);
+        self
     }
 }
 
@@ -67,7 +78,14 @@ async fn create_message(
     let request_id = request_id(&parts);
     let result = parse_message_request(chatroom_id, &parts.headers, body).await;
     let result = match result {
-        Ok(input) => state.service.send_message(&identity, input).await,
+        Ok(input) => match &state.compositions {
+            Some(compositions) => {
+                compositions
+                    .send_message_http(identity.user_id, input)
+                    .await
+            }
+            None => state.service.send_message(&identity, input).await,
+        },
         Err(error) => Err(error),
     };
     match result {

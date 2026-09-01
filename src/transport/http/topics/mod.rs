@@ -23,6 +23,7 @@ use crate::{
             TopicPatchInput, TopicTagInput, TopicTagPageInput, TopicTagsInput, TopicsError,
             TopicsService,
         },
+        transactions::TransactionCompositions,
     },
     ports::topics::{
         TopicDatePage, TopicMediaPage, TopicMediaRecord, TopicPage, TopicRecord, TopicTagPage,
@@ -37,6 +38,7 @@ const MAX_TOPIC_BODY_BYTES: usize = 32 * 1024;
 pub struct TopicsHttpState {
     service: Arc<TopicsService>,
     verifier: AuthVerifierState,
+    compositions: Option<Arc<TransactionCompositions>>,
 }
 
 impl TopicsHttpState {
@@ -44,7 +46,13 @@ impl TopicsHttpState {
         Self {
             service,
             verifier: AuthVerifierState::new(verifier),
+            compositions: None,
         }
+    }
+
+    pub fn with_compositions(mut self, compositions: Arc<TransactionCompositions>) -> Self {
+        self.compositions = Some(compositions);
+        self
     }
 }
 
@@ -102,12 +110,19 @@ async fn create_topic(
         Err(error) => Err(error),
     };
     let result = match input {
-        Ok((group_id, input)) => {
-            state
-                .service
-                .create_topic(identity.user_id, group_id, input)
-                .await
-        }
+        Ok((group_id, input)) => match &state.compositions {
+            Some(compositions) => {
+                compositions
+                    .create_topic_http(identity.user_id, group_id, input)
+                    .await
+            }
+            None => {
+                state
+                    .service
+                    .create_topic(identity.user_id, group_id, input)
+                    .await
+            }
+        },
         Err(error) => Err(error),
     };
     match result {

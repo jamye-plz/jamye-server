@@ -460,13 +460,71 @@
     "license": {
       "name": ""
     },
-    "title": "Jamye Server C0 API",
+    "title": "Jamye Server C2 API",
     "version": "1"
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "A4",
+        "responses": {
+          "204": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected A4 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-5/dto/operations.json"
+      }
+    },
+    "/api/v1/auth/oauth/{provider}/authorize": {
+      "post": {
+        "operationId": "A1",
+        "responses": {
+          "default": {
+            "description": "Owner contribution defines this operation without a published numeric success status"
+          }
+        },
+        "summary": "Selected A1 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-5/dto/operations.json"
+      }
+    },
+    "/api/v1/auth/oauth/{provider}/exchange": {
+      "post": {
+        "operationId": "A2",
+        "responses": {
+          "default": {
+            "description": "Owner contribution defines this operation without a published numeric success status"
+          }
+        },
+        "summary": "Selected A2 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-5/dto/operations.json"
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "operationId": "A3",
+        "responses": {
+          "default": {
+            "description": "Owner contribution defines this operation without a published numeric success status"
+          }
+        },
+        "summary": "Selected A3 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-5/dto/operations.json"
+      }
+    },
     "/api/v1/chatrooms/{chatroom_id}/messages": {
+      "get": {
+        "operationId": "C2",
+        "responses": {
+          "200": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected C2 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-6b/dto/operations.json"
+      },
       "post": {
         "operationId": "C4",
         "parameters": [
@@ -587,6 +645,18 @@
         ]
       }
     },
+    "/api/v1/chatrooms/{chatroom_id}/read": {
+      "post": {
+        "operationId": "C3",
+        "responses": {
+          "200": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected C3 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-6b/dto/operations.json"
+      }
+    },
     "/api/v1/conversations/{conversation_id}/events": {
       "get": {
         "operationId": "S1",
@@ -705,6 +775,345 @@
         ]
       }
     },
+    "/api/v1/groups": {
+      "get": {
+        "operationId": "G2",
+        "responses": {
+          "200": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected G2 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-6/dto/operations.json"
+      },
+      "post": {
+        "operationId": "G1",
+        "responses": {
+          "201": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected G1 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-6/dto/operations.json"
+      }
+    },
+    "/api/v1/groups/{group_id}": {
+      "delete": {
+        "operationId": "G6",
+        "responses": {
+          "204": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected G6 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-6/dto/operations.json"
+      },
+      "get": {
+        "operationId": "G3",
+        "responses": {
+          "200": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected G3 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-6/dto/operations.json"
+      },
+      "patch": {
+        "operationId": "G5",
+        "responses": {
+          "200": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected G5 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-6/dto/operations.json"
+      }
+    },
+    "/api/v1/groups/{group_id}/chatrooms": {
+      "get": {
+        "operationId": "C1",
+        "responses": {
+          "200": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected C1 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-6b/dto/operations.json"
+      }
+    },
+    "/api/v1/groups/{group_id}/invites": {
+      "post": {
+        "operationId": "I1",
+        "responses": {
+          "201": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected I1 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-6/dto/operations.json"
+      }
+    },
+    "/api/v1/groups/{group_id}/members": {
+      "get": {
+        "operationId": "G4",
+        "responses": {
+          "200": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected G4 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-6/dto/operations.json"
+      }
+    },
+    "/api/v1/groups/{group_id}/members/{user_id}": {
+      "delete": {
+        "operationId": "G7",
+        "responses": {
+          "204": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected G7 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-6/dto/operations.json"
+      },
+      "patch": {
+        "operationId": "G8",
+        "responses": {
+          "204": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected G8 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-6/dto/operations.json"
+      }
+    },
+    "/api/v1/groups/{group_id}/topics": {
+      "get": {
+        "operationId": "T3",
+        "responses": {
+          "200": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected T3 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-7/dto/operations.json"
+      },
+      "post": {
+        "operationId": "T1",
+        "responses": {
+          "default": {
+            "description": "Owner contribution success_status: 201 new|200 retry"
+          }
+        },
+        "summary": "Selected T1 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-7/dto/operations.json"
+      }
+    },
+    "/api/v1/groups/{group_id}/topics/dates": {
+      "get": {
+        "operationId": "T2",
+        "responses": {
+          "200": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected T2 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-7/dto/operations.json"
+      }
+    },
+    "/api/v1/groups/{group_id}/topics/{topic_id}": {
+      "get": {
+        "operationId": "T4",
+        "responses": {
+          "200": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected T4 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-7/dto/operations.json"
+      },
+      "patch": {
+        "operationId": "T5",
+        "responses": {
+          "200": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected T5 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-7/dto/operations.json"
+      }
+    },
+    "/api/v1/groups/{group_id}/topics/{topic_id}/tags": {
+      "get": {
+        "operationId": "T7",
+        "responses": {
+          "200": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected T7 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-7/dto/operations.json"
+      },
+      "put": {
+        "operationId": "T6",
+        "responses": {
+          "200": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected T6 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-7/dto/operations.json"
+      }
+    },
+    "/api/v1/invites/{code}/join": {
+      "post": {
+        "operationId": "I2",
+        "responses": {
+          "200": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected I2 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-6/dto/operations.json"
+      }
+    },
+    "/api/v1/me": {
+      "delete": {
+        "operationId": "U3",
+        "responses": {
+          "204": {
+            "description": "Account deletion completed"
+          }
+        },
+        "summary": "Selected U3 operation"
+      },
+      "get": {
+        "operationId": "U1",
+        "responses": {
+          "default": {
+            "description": "Owner contribution defines this operation without a published numeric success status"
+          }
+        },
+        "summary": "Selected U1 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-5/dto/operations.json"
+      },
+      "patch": {
+        "operationId": "U2",
+        "responses": {
+          "default": {
+            "description": "Owner contribution defines this operation without a published numeric success status"
+          }
+        },
+        "summary": "Selected U2 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-5/dto/operations.json"
+      }
+    },
+    "/api/v1/media/uploads": {
+      "post": {
+        "operationId": "MD1",
+        "responses": {
+          "201": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected MD1 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-8/dto/operations.json"
+      }
+    },
+    "/api/v1/media/uploads/{upload_id}/finalize": {
+      "post": {
+        "operationId": "MD2",
+        "responses": {
+          "200": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected MD2 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-8/dto/operations.json"
+      }
+    },
+    "/api/v1/media/{media_id}/download": {
+      "get": {
+        "operationId": "MD5",
+        "responses": {
+          "307": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected MD5 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-8/dto/operations.json"
+      }
+    },
+    "/api/v1/media/{media_id}/url": {
+      "get": {
+        "operationId": "MD4",
+        "responses": {
+          "200": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected MD4 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-8/dto/operations.json"
+      }
+    },
+    "/api/v1/notifications": {
+      "get": {
+        "operationId": "N1",
+        "responses": {
+          "200": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected N1 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-9/dto/operations.json"
+      }
+    },
+    "/api/v1/notifications/{notification_id}/read": {
+      "post": {
+        "operationId": "N2",
+        "responses": {
+          "204": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected N2 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-9/dto/operations.json"
+      }
+    },
+    "/api/v1/push/installations": {
+      "post": {
+        "operationId": "P2",
+        "responses": {
+          "default": {
+            "description": "Owner contribution success_status: 201 create|200 canonical upsert"
+          }
+        },
+        "summary": "Selected P2 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-9/dto/operations.json"
+      }
+    },
+    "/api/v1/push/installations/{installation_id}": {
+      "delete": {
+        "operationId": "P4",
+        "responses": {
+          "204": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected P4 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-9/dto/operations.json"
+      },
+      "put": {
+        "operationId": "P3",
+        "responses": {
+          "200": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected P3 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-9/dto/operations.json"
+      }
+    },
     "/api/v1/realtime/tickets": {
       "post": {
         "operationId": "R1",
@@ -783,6 +1192,18 @@
         ]
       }
     },
+    "/api/v1/topics/{topic_id}/media": {
+      "get": {
+        "operationId": "MD3",
+        "responses": {
+          "200": {
+            "description": "Success status from the owner contribution"
+          }
+        },
+        "summary": "Selected MD3 operation",
+        "x-jamye-owner-contribution": "contracts/contributions/task-8/dto/operations.json"
+      }
+    },
     "/health/live": {
       "get": {
         "operationId": "H1",
@@ -834,5 +1255,5 @@
       }
     }
   },
-  "x-jamye-contract-stage": "C0"
+  "x-jamye-contract-stage": "C2"
 }

@@ -2,6 +2,8 @@
 
 use serde_json::{Value, json};
 
+use super::selected;
+
 pub const SQLITE_ATOMICITY_SENTENCE: &str = "One exclusive SQLite transaction creates both messages(status=pending) and the persisted outbox command with the unchanged client_msg_id; after process reopen, both rows are visible or neither is.";
 
 pub fn documents() -> Vec<(String, Value)> {
@@ -38,6 +40,99 @@ pub fn documents() -> Vec<(String, Value)> {
             version_negotiation(),
         ),
     ]
+}
+
+pub fn documents_release_candidate() -> Vec<(String, Value)> {
+    let mut documents = documents();
+    documents.extend([
+        (
+            "fixtures/c2-health-profile-account.json".to_owned(),
+            json!({
+                "fixture": "c2_health_profile_account_selected_surfaces",
+                "operation_ids": ["H1", "H2", "U1", "U2", "U3"],
+                "evidence": "existing_owner_behavior_tests_named_by_selected-surface-mapping",
+                "task_12_role": "declarative_mapping_gap_closure"
+            }),
+        ),
+        (
+            "fixtures/selected-surface-mapping.json".to_owned(),
+            selected_surface_mapping(),
+        ),
+        (
+            "fixtures/c2-mobile-handoff.json".to_owned(),
+            c2_mobile_handoff(),
+        ),
+        (
+            "fixtures/c2-bodyless-audio-reachability.json".to_owned(),
+            c2_bodyless_audio_reachability(),
+        ),
+    ]);
+    documents
+}
+
+fn selected_surface_mapping() -> Value {
+    let rest_operations = selected::REST_SURFACES
+        .iter()
+        .map(|surface| {
+            json!({
+                "operation_id": surface.operation_id,
+                "method": surface.method,
+                "path": surface.path,
+                "handler": surface.handler,
+                "handler_route_probe": selected::ROUTE_PROBE,
+                "feature_behavior_test": surface.feature_behavior_test,
+                "fixture": surface.fixture,
+            })
+        })
+        .collect::<Vec<_>>();
+    let realtime_events = selected::REALTIME_SURFACES
+        .iter()
+        .map(|surface| {
+            json!({
+                "event_type": surface.event_type,
+                "version": surface.version,
+                "handler": surface.handler,
+                "handler_route_probe": selected::ROUTE_PROBE,
+                "feature_behavior_test": surface.feature_behavior_test,
+                "fixture": surface.fixture,
+                "schema": surface.schema,
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({"rest_operations": rest_operations, "realtime_events": realtime_events})
+}
+
+fn c2_mobile_handoff() -> Value {
+    json!({
+        "atomicity_contract": SQLITE_ATOMICITY_SENTENCE,
+        "references": {
+            "task_5_auth_trace": "contracts/contributions/task-5/fixtures/mobile-auth-handoff.json",
+            "task_3b_task_4b_two_phase_delta": "contracts/fixtures/mobile-sync-handoff.json;tests/realtime/c1.rs::dev_c1_flows_from_seed_to_rest_outbox_redis_websocket_and_delta"
+        },
+        "execution_owner": "jamye-app",
+        "server_execution": "none"
+    })
+}
+
+fn c2_bodyless_audio_reachability() -> Value {
+    json!({
+        "c4": {
+            "request": {
+                "body": null,
+                "media": [{"state": "finalized", "mime_type": "audio/m4a"}],
+                "client_msg_id": "30000000-0000-4000-8000-000000000001"
+            },
+            "retry": {"client_msg_id": "30000000-0000-4000-8000-000000000001"}
+        },
+        "server_path": {
+            "composition": "SendMessage",
+            "delivery": [
+                "worker", "Redis", "WebSocket message.created", "offline delta", "history",
+                "MD4 metadata-only reissue", "MD5 metadata-only reissue"
+            ]
+        },
+        "mobile_execution": {"playback": "jamye-app-owned", "server_execution": "none"}
+    })
 }
 
 fn canonical_message() -> Value {

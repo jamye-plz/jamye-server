@@ -12,10 +12,10 @@ use crate::{
     domain::{media::MediaScope, messaging::MessageAttachment},
     ports::{
         media::{
-            AuthorizeMediaAccessQuery, BindMessageMediaCommand, CreateUploadIntentCommand,
-            FinalizeUploadCommand, MediaAccessRecord, MediaRepository, MediaRepositoryError,
-            MediaRepositoryFuture, PrepareUploadFinalizeQuery, UploadFinalizePreparation,
-            UploadFinalizeRecord, UploadIntentRecord,
+            AuthoritativeMessageMediaCommand, AuthorizeMediaAccessQuery, BindMessageMediaCommand,
+            CreateUploadIntentCommand, FinalizeUploadCommand, MediaAccessRecord, MediaRepository,
+            MediaRepositoryError, MediaRepositoryFuture, PrepareUploadFinalizeQuery,
+            UploadFinalizePreparation, UploadFinalizeRecord, UploadIntentRecord,
         },
         transactions::TransactionHandle,
     },
@@ -151,6 +151,18 @@ impl MediaRepository for PostgresMediaRepository {
             let connection =
                 connection(transaction).map_err(|_| MediaRepositoryError::InvalidData)?;
             message_binding::bind_message_media(connection, command).await
+        })
+    }
+
+    fn bind_authoritative_message_media<'a>(
+        &'a self,
+        transaction: &'a mut dyn TransactionHandle,
+        command: &'a AuthoritativeMessageMediaCommand,
+    ) -> MediaRepositoryFuture<'a, Vec<MessageAttachment>> {
+        Box::pin(async move {
+            let connection =
+                connection(transaction).map_err(|_| MediaRepositoryError::InvalidData)?;
+            message_binding::bind_authoritative_message_media(connection, command).await
         })
     }
 

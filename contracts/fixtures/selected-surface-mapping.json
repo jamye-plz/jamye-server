@@ -1,0 +1,402 @@
+{
+  "realtime_events": [
+    {
+      "event_type": "message.created",
+      "feature_behavior_test": "tests/realtime/c1.rs::dev_c1_flows_from_seed_to_rest_outbox_redis_websocket_and_delta",
+      "fixture": "contracts/fixtures/message.created.json",
+      "handler": "src/adapters/postgres/messaging/send.rs::persist_event_and_outbox",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "schema": "contracts/realtime/message.created.schema.json",
+      "version": 1
+    },
+    {
+      "event_type": "topic.created",
+      "feature_behavior_test": "tests/topics/create.rs::t1_is_atomic_idempotent_and_emits_distinct_bootstrap_and_announcement_events",
+      "fixture": "contracts/contributions/task-7/fixtures/topic-flow.json",
+      "handler": "src/adapters/postgres/topics/mutation.rs::create_topic",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "schema": "contracts/realtime/topic.created.schema.json",
+      "version": 1
+    }
+  ],
+  "rest_operations": [
+    {
+      "feature_behavior_test": "tests/platform.rs::liveness_is_unconditional_and_has_server_request_id",
+      "fixture": "contracts/fixtures/c2-health-profile-account.json",
+      "handler": "src/transport/http/health/mod.rs::live",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "get",
+      "operation_id": "H1",
+      "path": "/health/live"
+    },
+    {
+      "feature_behavior_test": "tests/platform.rs::readiness_requires_postgres_but_only_degrades_optional_services",
+      "fixture": "contracts/fixtures/c2-health-profile-account.json",
+      "handler": "src/transport/http/health/mod.rs::ready",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "get",
+      "operation_id": "H2",
+      "path": "/health/ready"
+    },
+    {
+      "feature_behavior_test": "tests/auth/oauth.rs::authorize_http_separates_shape_semantics_and_stable_rate_limit",
+      "fixture": "contracts/contributions/task-5/fixtures/mobile-auth-handoff.json",
+      "handler": "src/transport/http/auth/api.rs::authorize",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "post",
+      "operation_id": "A1",
+      "path": "/api/v1/auth/oauth/{provider}/authorize"
+    },
+    {
+      "feature_behavior_test": "tests/auth/oauth.rs::auth_http_happy_path_returns_exact_mobile_token_pairs_and_stores_only_digest",
+      "fixture": "contracts/contributions/task-5/fixtures/mobile-auth-handoff.json",
+      "handler": "src/transport/http/auth/api.rs::exchange",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "post",
+      "operation_id": "A2",
+      "path": "/api/v1/auth/oauth/{provider}/exchange"
+    },
+    {
+      "feature_behavior_test": "tests/auth/session.rs::concurrent_refresh_allows_one_child_then_reuse_revokes_the_family",
+      "fixture": "contracts/contributions/task-5/fixtures/mobile-auth-handoff.json",
+      "handler": "src/transport/http/auth/api.rs::refresh",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "post",
+      "operation_id": "A3",
+      "path": "/api/v1/auth/refresh"
+    },
+    {
+      "feature_behavior_test": "tests/auth/session.rs::logout_revokes_only_refresh_authority_and_access_remains_valid_to_expiry",
+      "fixture": "contracts/contributions/task-5/fixtures/mobile-auth-handoff.json",
+      "handler": "src/transport/http/auth/api.rs::logout",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "post",
+      "operation_id": "A4",
+      "path": "/api/v1/auth/logout"
+    },
+    {
+      "feature_behavior_test": "tests/profile.rs::get_and_patch_me_use_the_shared_production_bearer_extractor",
+      "fixture": "contracts/fixtures/c2-health-profile-account.json",
+      "handler": "src/transport/http/users/mod.rs::get_me",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "get",
+      "operation_id": "U1",
+      "path": "/api/v1/me"
+    },
+    {
+      "feature_behavior_test": "tests/profile.rs::get_and_patch_me_use_the_shared_production_bearer_extractor",
+      "fixture": "contracts/fixtures/c2-health-profile-account.json",
+      "handler": "src/transport/http/users/mod.rs::patch_me",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "patch",
+      "operation_id": "U2",
+      "path": "/api/v1/me"
+    },
+    {
+      "feature_behavior_test": "tests/account_deletion/http.rs::delete_me_commits_one_empty_204_then_revokes_account_access_and_anonymizes_retained_content",
+      "fixture": "contracts/fixtures/c2-health-profile-account.json",
+      "handler": "src/transport/http/account_deletion/mod.rs::delete_account",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "delete",
+      "operation_id": "U3",
+      "path": "/api/v1/me"
+    },
+    {
+      "feature_behavior_test": "tests/groups/http.rs::group_http_crud_paginates_and_enforces_membership_without_disclosure",
+      "fixture": "contracts/contributions/task-6/fixtures/group-invite-flow.json",
+      "handler": "src/transport/http/groups/mod.rs::create_group",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "post",
+      "operation_id": "G1",
+      "path": "/api/v1/groups"
+    },
+    {
+      "feature_behavior_test": "tests/groups/http.rs::group_http_crud_paginates_and_enforces_membership_without_disclosure",
+      "fixture": "contracts/contributions/task-6/fixtures/group-invite-flow.json",
+      "handler": "src/transport/http/groups/mod.rs::list_groups",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "get",
+      "operation_id": "G2",
+      "path": "/api/v1/groups"
+    },
+    {
+      "feature_behavior_test": "tests/groups/http.rs::group_http_crud_paginates_and_enforces_membership_without_disclosure",
+      "fixture": "contracts/contributions/task-6/fixtures/group-invite-flow.json",
+      "handler": "src/transport/http/groups/mod.rs::get_group",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "get",
+      "operation_id": "G3",
+      "path": "/api/v1/groups/{group_id}"
+    },
+    {
+      "feature_behavior_test": "tests/groups/http.rs::group_http_crud_paginates_and_enforces_membership_without_disclosure",
+      "fixture": "contracts/contributions/task-6/fixtures/group-invite-flow.json",
+      "handler": "src/transport/http/groups/mod.rs::list_members",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "get",
+      "operation_id": "G4",
+      "path": "/api/v1/groups/{group_id}/members"
+    },
+    {
+      "feature_behavior_test": "tests/groups/http.rs::group_http_crud_paginates_and_enforces_membership_without_disclosure",
+      "fixture": "contracts/contributions/task-6/fixtures/group-invite-flow.json",
+      "handler": "src/transport/http/groups/mod.rs::rename_group",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "patch",
+      "operation_id": "G5",
+      "path": "/api/v1/groups/{group_id}"
+    },
+    {
+      "feature_behavior_test": "tests/groups/http.rs::role_invite_join_removal_and_delete_routes_preserve_authority",
+      "fixture": "contracts/contributions/task-6/fixtures/group-invite-flow.json",
+      "handler": "src/transport/http/groups/mod.rs::delete_group",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "delete",
+      "operation_id": "G6",
+      "path": "/api/v1/groups/{group_id}"
+    },
+    {
+      "feature_behavior_test": "tests/groups/http.rs::role_invite_join_removal_and_delete_routes_preserve_authority",
+      "fixture": "contracts/contributions/task-6/fixtures/group-invite-flow.json",
+      "handler": "src/transport/http/groups/mod.rs::remove_member",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "delete",
+      "operation_id": "G7",
+      "path": "/api/v1/groups/{group_id}/members/{user_id}"
+    },
+    {
+      "feature_behavior_test": "tests/groups/http.rs::role_invite_join_removal_and_delete_routes_preserve_authority",
+      "fixture": "contracts/contributions/task-6/fixtures/group-invite-flow.json",
+      "handler": "src/transport/http/groups/mod.rs::set_member_role",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "patch",
+      "operation_id": "G8",
+      "path": "/api/v1/groups/{group_id}/members/{user_id}"
+    },
+    {
+      "feature_behavior_test": "tests/groups/http.rs::role_invite_join_removal_and_delete_routes_preserve_authority",
+      "fixture": "contracts/contributions/task-6/fixtures/group-invite-flow.json",
+      "handler": "src/transport/http/groups/mod.rs::create_invite",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "post",
+      "operation_id": "I1",
+      "path": "/api/v1/groups/{group_id}/invites"
+    },
+    {
+      "feature_behavior_test": "tests/groups/http.rs::role_invite_join_removal_and_delete_routes_preserve_authority",
+      "fixture": "contracts/contributions/task-6/fixtures/group-invite-flow.json",
+      "handler": "src/transport/http/groups/mod.rs::redeem_invite",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "post",
+      "operation_id": "I2",
+      "path": "/api/v1/invites/{code}/join"
+    },
+    {
+      "feature_behavior_test": "tests/topics/http.rs::t1_through_t7_http_use_the_locked_authenticated_mobile_shapes",
+      "fixture": "contracts/contributions/task-7/fixtures/topic-flow.json",
+      "handler": "src/transport/http/topics/mod.rs::create_topic",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "post",
+      "operation_id": "T1",
+      "path": "/api/v1/groups/{group_id}/topics"
+    },
+    {
+      "feature_behavior_test": "tests/topics/http.rs::t1_through_t7_http_use_the_locked_authenticated_mobile_shapes",
+      "fixture": "contracts/contributions/task-7/fixtures/topic-flow.json",
+      "handler": "src/transport/http/topics/mod.rs::list_topic_dates",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "get",
+      "operation_id": "T2",
+      "path": "/api/v1/groups/{group_id}/topics/dates"
+    },
+    {
+      "feature_behavior_test": "tests/topics/http.rs::t1_through_t7_http_use_the_locked_authenticated_mobile_shapes",
+      "fixture": "contracts/contributions/task-7/fixtures/topic-flow.json",
+      "handler": "src/transport/http/topics/mod.rs::list_topics",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "get",
+      "operation_id": "T3",
+      "path": "/api/v1/groups/{group_id}/topics"
+    },
+    {
+      "feature_behavior_test": "tests/topics/http.rs::t1_through_t7_http_use_the_locked_authenticated_mobile_shapes",
+      "fixture": "contracts/contributions/task-7/fixtures/topic-flow.json",
+      "handler": "src/transport/http/topics/mod.rs::get_topic",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "get",
+      "operation_id": "T4",
+      "path": "/api/v1/groups/{group_id}/topics/{topic_id}"
+    },
+    {
+      "feature_behavior_test": "tests/topics/http.rs::t1_through_t7_http_use_the_locked_authenticated_mobile_shapes",
+      "fixture": "contracts/contributions/task-7/fixtures/topic-flow.json",
+      "handler": "src/transport/http/topics/mod.rs::patch_topic",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "patch",
+      "operation_id": "T5",
+      "path": "/api/v1/groups/{group_id}/topics/{topic_id}"
+    },
+    {
+      "feature_behavior_test": "tests/topics/http.rs::t1_through_t7_http_use_the_locked_authenticated_mobile_shapes",
+      "fixture": "contracts/contributions/task-7/fixtures/topic-flow.json",
+      "handler": "src/transport/http/topics/mod.rs::replace_tags",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "put",
+      "operation_id": "T6",
+      "path": "/api/v1/groups/{group_id}/topics/{topic_id}/tags"
+    },
+    {
+      "feature_behavior_test": "tests/topics/http.rs::t1_through_t7_http_use_the_locked_authenticated_mobile_shapes",
+      "fixture": "contracts/contributions/task-7/fixtures/topic-flow.json",
+      "handler": "src/transport/http/topics/mod.rs::list_tags",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "get",
+      "operation_id": "T7",
+      "path": "/api/v1/groups/{group_id}/topics/{topic_id}/tags"
+    },
+    {
+      "feature_behavior_test": "tests/media/upload_finalize_http.rs::md1_returns_a_server_minted_intent_and_constrained_put",
+      "fixture": "contracts/contributions/task-8/fixtures/media-flow.json",
+      "handler": "src/transport/http/media/mod.rs::create_upload_intent",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "post",
+      "operation_id": "MD1",
+      "path": "/api/v1/media/uploads"
+    },
+    {
+      "feature_behavior_test": "tests/media/upload_finalize_http.rs::md2_chat_finalize_returns_the_confirmed_unbound_capability",
+      "fixture": "contracts/contributions/task-8/fixtures/media-flow.json",
+      "handler": "src/transport/http/media/mod.rs::finalize_upload",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "post",
+      "operation_id": "MD2",
+      "path": "/api/v1/media/uploads/{upload_id}/finalize"
+    },
+    {
+      "feature_behavior_test": "tests/media/md3_http.rs::md3_returns_stable_paginated_canonical_topic_media",
+      "fixture": "contracts/contributions/task-8/fixtures/media-flow.json",
+      "handler": "src/transport/http/topics/mod.rs::list_media",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "get",
+      "operation_id": "MD3",
+      "path": "/api/v1/topics/{topic_id}/media"
+    },
+    {
+      "feature_behavior_test": "tests/chatrooms/http.rs::c1_c2_and_c3_http_use_exact_authenticated_mobile_shapes",
+      "fixture": "contracts/contributions/task-6b/fixtures/chatroom-history-read.json",
+      "handler": "src/transport/http/chatrooms/mod.rs::list_chatrooms",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "get",
+      "operation_id": "C1",
+      "path": "/api/v1/groups/{group_id}/chatrooms"
+    },
+    {
+      "feature_behavior_test": "tests/chatrooms/http.rs::c1_c2_and_c3_http_use_exact_authenticated_mobile_shapes",
+      "fixture": "contracts/contributions/task-6b/fixtures/chatroom-history-read.json",
+      "handler": "src/transport/http/chatrooms/mod.rs::message_history",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "get",
+      "operation_id": "C2",
+      "path": "/api/v1/chatrooms/{chatroom_id}/messages"
+    },
+    {
+      "feature_behavior_test": "tests/chatrooms/http.rs::c1_c2_and_c3_http_use_exact_authenticated_mobile_shapes",
+      "fixture": "contracts/contributions/task-6b/fixtures/chatroom-history-read.json",
+      "handler": "src/transport/http/chatrooms/mod.rs::mark_read",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "post",
+      "operation_id": "C3",
+      "path": "/api/v1/chatrooms/{chatroom_id}/read"
+    },
+    {
+      "feature_behavior_test": "tests/messaging/http.rs::c4_preserves_content_idempotency_and_exact_text",
+      "fixture": "contracts/fixtures/c4-normal.json",
+      "handler": "src/transport/http/messaging/mod.rs::create_message",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "post",
+      "operation_id": "C4",
+      "path": "/api/v1/chatrooms/{chatroom_id}/messages"
+    },
+    {
+      "feature_behavior_test": "tests/media/access_http.rs::md4_returns_only_public_metadata_and_the_short_reissued_url",
+      "fixture": "contracts/contributions/task-8/fixtures/media-flow.json",
+      "handler": "src/transport/http/media/mod.rs::view_url",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "get",
+      "operation_id": "MD4",
+      "path": "/api/v1/media/{media_id}/url"
+    },
+    {
+      "feature_behavior_test": "tests/media/access_http.rs::md5_returns_an_empty_307_redirect_to_the_authorized_download_url",
+      "fixture": "contracts/contributions/task-8/fixtures/media-flow.json",
+      "handler": "src/transport/http/media/mod.rs::download",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "get",
+      "operation_id": "MD5",
+      "path": "/api/v1/media/{media_id}/download"
+    },
+    {
+      "feature_behavior_test": "tests/messaging/delta.rs::s1_pages_strictly_forward_across_commits_and_an_unknown_marker",
+      "fixture": "contracts/fixtures/mobile-sync-handoff.json",
+      "handler": "src/transport/http/messaging/mod.rs::events",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "get",
+      "operation_id": "S1",
+      "path": "/api/v1/conversations/{conversation_id}/events"
+    },
+    {
+      "feature_behavior_test": "tests/realtime/ticket.rs::ticket_is_capped_by_access_expiry_and_consumed_exactly_once",
+      "fixture": "contracts/fixtures/realtime-lifecycle.json",
+      "handler": "src/transport/http/realtime/mod.rs::issue_ticket",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "post",
+      "operation_id": "R1",
+      "path": "/api/v1/realtime/tickets"
+    },
+    {
+      "feature_behavior_test": "tests/notifications/http.rs::p2_uses_create_then_canonical_upsert_status_and_never_returns_private_fields",
+      "fixture": "contracts/contributions/task-9/fixtures/notifications-push-flow.json",
+      "handler": "src/transport/http/push/mod.rs::upsert_installation",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "post",
+      "operation_id": "P2",
+      "path": "/api/v1/push/installations"
+    },
+    {
+      "feature_behavior_test": "tests/notifications/http.rs::p3_and_p4_are_current_owner_scoped_and_keep_the_public_response_shape",
+      "fixture": "contracts/contributions/task-9/fixtures/notifications-push-flow.json",
+      "handler": "src/transport/http/push/mod.rs::update_installation",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "put",
+      "operation_id": "P3",
+      "path": "/api/v1/push/installations/{installation_id}"
+    },
+    {
+      "feature_behavior_test": "tests/notifications/http.rs::p3_and_p4_are_current_owner_scoped_and_keep_the_public_response_shape",
+      "fixture": "contracts/contributions/task-9/fixtures/notifications-push-flow.json",
+      "handler": "src/transport/http/push/mod.rs::delete_installation",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "delete",
+      "operation_id": "P4",
+      "path": "/api/v1/push/installations/{installation_id}"
+    },
+    {
+      "feature_behavior_test": "tests/notifications/http.rs::n1_returns_the_owner_scoped_structured_page_without_private_state",
+      "fixture": "contracts/contributions/task-9/fixtures/notifications-push-flow.json",
+      "handler": "src/transport/http/notifications/mod.rs::list_notifications",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "get",
+      "operation_id": "N1",
+      "path": "/api/v1/notifications"
+    },
+    {
+      "feature_behavior_test": "tests/notifications/http.rs::n2_is_idempotent_and_missing_or_foreign_ids_share_one_safe_not_found",
+      "fixture": "contracts/contributions/task-9/fixtures/notifications-push-flow.json",
+      "handler": "src/transport/http/notifications/mod.rs::mark_notification_read",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "post",
+      "operation_id": "N2",
+      "path": "/api/v1/notifications/{notification_id}/read"
+    }
+  ]
+}

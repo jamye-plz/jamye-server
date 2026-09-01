@@ -1,0 +1,12 @@
+{
+  "evidence": "existing_owner_behavior_tests_named_by_selected-surface-mapping",
+  "fixture": "c2_health_profile_account_selected_surfaces",
+  "operation_ids": [
+    "H1",
+    "H2",
+    "U1",
+    "U2",
+    "U3"
+  ],
+  "task_12_role": "declarative_mapping_gap_closure"
+}

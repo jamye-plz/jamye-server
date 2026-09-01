@@ -262,6 +262,85 @@
           "type": "object"
         }
       ]
+    },
+    "TopicCreatedData": {
+      "additionalProperties": false,
+      "properties": {
+        "author_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "chatroom_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "group_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "topic_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "topic_id",
+        "group_id",
+        "chatroom_id",
+        "author_id",
+        "title"
+      ],
+      "type": "object"
+    },
+    "TopicCreatedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "cursor": {
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/TopicCreatedData"
+        },
+        "event_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "occurred_at": {
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/TopicCreatedType"
+        },
+        "version": {
+          "format": "uint8",
+          "maximum": 1,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "type",
+        "event_id",
+        "conversation_id",
+        "cursor",
+        "occurred_at",
+        "data"
+      ],
+      "type": "object"
+    },
+    "TopicCreatedType": {
+      "enum": [
+        "topic.created"
+      ],
+      "type": "string"
     }
   },
   "$id": "https://contracts.jamye.local/realtime/server-frame.schema.json",
@@ -272,6 +351,9 @@
     },
     {
       "$ref": "#/$defs/MessageCreatedEvent"
+    },
+    {
+      "$ref": "#/$defs/TopicCreatedEvent"
     }
   ],
   "title": "Jamye realtime server frames"

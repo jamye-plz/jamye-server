@@ -57,6 +57,7 @@ async fn media_resilience_structured_json_logs_exclude_presign_finalize_secrets(
     let output = writer.clone();
     let subscriber = build_json_subscriber(writer, "jamye_server=info")?;
     let _guard = tracing::subscriber::set_default(subscriber);
+    let _interest_sentinel = crate::logging_interest_sentinel();
 
     let presign_success = harness(UploadMode::Success, FinalizeMode::ChatSuccess)
         .oneshot(post_request(

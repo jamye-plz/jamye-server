@@ -9,13 +9,13 @@ use std::{
 use jamye_server::{
     application::{
         auth::AccessIdentity,
-        messaging::{MessagingError, MessagingService, SendMessageInput},
+        messaging::{MessagingError, MessagingService, SendMessageInput, SendMessageOutcome},
     },
     domain::messaging::{CanonicalMessage, EventPage, MessageKind, SendMessageCommand},
     ports::{
         messaging::{
             DeltaQuery, MessagingFuture, MessagingRepository, MessagingRepositoryError,
-            PersistMessageOutcome,
+            PersistMessageOutcome, PersistedMessage,
         },
         transactions::{
             BoxTransactionHandle, TransactionFuture, TransactionHandle, TransactionManager,
@@ -27,7 +27,7 @@ use uuid::Uuid;
 
 #[tokio::test]
 async fn application_owns_one_commit_and_rolls_back_repository_failure() {
-    let committed = Harness::new(Ok(PersistMessageOutcome::Created(message())));
+    let committed = Harness::new(Ok(created(message())));
     let result = committed.service.send_message(&identity(), input()).await;
     assert!(result.is_ok());
     assert_eq!(committed.transactions.counts(), (1, 1, 0));
@@ -42,7 +42,7 @@ async fn application_owns_one_commit_and_rolls_back_repository_failure() {
 
 #[tokio::test]
 async fn validation_failure_never_opens_a_transaction() {
-    let harness = Harness::new(Ok(PersistMessageOutcome::Created(message())));
+    let harness = Harness::new(Ok(created(message())));
     let mut invalid = input();
     invalid.idempotency_key = Some(Uuid::new_v4());
 
@@ -50,6 +50,19 @@ async fn validation_failure_never_opens_a_transaction() {
     assert_eq!(result, Err(MessagingError::IdempotencyKeyMismatch));
     assert_eq!(harness.transactions.counts(), (0, 0, 0));
     assert_eq!(harness.repository.handles.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn public_send_outcome_preserves_its_canonical_message_only_projection() {
+    let canonical = message();
+    let harness = Harness::new(Ok(PersistMessageOutcome::Created(PersistedMessage::new(
+        canonical.clone(),
+        canonical.id,
+    ))));
+
+    let result = harness.service.send_message(&identity(), input()).await;
+
+    assert_eq!(result, Ok(SendMessageOutcome::Created(canonical)));
 }
 
 struct Harness {
@@ -179,4 +192,9 @@ fn message() -> CanonicalMessage {
         created_at: OffsetDateTime::UNIX_EPOCH,
         media: Vec::new(),
     }
+}
+
+fn created(message: CanonicalMessage) -> PersistMessageOutcome {
+    let source_event_id = message.id;
+    PersistMessageOutcome::Created(PersistedMessage::new(message, source_event_id))
 }

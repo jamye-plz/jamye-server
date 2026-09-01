@@ -8,7 +8,10 @@ use crate::{
         CanonicalMessage, MessageCreatedEvent, MessageCreatedType, MessageKind, SendMessageCommand,
     },
     ports::{
-        messaging::{MessagingRepositoryError, PersistMessageOutcome},
+        messaging::{
+            MessageDeliveryContext, MessagingRepositoryError, PersistMessageOutcome,
+            PersistedMessage,
+        },
         transactions::TransactionHandle,
     },
 };
@@ -34,8 +37,60 @@ pub(super) async fn persist(
         return existing_message(connection, command).await;
     };
     let message = canonical_message(row);
-    persist_event_and_outbox(connection, &message).await?;
-    Ok(PersistMessageOutcome::Created(message))
+    let canonical_event_id = persist_event_and_outbox(connection, &message).await?;
+    Ok(PersistMessageOutcome::Created(PersistedMessage::new(
+        message,
+        canonical_event_id,
+    )))
+}
+
+pub(super) async fn delivery_context(
+    connection: &mut PgConnection,
+    persisted: &PersistedMessage,
+) -> Result<MessageDeliveryContext, MessagingRepositoryError> {
+    let message = persisted.message();
+    let row = sqlx::query_as::<_, (Uuid, String, Option<Uuid>, String)>(
+        "SELECT chatroom.group_id, chatroom.type, chatroom.topic_id, sender.nickname \
+         FROM messages AS message \
+         JOIN chatrooms AS chatroom ON chatroom.id = message.chatroom_id \
+         JOIN groups AS live_group ON live_group.id = chatroom.group_id \
+           AND live_group.deleted_at IS NULL \
+         JOIN users AS sender ON sender.id = message.sender_id \
+         WHERE message.id = $1 AND message.chatroom_id = $2 AND message.sender_id = $3 \
+         FOR SHARE OF message, chatroom, live_group, sender",
+    )
+    .bind(message.id)
+    .bind(message.chatroom_id)
+    .bind(message.sender_id)
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(|_| database_error("delivery_context"))?
+    .ok_or_else(|| database_error("delivery_context_missing"))?;
+    match (row.1.as_str(), row.2) {
+        ("main", None) => Ok(MessageDeliveryContext::Main),
+        ("topic", Some(topic_id)) => {
+            let authoritative_topic_id = sqlx::query_scalar::<_, Uuid>(
+                "SELECT topic.id FROM topics AS topic \
+                 WHERE topic.id = $1 AND topic.group_id = $2 \
+                 FOR SHARE OF topic",
+            )
+            .bind(topic_id)
+            .bind(row.0)
+            .fetch_optional(&mut *connection)
+            .await
+            .map_err(|_| database_error("delivery_context_topic"))?
+            .ok_or_else(|| database_error("delivery_context_topology"))?;
+            if authoritative_topic_id != topic_id {
+                return Err(database_error("delivery_context_topology"));
+            }
+            Ok(MessageDeliveryContext::Topic {
+                group_id: row.0,
+                topic_id,
+                sender_display_name: row.3,
+            })
+        }
+        _ => Err(database_error("delivery_context_topology")),
+    }
 }
 
 async fn authorize(
@@ -101,13 +156,32 @@ async fn existing_message(
     if row.1 != command.chatroom_id || row.4 != command.body {
         return Err(MessagingRepositoryError::IdempotencyConflict);
     }
-    Ok(PersistMessageOutcome::Existing(canonical_message(row)))
+    let message = canonical_message(row);
+    let canonical_event_ids = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM conversation_events \
+         WHERE conversation_id = $1 \
+           AND event_type = 'message.created' \
+           AND event_version = 1 \
+           AND payload ->> 'id' = $2::uuid::text",
+    )
+    .bind(message.chatroom_id)
+    .bind(message.id)
+    .fetch_all(&mut *connection)
+    .await
+    .map_err(|_| database_error("read_existing_event"))?;
+    let [canonical_event_id] = canonical_event_ids.as_slice() else {
+        return Err(database_error("non_canonical_existing_event"));
+    };
+    Ok(PersistMessageOutcome::Existing(PersistedMessage::new(
+        message,
+        *canonical_event_id,
+    )))
 }
 
 async fn persist_event_and_outbox(
     connection: &mut PgConnection,
     message: &CanonicalMessage,
-) -> Result<(), MessagingRepositoryError> {
+) -> Result<Uuid, MessagingRepositoryError> {
     let event_id = Uuid::new_v4();
     let payload = serde_json::to_value(message).map_err(|_| database_error("event_payload"))?;
     let (cursor, occurred_at) = sqlx::query_as::<_, (i64, OffsetDateTime)>(
@@ -131,7 +205,8 @@ async fn persist_event_and_outbox(
         occurred_at,
         data: message.clone(),
     };
-    insert_outbox(connection, &event).await
+    insert_outbox(connection, &event).await?;
+    Ok(event_id)
 }
 
 async fn insert_outbox(

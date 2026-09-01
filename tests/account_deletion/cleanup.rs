@@ -30,6 +30,7 @@ use jamye_server::{
     },
     config::{
         AppEnvironment,
+        account_deletion::{AccountDeletionConfig, AccountDeletionConfigInput},
         object_storage::{ObjectStorageConfig, ObjectStorageConfigInput},
     },
     ports::{
@@ -61,6 +62,71 @@ const MEDIA_ACCESS_KEY_ID: &str = "task-8-media-access";
 const MEDIA_SECRET_ACCESS_KEY: &str = "task-8-media-secret-must-not-appear";
 const CLEANUP_ACCESS_KEY_ID: &str = "task-11-s3-access";
 const SECRET_ACCESS_KEY: &str = "task-11-s3-secret-must-not-appear";
+
+#[test]
+fn cleanup_config_requires_credentials_and_a_strict_lease_budget() -> TestResult {
+    let missing_access = AccountDeletionConfig::resolve(AccountDeletionConfigInput {
+        secret_access_key: Some(SECRET_ACCESS_KEY.to_owned()),
+        ..AccountDeletionConfigInput::default()
+    })
+    .err();
+    let Some(missing_access) = missing_access else {
+        return Err(io::Error::other("cleanup access key must be required").into());
+    };
+    assert_eq!(
+        missing_access.key(),
+        "JAMYE_ACCOUNT_OBJECT_DELETION_ACCESS_KEY_ID"
+    );
+
+    let missing_secret = AccountDeletionConfig::resolve(AccountDeletionConfigInput {
+        access_key_id: Some(CLEANUP_ACCESS_KEY_ID.to_owned()),
+        ..AccountDeletionConfigInput::default()
+    })
+    .err();
+    let Some(missing_secret) = missing_secret else {
+        return Err(io::Error::other("cleanup secret key must be required").into());
+    };
+    assert_eq!(
+        missing_secret.key(),
+        "JAMYE_ACCOUNT_OBJECT_DELETION_SECRET_ACCESS_KEY"
+    );
+
+    let invalid_budget = AccountDeletionConfig::resolve(AccountDeletionConfigInput {
+        access_key_id: Some(CLEANUP_ACCESS_KEY_ID.to_owned()),
+        secret_access_key: Some(SECRET_ACCESS_KEY.to_owned()),
+        lease_ms: Some("3000".to_owned()),
+        delete_timeout_ms: Some("2000".to_owned()),
+        lease_safety_margin_ms: Some("1000".to_owned()),
+        ..AccountDeletionConfigInput::default()
+    })
+    .err();
+    let Some(invalid_budget) = invalid_budget else {
+        return Err(io::Error::other("lease budget must be rejected").into());
+    };
+    assert_eq!(
+        invalid_budget.key(),
+        "JAMYE_ACCOUNT_OBJECT_DELETION_LEASE_MS"
+    );
+    Ok(())
+}
+
+#[test]
+fn cleanup_config_accepts_valid_input_without_exposing_the_secret() -> TestResult {
+    let config = AccountDeletionConfig::resolve(AccountDeletionConfigInput {
+        access_key_id: Some(CLEANUP_ACCESS_KEY_ID.to_owned()),
+        secret_access_key: Some(SECRET_ACCESS_KEY.to_owned()),
+        lease_ms: Some("3001".to_owned()),
+        delete_timeout_ms: Some("2000".to_owned()),
+        lease_safety_margin_ms: Some("1000".to_owned()),
+        ..AccountDeletionConfigInput::default()
+    })?;
+
+    let debug = format!("{config:?}");
+    require(
+        !debug.contains(SECRET_ACCESS_KEY),
+        "cleanup configuration Debug exposed a secret",
+    )
+}
 
 #[tokio::test]
 async fn worker_rejects_non_strict_or_invalid_config_without_claim_or_provider_calls() -> TestResult

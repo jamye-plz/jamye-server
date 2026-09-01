@@ -47,6 +47,16 @@ pub trait TopicsRepository: Send + Sync {
     fn list_tags(&self, query: ListTopicTagsQuery) -> TopicsRepositoryFuture<'_, TopicTagPage>;
 
     fn list_media(&self, query: ListTopicMediaQuery) -> TopicsRepositoryFuture<'_, TopicMediaPage>;
+
+    /// Resolves the immutable canonical `topic.created` identity from the
+    /// persisted topic before the caller-owned transaction is committed.
+    fn notification_context<'a>(
+        &'a self,
+        _transaction: &'a mut dyn TransactionHandle,
+        _topic: &'a TopicRecord,
+    ) -> TopicsRepositoryFuture<'a, TopicNotificationContext> {
+        Box::pin(async { Err(TopicsRepositoryError::Unavailable) })
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -220,6 +230,16 @@ pub struct TopicRecord {
     pub unread: bool,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TopicNotificationContext {
+    pub group_id: Uuid,
+    pub topic_id: Uuid,
+    pub conversation_id: Uuid,
+    pub source_event_id: Uuid,
+    pub author_id: Uuid,
+    pub author_display_name: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]

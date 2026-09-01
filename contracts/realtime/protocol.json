@@ -40,7 +40,8 @@
   },
   "join_ack": "subscribed is emitted only after authoritative membership validation and local registration",
   "known_event_discriminants": [
-    "message.created"
+    "message.created",
+    "topic.created"
   ],
   "selected_D13_A": {
     "deadline_cleanup": "remove every local subscription and registry entry before close",
@@ -56,7 +57,7 @@
     "pong",
     "error"
   ],
-  "stage": "C0",
+  "stage": "C2",
   "ticket": {
     "consume": "atomic_getdel_or_equivalent_lua",
     "effective_expiry": "min(issue_time_plus_30_seconds, access_token_exp)",

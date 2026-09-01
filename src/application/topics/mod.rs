@@ -10,8 +10,9 @@ use crate::ports::{
     topics::{
         CreateTopicCommand, CreateTopicOutcome, GetTopicQuery, ListTopicDatesQuery,
         ListTopicMediaQuery, ListTopicTagsQuery, ListTopicsQuery, NewTopicTag, PatchTopicCommand,
-        ReplaceTopicTagsCommand, TopicDatePage, TopicMediaPage, TopicPage, TopicRecord,
-        TopicStatus, TopicTagPage, TopicTagSource, TopicsRepository, TopicsRepositoryError,
+        ReplaceTopicTagsCommand, TopicDatePage, TopicMediaPage, TopicNotificationContext,
+        TopicPage, TopicRecord, TopicStatus, TopicTagPage, TopicTagSource, TopicsRepository,
+        TopicsRepositoryError,
     },
     transactions::{BoxTransactionHandle, TransactionHandle, TransactionManager},
 };
@@ -45,12 +46,10 @@ impl TopicsService {
         group_id: Uuid,
         input: TopicCreateInput,
     ) -> Result<CreateTopicOutcome, TopicsError> {
-        let command = create_command(author_id, group_id, input)?;
+        let command = self.prepare_create_topic(author_id, group_id, input)?;
         let mut transaction = self.begin().await?;
         let result = self
-            .dependencies
-            .repository
-            .create_topic(transaction.as_mut(), &command)
+            .create_topic_command_in_transaction(transaction.as_mut(), &command)
             .await;
         self.finish(transaction, result).await
     }
@@ -66,12 +65,53 @@ impl TopicsService {
         group_id: Uuid,
         input: TopicCreateInput,
     ) -> Result<CreateTopicOutcome, TopicsError> {
-        let command = create_command(author_id, group_id, input)?;
+        let command = self.prepare_create_topic(author_id, group_id, input)?;
+        self.create_topic_command_in_transaction(transaction, &command)
+            .await
+    }
+
+    /// Validates mounted or standalone input before a caller opens its
+    /// transaction, keeping the feature's command construction in one place.
+    pub(crate) fn prepare_create_topic(
+        &self,
+        author_id: Uuid,
+        group_id: Uuid,
+        input: TopicCreateInput,
+    ) -> Result<CreateTopicCommand, TopicsError> {
+        create_topic_command(author_id, group_id, input)
+    }
+
+    /// Persists a validated topic command on the caller-owned Task-4a handle.
+    /// The caller retains commit/rollback ownership.
+    pub(crate) async fn create_topic_command_in_transaction(
+        &self,
+        transaction: &mut dyn TransactionHandle,
+        command: &CreateTopicCommand,
+    ) -> Result<CreateTopicOutcome, TopicsError> {
         self.dependencies
             .repository
-            .create_topic(transaction, &command)
+            .create_topic(transaction, command)
             .await
             .map_err(TopicsError::from)
+    }
+
+    /// Runs a prepared topic command and reads its canonical topic-created
+    /// identity on the caller-owned transaction.
+    pub(crate) async fn create_topic_command_with_notification_context_in_transaction(
+        &self,
+        transaction: &mut dyn TransactionHandle,
+        command: &CreateTopicCommand,
+    ) -> Result<(CreateTopicOutcome, TopicNotificationContext), TopicsError> {
+        let outcome = self
+            .create_topic_command_in_transaction(transaction, command)
+            .await?;
+        let context = self
+            .dependencies
+            .repository
+            .notification_context(transaction, outcome.topic())
+            .await
+            .map_err(TopicsError::from)?;
+        Ok((outcome, context))
     }
 
     pub async fn list_topics(
@@ -146,7 +186,8 @@ impl TopicsService {
             .dependencies
             .repository
             .patch_topic(transaction.as_mut(), &command)
-            .await;
+            .await
+            .map_err(TopicsError::from);
         self.finish(transaction, result).await
     }
 
@@ -163,7 +204,8 @@ impl TopicsService {
             .dependencies
             .repository
             .replace_tags(transaction.as_mut(), &command)
-            .await;
+            .await
+            .map_err(TopicsError::from);
         self.finish(transaction, result).await
     }
 
@@ -233,7 +275,7 @@ impl TopicsService {
     async fn finish<T>(
         &self,
         transaction: BoxTransactionHandle,
-        result: Result<T, TopicsRepositoryError>,
+        result: Result<T, TopicsError>,
     ) -> Result<T, TopicsError> {
         match result {
             Ok(value) => {
@@ -250,13 +292,13 @@ impl TopicsService {
                     .rollback(transaction)
                     .await
                     .map_err(|_| TopicsError::DatabaseUnavailable)?;
-                Err(error.into())
+                Err(error)
             }
         }
     }
 }
 
-fn create_command(
+pub(crate) fn create_topic_command(
     author_id: Uuid,
     group_id: Uuid,
     input: TopicCreateInput,

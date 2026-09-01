@@ -89,19 +89,39 @@ impl ChatroomsService {
         chatroom_id: Uuid,
         cursor: i64,
     ) -> Result<ReadMarker, ChatroomsError> {
+        let command = self.prepare_mark_read_command(user_id, chatroom_id, cursor)?;
+        self.mark_read_command_in_transaction(transaction, &command)
+            .await
+    }
+
+    /// Validates a mounted read request before its composition opens a
+    /// transaction, while keeping feature command construction centralized.
+    pub(crate) fn prepare_mark_read_command(
+        &self,
+        user_id: Uuid,
+        chatroom_id: Uuid,
+        cursor: i64,
+    ) -> Result<MarkReadCommand, ChatroomsError> {
         if cursor <= 0 {
             return Err(ChatroomsError::RequestValidation);
         }
+        Ok(MarkReadCommand {
+            marker_id: Uuid::new_v4(),
+            user_id,
+            chatroom_id,
+            cursor,
+        })
+    }
+
+    /// Applies an already-constructed read marker on a caller-owned Task-4a
+    /// handle. The caller owns the single transaction outcome.
+    pub(crate) async fn mark_read_command_in_transaction(
+        &self,
+        transaction: &mut dyn TransactionHandle,
+        command: &MarkReadCommand,
+    ) -> Result<ReadMarker, ChatroomsError> {
         self.repository
-            .mark_read(
-                transaction,
-                &MarkReadCommand {
-                    marker_id: Uuid::new_v4(),
-                    user_id,
-                    chatroom_id,
-                    cursor,
-                },
-            )
+            .mark_read(transaction, command)
             .await
             .map_err(ChatroomsError::from)
     }

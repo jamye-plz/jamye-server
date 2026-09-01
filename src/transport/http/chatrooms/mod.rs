@@ -21,6 +21,7 @@ use crate::{
         chatrooms::{
             ChatroomPageInput, ChatroomsError, ChatroomsService, HistoryPageInput, ReadCursorInput,
         },
+        transactions::TransactionCompositions,
     },
     domain::messaging::{MessageAttachment, MessageKind},
     ports::chatrooms::{
@@ -35,6 +36,7 @@ const MAX_READ_BODY_BYTES: usize = 8 * 1024;
 pub struct ChatroomsHttpState {
     service: Arc<ChatroomsService>,
     verifier: AuthVerifierState,
+    compositions: Option<Arc<TransactionCompositions>>,
 }
 
 impl ChatroomsHttpState {
@@ -42,7 +44,13 @@ impl ChatroomsHttpState {
         Self {
             service,
             verifier: AuthVerifierState::new(verifier),
+            compositions: None,
         }
+    }
+
+    pub fn with_compositions(mut self, compositions: Arc<TransactionCompositions>) -> Self {
+        self.compositions = Some(compositions);
+        self
     }
 }
 
@@ -151,12 +159,22 @@ async fn mark_read(
         Err(error) => Err(error),
     };
     let result = match input {
-        Ok((chatroom_id, input)) => {
-            state
-                .service
-                .mark_read(identity.user_id, chatroom_id, input)
-                .await
-        }
+        Ok((chatroom_id, input)) => match &state.compositions {
+            Some(compositions) => match input.cursor.parse::<i64>() {
+                Ok(cursor) => {
+                    compositions
+                        .mark_read_http(identity.user_id, chatroom_id, cursor)
+                        .await
+                }
+                Err(_) => Err(ChatroomsError::RequestValidation),
+            },
+            None => {
+                state
+                    .service
+                    .mark_read(identity.user_id, chatroom_id, input)
+                    .await
+            }
+        },
         Err(error) => Err(error),
     };
     match result {

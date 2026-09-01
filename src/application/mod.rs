@@ -10,4 +10,5 @@ pub mod notifications;
 pub mod push;
 pub mod realtime;
 pub mod topics;
+pub mod transactions;
 pub mod users;

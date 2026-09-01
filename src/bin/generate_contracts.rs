@@ -35,9 +35,21 @@ fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             println!("verified {count} deterministic contract artifacts");
             Ok(())
         }
+        [command, output_flag, output, provenance_flag, provenance]
+            if command == "generate-release-candidate"
+                && output_flag == "--output"
+                && provenance_flag == "--provenance" =>
+        {
+            let count = contract_generation::generate_release_candidate(
+                Path::new(output),
+                Path::new(provenance),
+            )?;
+            println!("generated {count} release-candidate contract artifacts");
+            Ok(())
+        }
         _ => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "usage: generate_contracts generate --output <dir> --provenance <file> | verify --input <dir> --provenance <file>",
+            "usage: generate_contracts generate --output <dir> --provenance <file> | verify --input <dir> --provenance <file> | generate-release-candidate --output <dir> --provenance <file>",
         )
         .into()),
     }
