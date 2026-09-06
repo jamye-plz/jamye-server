@@ -5,6 +5,7 @@ pub mod auth;
 pub mod object_storage;
 pub mod push;
 pub mod rate_limit;
+pub(crate) mod realtime;
 
 use std::{env, error::Error, fmt, net::SocketAddr, time::Duration};
 

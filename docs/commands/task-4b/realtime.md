@@ -42,6 +42,50 @@ expiry fence, local WebSocket registry와 heartbeat, denied-subscribe terminal c
 두 단계 delta recovery, 실제 dev-fixture 기반 C1 흐름을 검증한다. Redis와
 WebSocket은 delivery acceleration이며 PostgreSQL delta가 계속 correctness path다.
 
+## Redis publish config binding
+
+Task-13 G0의 좁은 Task-4b 선행조건은 다음 세 키의 feature-owner binding을
+검증한다. 이 card는 Task-13 manifest digest를 받지 않으며, 다른 Task-4b target을
+재실행하지 않는다.
+
+- `JAMYE_REDIS_PUBLISH_LEASE_MS`
+- `JAMYE_REDIS_PUBLISH_TIMEOUT_MS`
+- `JAMYE_REDIS_PUBLISH_SAFETY_MARGIN_MS`
+
+수용된 RED는 현재 production 기본값 15000ms/2000ms/1000ms와 여섯 binding
+assertion failure를 고정했다. GREEN은 각 키의 독립 fallback, lease 1000..=300000ms,
+timeout 100..=30000ms, safety margin 1..=30000ms, 그리고
+`timeout + safetyMargin < lease`의 strict budget을 적용한다. 오류는 offending key만
+식별하며 supplied raw value를 출력하지 않는다.
+
+사용자는 현재 devShell에서 다음 RED evidence를 실행했다.
+
+```bash
+just --justfile scripts/tasks/task-4b/mod.just redis-publish-config-red
+printf 'task_4b_redis_publish_config_red_exit=%s\n' "$?"
+```
+
+유효한 RED는 정확히 8개 이름을 lexical order로 발견하고, default와 기존 default
+regression 두 개만 PASS, override/partial/parse-bounds/overflow/budget/key-only 여섯 개는
+assertion FAIL, SKIP 0, exit 101이어야 한다. compile, database, Redis, network, service,
+또는 harness 실패는 유효한 RED evidence가 아니다.
+
+GREEN은 production worker가 pool, Redis adapter, repository, UUID/owner, worker를
+만들기 전에 config를 resolve/validate한다. 같은 private helper의 injected factory
+counter는 invalid input에서 어떤 construction factory도 호출되지 않음을 증명한다.
+synthetic near-max `Duration`은 같은 strict-budget helper의 defensive checked-add
+overflow를 service 없이 검증한다. 구현 및 독립 검토 후에만 같은 inventory와
+byte-identical Cargo selector로 다음 card를 실행한다.
+
+```bash
+just --justfile scripts/tasks/task-4b/mod.just redis-publish-config-green
+printf 'task_4b_redis_publish_config_green_exit=%s\n' "$?"
+```
+
+GREEN의 성공 기준은 같은 8개가 PASS, FAIL/SKIP 0, exit 0이다. raw RED/GREEN 출력과
+별도 static/reviewer evidence가 G0 completion token에 함께 기록되기 전에는 Task-13
+Sprint 1을 시작할 수 없다.
+
 ## Realtime dependency와 lock 검증
 
 유효한 RED 뒤 다음 최소 dependency 경계를 추가했다.

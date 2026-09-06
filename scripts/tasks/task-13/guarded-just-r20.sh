@@ -1,0 +1,709 @@
+#!/usr/bin/env bash
+set -euo pipefail
+readonly active_generation='task13-r20-g0-f8-token-review-path-consistency-20260907'
+readonly manifest='tests/nix/task-13-assertion-manifest-r20-g0-f8.json'
+readonly lock='tests/nix/task-13-assertion-manifest-r20-g0-f8.sha256'
+readonly fixed_record='.agents/results/task-13-s2-r20-g0-f8-manifest-digest-20260907.txt'
+readonly g0_token='.agents/results/task-4b-redis-publish-completion-g0-f8-r20-20260907.json'
+readonly expected_g0_token_sha='d4cad5b20b5461abee0907431f67158c1175832f6618a49f92786e2c148d52ac'
+readonly g0_token_review='.agents/results/review-task13-g0-f8-r20-token-integrity-r1-20260907.md'
+readonly expected_g0_token_review_sha='06e5d0f442b8b59413c96c21d6b1c39130a92dec44d5c80092477bf8599fae74'
+readonly authority_plan='tests/nix/task-13-r20-authority-plan-20260907.json'
+readonly expected_authority_plan_sha='228efc8343db3e7f56f8cc8cc2eaab804b27b0b24e3bca89c2167af0abb594e2'
+readonly authority_requirements='tests/nix/task-13-r20-authority-requirements-20260907.md'
+readonly expected_authority_requirements_sha='62a667b4095b9020996bc827c896ddb9ef8ee9dd9d530657f470d5067c9f722f'
+readonly expected_approval_sha='eee505b90657d50047ba425b1be6e6fc378d0b2cbf90f1c907fa9791dec2d089'
+readonly expected_token_schema_sha='04edfadcbfbecd49f736dff925d88dcb2196d61385a2404943f0f5a962c1b4cc'
+readonly expected_token_template_sha='efa94d1f689fddc9ac5fbce9343388d4b259d70822e08a0c6e9e625782a9231c'
+readonly expected_coverage_stream_sha='bb77b0f773f339bc5f5767e57f96f6ad8352a299a53c1ff67f103595b4faa12f'
+readonly completeness_review_path='.agents/results/review-task13-g0-f8-r20-plan-completeness-r6-20260907.md'
+readonly completeness_review_sha='f0baea6f53210f2f26dfa657f35969bbadcbff7ac48979d95f8cd2ab269998c4'
+readonly meta_review_path='.agents/results/review-task13-g0-f8-r20-plan-meta-r6-20260907.md'
+readonly meta_review_sha='b33acc5f867ce76fdd1eec0ba5db589731fa82ca0892a725e1a8de9e74df7e9e'
+readonly simplicity_review_path='.agents/results/review-task13-g0-f8-r20-plan-simplicity-r6-20260907.md'
+readonly simplicity_review_sha='879326ff70413ebf3bec440cdd7f0df518bf5869f5b5d5a3534ca3de596b217f'
+readonly fixture_path='tests/nix/coverage-executor-toctou-r20.sh'
+readonly script_directory="$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+readonly repo_root="$(cd -P -- "$script_directory/../../.." && pwd -P)"
+mode=''
+if (($# == 2)) && [[ "$2" == '--receipt' ]]; then
+  mode='receipt'
+  generation_id="$1"
+elif (($# == 4)); then
+  mode='dispatch'
+  generation_id="$1"
+  recorded_digest="$2"
+  target_justfile="$3"
+  target_recipe="$4"
+else
+  printf '%s\n' 'usage: guarded-just-r20.sh task13-r20-g0-f8-token-review-path-consistency-20260907 (--receipt | <r20-recorded-digest> <justfile-relative-path> <private-recipe>)' >&2
+  exit 2
+fi
+readonly mode generation_id
+manifest_snapshot=''
+snapshot_helper_copy=''
+live_justfile_copy=''
+
+cleanup() {
+  [[ -z "$manifest_snapshot" ]] || rm -f -- "$manifest_snapshot"
+  [[ -z "$snapshot_helper_copy" ]] || rm -f -- "$snapshot_helper_copy"
+  [[ -z "$live_justfile_copy" ]] || rm -f -- "$live_justfile_copy"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+reject() {
+  printf 'error: %s\n' "$1" >&2
+  exit 2
+}
+[[ "$(pwd -P)" == "$repo_root" ]] || reject 'R20 guard must start at the repository root'
+[[ "$generation_id" == "$active_generation" ]] || reject 'unknown Task-13 R20 assertion generation'
+verify_regular_repo_file() {
+  local relative_path="$1"
+  local phase="$2"
+  local directory basename physical_directory physical_path
+  [[ "$relative_path" =~ ^[A-Za-z0-9._/-]+$ && "$relative_path" != /* && "$relative_path" != *'..'* ]] || reject "noncanonical repository path at ${phase}"
+  directory="$repo_root/$(dirname -- "$relative_path")"
+  basename="$(basename -- "$relative_path")"
+  [[ -d "$directory" ]] || reject "repository directory missing at ${phase}"
+  physical_directory="$(cd -P -- "$directory" && pwd -P)" || reject "repository directory cannot be resolved at ${phase}"
+  physical_path="${physical_directory}/${basename}"
+  [[ "$physical_path" == "$repo_root/$relative_path" && -f "$physical_path" && ! -L "$physical_path" ]] || reject "repository file missing, linked, or escaped at ${phase}"
+}
+
+verify_bound_live_file_and_copy() {
+  local relative_path="$1"
+  local expected_physical_path="$2"
+  local expected_source_identity="$3"
+  local expected_sha="$4"
+  local copy_path="$5"
+  local expected_copy_identity="$6"
+  local phase="$7"
+  local directory basename physical_directory physical_path
+  verify_regular_repo_file "$relative_path" "$phase"
+  directory="$repo_root/$(dirname -- "$relative_path")"
+  basename="$(basename -- "$relative_path")"
+  physical_directory="$(cd -P -- "$directory" && pwd -P)" || reject "bound source directory cannot be resolved at ${phase}"
+  physical_path="${physical_directory}/${basename}"
+  [[ "$physical_path" == "$expected_physical_path" ]] || reject "bound source path changed at ${phase}"
+  [[ "$(stat -c '%d:%i' -- "$physical_path")" == "$expected_source_identity" ]] || reject "bound source identity changed at ${phase}"
+  [[ "$(sha256sum "$physical_path" | awk '{print $1}')" == "$expected_sha" ]] || reject "bound source content changed at ${phase}"
+  [[ "$copy_path" == /* && -f "$copy_path" && ! -L "$copy_path" ]] || reject "bound read-only copy is missing or linked at ${phase}"
+  [[ "$(stat -c '%a' -- "$copy_path")" == 400 ]] || reject "bound copy is not read-only at ${phase}"
+  [[ "$(stat -c '%d:%i' -- "$copy_path")" == "$expected_copy_identity" ]] || reject "bound read-only copy identity changed at ${phase}"
+  [[ "$(sha256sum "$copy_path" | awk '{print $1}')" == "$expected_sha" ]] || reject "bound read-only copy content changed at ${phase}"
+}
+
+wait_at_deterministic_post_copy_fixture_barrier() {
+  local fixture_mode="${TASK13_R20_POST_COPY_FIXTURE_MODE:-}"
+  local fixture_root="${TASK13_R20_FIXTURE_REPO_ROOT:-}"
+  local ready_fd="${TASK13_R20_FIXTURE_READY_FD:-}"
+  local release_fd="${TASK13_R20_FIXTURE_RELEASE_FD:-}"
+  local temp_root release
+  if [[ -z "$fixture_mode$fixture_root$ready_fd$release_fd" ]]; then
+    return 0
+  fi
+  [[ "$target_justfile" == 'scripts/tasks/task-13/mod.just' && "$target_recipe" == 'coverage-r20-exec' ]] || reject 'R20 post-copy fixture is restricted to the private coverage GREEN pair'
+  [[ "$fixture_mode" == 'content-mutation' || "$fixture_mode" == 'path-replacement' ]] || reject 'R20 post-copy fixture mode is invalid'
+  [[ "$fixture_root" == "$repo_root" ]] || reject 'R20 post-copy fixture root does not match the guarded repository'
+  temp_root="$(cd -P -- "${TMPDIR:-/tmp}" && pwd -P)" || reject 'R20 post-copy fixture temp root cannot be resolved'
+  case "$repo_root" in
+    "$temp_root"/jamye-task13-r20-toctou.*/repo) ;;
+    *) reject 'R20 post-copy fixture is forbidden outside its disposable repository' ;;
+  esac
+  [[ "$ready_fd" =~ ^[0-9]+$ && "$release_fd" =~ ^[0-9]+$ && "$ready_fd" != "$release_fd" ]] || reject 'R20 post-copy fixture descriptors are invalid'
+  printf 'ready:%s\n' "$fixture_mode" >&"$ready_fd" || reject 'R20 post-copy fixture ready signal failed'
+  IFS= read -r release <&"$release_fd" || reject 'R20 post-copy fixture release signal failed'
+  [[ "$release" == "release:${fixture_mode}" ]] || reject 'R20 post-copy fixture release token is invalid'
+}
+for required_path in "$manifest" "$lock" "$fixed_record"; do
+  verify_regular_repo_file "$required_path" 'R20 manifest material'
+done
+verify_manifest_file() {
+  local source_file="$1"
+  local expected
+  cmp -s <(jq -cS '.' "$source_file") "$source_file" || reject 'R20 manifest bytes are not canonical JSON plus LF'
+  snapshot_digest="$(sha256sum "$source_file" | awk '{print $1}')"
+  [[ "$snapshot_digest" =~ ^[0-9a-f]{64}$ ]] || reject 'R20 manifest digest is malformed'
+  expected="${snapshot_digest}"$'\n'
+  cmp -s <(printf '%s' "$expected") "$lock" || reject 'R20 manifest lock is malformed or mismatched'
+  cmp -s <(printf '%s' "$expected") "$fixed_record" || reject 'R20 coordinator record is malformed or mismatched'
+  jq -e --arg generation_id "$active_generation" '
+    .generation_id == $generation_id
+    and .flake_shape.active_generation == $generation_id
+    and .flake_shape.green_only == true
+    and (.flake_shape | has("baseline_red_failures") | not)
+    and (.flake_shape | has("missing_system_red") | not)
+  ' "$source_file" >/dev/null || reject 'R20 generation or GREEN-only identity is invalid'
+}
+
+verify_inputs_against_snapshot() {
+  local expected_lock expected_record
+  expected_lock="${snapshot_digest}"$'\n'
+  expected_record="${snapshot_digest}"$'\n'
+  cmp -s <(printf '%s' "$expected_lock") "$lock" || reject 'manifest lock is malformed or mismatched'
+  cmp -s <(printf '%s' "$expected_record") "$fixed_record" || reject 'fixed coordinator record is malformed or mismatched'
+  [[ "$recorded_digest" == "$snapshot_digest" ]] || reject 'Task-13 manifest digest mismatch'
+  cmp -s "$manifest_snapshot" "$manifest" || reject 'live manifest changed from verified snapshot'
+  [[ "$(sha256sum "$manifest" | awk '{print $1}')" == "$snapshot_digest" ]] || reject 'live manifest digest changed from verified snapshot'
+}
+
+verify_active_authority_prerequisite() {
+  local schema_sha template_sha completed_at_utc coverage_stream_sha
+  verify_regular_repo_file "$g0_token" 'G0-F8 completion token'
+  verify_regular_repo_file "$g0_token_review" 'G0-F8 token-integrity review'
+  [[ "$(sha256sum "$g0_token" | awk '{print $1}')" == "$expected_g0_token_sha" ]] || reject 'stale G0-F8 completion token'
+  [[ "$(sha256sum "$g0_token_review" | awk '{print $1}')" == "$expected_g0_token_review_sha" ]] || reject 'stale G0-F8 token-integrity review'
+  [[ "$(rg -Fxc -- '## Review Result: PASS' "$g0_token_review")" == 1 ]] || reject 'G0-F8 token-integrity review is not PASS'
+
+  # The current R20 plan is an immutable, hash-bound runtime input.  Its two
+  # schema copies are the only schema authority; no historical token or plan
+  # is opened to derive or repair the contract.
+  verify_regular_repo_file "$authority_plan" 'R20 authority plan snapshot'
+  [[ "$(sha256sum "$authority_plan" | awk '{print $1}')" == "$expected_authority_plan_sha" ]] || reject 'stale R20 authority plan snapshot'
+  cmp -s <(jq -cS '.' "$g0_token") "$g0_token" || reject 'R20 completion token is not canonical compact sorted JSON plus one LF'
+
+  schema_sha="$(jq -cS '.assertion_manifests.task13_r20.token_schema' "$authority_plan" | sha256sum | awk '{print $1}')"
+  template_sha="$(jq -cS '.assertion_manifests.task13_r20.token_schema.token_template' "$authority_plan" | sha256sum | awk '{print $1}')"
+  [[ "$schema_sha" == "$expected_token_schema_sha" ]] || reject 'R20 materialized token schema hash mismatch'
+  [[ "$template_sha" == "$expected_token_template_sha" ]] || reject 'R20 token template hash mismatch'
+  jq -e \
+    --arg generation_id "$active_generation" \
+    --arg completeness_path "$completeness_review_path" \
+    --arg meta_path "$meta_review_path" \
+    --arg simplicity_path "$simplicity_review_path" \
+    --arg post_token_review_path "$g0_token_review" '
+      .assertion_manifests.task13_r20.token_schema
+        == .assertion_manifests.task13_r20.manifest_projection.token_schema
+      and .assertion_manifests.task13_r20.generation == $generation_id
+      and .assertion_manifests.task13_r20.generation_argument_invariant.assertion_generation == $generation_id
+      and (.assertion_manifests.task13_r20.guarded_dispatch.arguments | split(" ")[0]) == $generation_id
+      and ([.assertion_manifests.task13_r20.reviews.plan[].path] == [
+        $completeness_path,
+        $meta_path,
+        $simplicity_path
+      ])
+      and .assertion_manifests.task13_r20.reviews.sole_post_token.path == $post_token_review_path
+    ' "$authority_plan" >/dev/null || reject 'R20 plan schema, review paths, or generation binding differs'
+
+  completed_at_utc="$(jq -er '.completed_at_utc' "$g0_token")" || reject 'R20 token issuance time is missing'
+  [[ "$completed_at_utc" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || reject 'R20 token issuance time is malformed'
+
+  jq -e \
+    --slurpfile plan "$authority_plan" \
+    --arg completed_at_utc "$completed_at_utc" \
+    --arg plan_sha "$expected_authority_plan_sha" \
+    --arg requirements_sha "$expected_authority_requirements_sha" \
+    --arg approval_sha "$expected_approval_sha" \
+    --arg completeness_path "$completeness_review_path" \
+    --arg completeness_sha "$completeness_review_sha" \
+    --arg meta_path "$meta_review_path" \
+    --arg meta_sha "$meta_review_sha" \
+    --arg simplicity_path "$simplicity_review_path" \
+    --arg simplicity_sha "$simplicity_review_sha" '
+      def instantiate:
+        walk(
+          if type != "string" then .
+          elif . == "<completed-at-utc>" then $completed_at_utc
+          elif . == "<plan-sha256>" then $plan_sha
+          elif . == "<requirements-sha256>" then $requirements_sha
+          elif . == "<approval-sha256>" then $approval_sha
+          elif . == "<completeness-review-path>" then $completeness_path
+          elif . == "<completeness-review-sha256>" then $completeness_sha
+          elif . == "<meta-review-path>" then $meta_path
+          elif . == "<meta-review-sha256>" then $meta_sha
+          elif . == "<simplicity-review-path>" then $simplicity_path
+          elif . == "<simplicity-review-sha256>" then $simplicity_sha
+          else . end
+        );
+      def normalized_object_key_sets:
+        reduce (
+          paths(objects) as $path
+          | {
+              key: ("/" + ($path | map(if type == "number" then "*" else tostring end) | join("/"))),
+              value: (getpath($path) | keys)
+            }
+        ) as $entry ({};
+          if has($entry.key) and .[$entry.key] != $entry.value
+          then error("nonuniform normalized object key set")
+          else .[$entry.key] = $entry.value
+          end
+        );
+      ($plan[0].assertion_manifests.task13_r20.token_schema) as $schema
+      | ($schema.token_template | instantiate) as $expected
+      | (keys == $schema.top_level_keys)
+        and (normalized_object_key_sets == $schema.nested_object_keys)
+        and (. == $expected)
+        and ([.. | select(. == null)] | length == 0)
+        and ([.. | strings | select(. as $value | any($schema.placeholder_rules | keys[]; . == $value))] | length == 0)
+    ' "$g0_token" >/dev/null || reject 'R20 completion token fails the complete materialized schema'
+
+  coverage_stream_sha="$(jq -r '.assertion_manifests.task13_r20.coverage.green.ordered_commands[]' "$authority_plan" | sha256sum | awk '{print $1}')"
+  [[ "$coverage_stream_sha" == "$expected_coverage_stream_sha" ]] || reject 'R20 coverage command stream hash mismatch'
+
+  printf '%s\n' 'Task-13 G0-F8/R20 immutable authority token is current'
+}
+
+verify_authority_snapshots_at_root() {
+  local source_root="$1"
+  local phase="$2"
+  local source_file="$3"
+  local plan_file="$source_root/$authority_plan"
+  local requirements_file="$source_root/$authority_requirements"
+  verify_recorded_source_at_root "$source_root" "$phase" "$expected_authority_plan_sha" "$authority_plan"
+  verify_recorded_source_at_root "$source_root" "$phase" "$expected_authority_requirements_sha" "$authority_requirements"
+  jq -e 'type == "object"' "$plan_file" >/dev/null || reject "R20 authority plan snapshot is invalid JSON at ${phase}"
+  [[ "$(tail -c 1 "$plan_file" | od -An -tuC | tr -d '[:space:]')" == 10 ]] || reject "R20 authority plan snapshot lacks final LF at ${phase}"
+  [[ "$(tail -c 1 "$requirements_file" | od -An -tuC | tr -d '[:space:]')" == 10 ]] || reject "R20 authority requirements snapshot lacks final LF at ${phase}"
+  jq -e \
+    --slurpfile plan "$plan_file" \
+    --arg generation_id "$active_generation" \
+    --arg plan_path "$authority_plan" \
+    --arg plan_sha "$expected_authority_plan_sha" \
+    --arg requirements_path "$authority_requirements" \
+    --arg requirements_sha "$expected_authority_requirements_sha" '
+      $plan[0].assertion_manifests.task13_r20.generation == $generation_id
+      and $plan[0].assertion_manifests.task13_r20.generation == $plan[0].assertion_manifests.task13_r20.generation_argument_invariant.assertion_generation
+      and ($plan[0].assertion_manifests.task13_r20.guarded_dispatch.arguments | split(" ")[0]) == $plan[0].assertion_manifests.task13_r20.generation
+      and $plan[0].assertion_manifests.task13_r20.generation == "task13-r20-g0-f8-token-review-path-consistency-20260907"
+      and .authority_binding.runtime_resolution == "immutable_snapshot_only"
+      and .authority_binding.runtime_mutable_canonical_access == "forbidden"
+      and .authority_binding.snapshots.approved_plan == {path:$plan_path, sha256:$plan_sha}
+      and .authority_binding.snapshots.approved_requirements == {path:$requirements_path, sha256:$requirements_sha}
+      and .authority_binding.active_assertion_contract == $plan[0].assertion_manifests.task13_r20
+      and .authority_binding.active_protocol_authority == $plan[0].active_r20_final_protocol_authority
+    ' "$source_file" >/dev/null || reject "R20 immutable authority projection is invalid at ${phase}"
+}
+
+verify_active_command_source_schema() {
+  local source_file="$1"
+  jq -e --arg generation_id "$active_generation" '
+    .command_source_integrity.generation_id == $generation_id
+    and (.command_source_integrity.canonical_order == [
+      "scripts/tasks/task-13/r20-shape.just",
+      "scripts/tasks/task-13/guarded-just-r20.sh",
+      "tests/nix/flake-shape-aarch64-linux-r20.sh",
+      "scripts/tasks/task-13/flake-source-snapshot-r20.sh",
+      "tests/nix/coverage-executor-toctou-r20.sh"
+    ])
+    and ([.command_source_integrity.sources[].path] == .command_source_integrity.canonical_order)
+    and (.command_source_integrity.sources | length == 5)
+    and (all(.command_source_integrity.sources[];
+      (.path | test("^(scripts/tasks/task-13/(r20-shape[.]just|guarded-just-r20[.]sh|flake-source-snapshot-r20[.]sh)|tests/nix/(flake-shape-aarch64-linux-r20[.]sh|coverage-executor-toctou-r20[.]sh))$"))
+      and (.sha256 | test("^[0-9a-f]{64}$"))
+    ))
+    and .command_source_integrity.live_auxiliary_dependencies == []
+    and (.command_source_integrity.post_validation_mutation_fixture.id == "active-r20-post-copy-coverage-executor-mutation-zero-nested-dispatch")
+    and (.command_source_integrity.post_validation_mutation_fixture.fixture_kind == "executable-production-barrier")
+    and (.command_source_integrity.post_validation_mutation_fixture.executable_path == "tests/nix/coverage-executor-toctou-r20.sh")
+    and (.command_source_integrity.post_validation_mutation_fixture.executable_sha256 | test("^[0-9a-f]{64}$"))
+    and (.command_source_integrity.post_validation_mutation_fixture.public_transport == "just --justfile scripts/tasks/task-13/mod.just coverage-r20 <r20-recorded-digest>")
+    and (.command_source_integrity.post_validation_mutation_fixture.barrier_kind == "fixed-file-descriptor-ready-release")
+    and (.command_source_integrity.post_validation_mutation_fixture.production_validation_primitive == "verify_bound_live_file_and_copy")
+    and (.command_source_integrity.post_validation_mutation_fixture.disposable_repository_only == true)
+    and (.command_source_integrity.post_validation_mutation_fixture.real_repository_mutation_count == 0)
+    and (.command_source_integrity.post_validation_mutation_fixture.execution_class == "live_worktree")
+    and (.command_source_integrity.post_validation_mutation_fixture.target == "scripts/tasks/task-13/mod.just")
+    and (.command_source_integrity.post_validation_mutation_fixture.recipe == "coverage-r20-exec")
+    and (.command_source_integrity.post_validation_mutation_fixture.coverage_executor_recipes == ["coverage-r20-exec"])
+    and (.command_source_integrity.post_validation_mutation_fixture.mutation_point == "after the live target is copied and before final live target identity/content validation immediately preceding nested dispatch")
+    and (.command_source_integrity.post_validation_mutation_fixture.mutations == ["content-mutation", "path-replacement"])
+    and (.command_source_integrity.post_validation_mutation_fixture.identity_fields == ["device", "inode", "sha256"])
+    and (.command_source_integrity.post_validation_mutation_fixture.copy_directory_rule == "same physical directory as selected live target Justfile")
+    and (.command_source_integrity.post_validation_mutation_fixture.relative_working_directory_semantics_preserved == true)
+    and (.command_source_integrity.post_validation_mutation_fixture.invocation_target == "verified adjacent per-dispatch copy")
+    and (.command_source_integrity.post_validation_mutation_fixture.aba_safety_rule == "final device/inode/SHA validation rejects retained path or content replacement; transient A-B-A cannot change bound copy bytes")
+    and (.command_source_integrity.post_validation_mutation_fixture.exact_recipe_selection_preserved == true)
+    and (.command_source_integrity.post_validation_mutation_fixture.nested_exit_status_preserved == true)
+    and (.command_source_integrity.post_validation_mutation_fixture.cleanup_on == ["success", "nested-failure", "guard-error", "HUP", "INT", "TERM"])
+    and (.command_source_integrity.post_validation_mutation_fixture.expected_nested_dispatch_count == 0)
+    and (.command_source_integrity.post_validation_mutation_fixture.expected_repository_persistent_write_count == 0)
+    and (.command_source_integrity.post_validation_mutation_fixture.expected_exit == 2)
+    and (.command_source_integrity.post_validation_mutation_fixture as $fixture | any(.guarded_dispatch.execution_classes.live_worktree[]; .justfile == $fixture.target and .recipe == $fixture.recipe))
+    and ([.guarded_dispatch.execution_classes.live_worktree[]
+      | select(.justfile == "scripts/tasks/task-13/mod.just")
+      | .recipe] == ["coverage-r20-exec"])
+    and (.command_source_integrity.reused_target_sources | length == 1)
+    and (.command_source_integrity.reused_target_sources[0].path == "scripts/tasks/task-1/mod.just")
+    and (.command_source_integrity.reused_target_sources[0].applies_to_recipes == ["flake-local", "flake-linux"])
+    and (.command_source_integrity.reused_target_sources[0].sha256 | test("^[0-9a-f]{64}$"))
+    and (.guarded_dispatch.execution_classes.immutable_snapshot == [
+      {"justfile":"scripts/tasks/task-13/r20-shape.just","recipe":"aarch64-linux-shape-r20-immutable"},
+      {"justfile":"scripts/tasks/task-1/mod.just","recipe":"flake-linux"},
+      {"justfile":"scripts/tasks/task-1/mod.just","recipe":"flake-local"}
+    ])
+    and (.guarded_dispatch.execution_classes.live_worktree | length == 16)
+    and (.guarded_dispatch.allowed_pairs | length == 19)
+    and ((.guarded_dispatch.execution_classes.immutable_snapshot + .guarded_dispatch.execution_classes.live_worktree) as $classified
+      | ($classified | length) == (.guarded_dispatch.allowed_pairs | length)
+      and ([$classified[] | "\(.justfile)\u0000\(.recipe)"] | sort) == ([.guarded_dispatch.allowed_pairs[] | "\(.justfile)\u0000\(.recipe)"] | sort)
+      and ([$classified[] | "\(.justfile)\u0000\(.recipe)"] | unique | length) == ($classified | length)
+    )
+  ' "$source_file" >/dev/null || reject 'active R20 command-source integrity schema is missing or incompatible'
+}
+
+verify_active_protocol_schema() {
+  local source_file="$1"
+  jq -e \
+    --arg generation_id "$active_generation" \
+    --arg token_path "$g0_token" \
+    --arg token_sha "$expected_g0_token_sha" \
+    --arg review_path "$g0_token_review" \
+    --arg review_sha "$expected_g0_token_review_sha" \
+    --arg coverage_stream_sha "$expected_coverage_stream_sha" '
+      .generation_id == $generation_id
+      and .authority_binding.generation_id == $generation_id
+      and .authority_binding.runtime_resolution == "immutable_snapshot_only"
+      and .authority_binding.runtime_mutable_canonical_access == "forbidden"
+      and .authority_binding.token == {
+        path:$token_path,
+        schema_version:"1.8",
+        sha256:$token_sha,
+        status:"complete"
+      }
+      and .authority_binding.token_integrity_review == {
+        path:$review_path,
+        sha256:$review_sha,
+        status:"PASS"
+      }
+      and .authority_binding.active_assertion_contract.generation == $generation_id
+      and .authority_binding.active_assertion_contract.authority_digest == "<r20-recorded-digest>"
+      and .token_schema == .authority_binding.active_assertion_contract.token_schema
+      and .token_schema == .authority_binding.active_assertion_contract.manifest_projection.token_schema
+      and (.authority_binding.active_assertion_contract.coverage.green.ordered_commands | type == "array" and length == 4 and all(.[]; type == "string" and length > 0))
+      and .authority_binding.active_assertion_contract.coverage.coverage_stream_sha256 == $coverage_stream_sha
+      and .coverage.coverage_stream_sha256 == $coverage_stream_sha
+      and .authority_binding.active_assertion_contract.coverage.green.shared_target_directory == "target/task-13-llvm-cov"
+      and .authority_binding.active_assertion_contract.coverage.fv03_binding == "FV03 retains its fifth public slot exactly as scripts/tasks/task-13/mod.just coverage-r20 <r20-recorded-digest>; that transport selects only coverage-r20-exec and consumes this R20-owned serialized collection contract."
+      and .coverage == .authority_binding.active_assertion_contract.coverage
+      and ((.authority_binding.active_assertion_contract.guarded_dispatch.allowed_pairs | map(split("::") | {justfile:.[0], recipe:.[1]})) as $projection_pairs
+        | ([$projection_pairs[] | "\(.justfile)\u0000\(.recipe)"] | sort) == ([.guarded_dispatch.allowed_pairs[] | "\(.justfile)\u0000\(.recipe)"] | sort))
+      and ([.guarded_dispatch.allowed_pairs[] | select(.recipe == "coverage-r20-exec")] | length == 1)
+      and ([.guarded_dispatch.allowed_pairs[] | select(.recipe | test("^coverage(-r[0-9]+)?$|^coverage-red"))] | length == 0)
+      and .authority_binding.final_implementation_ccr_bound == false
+      and .authority_binding.user_receipt_bound == false
+      and .authority_binding.coverage_output_bound == false
+      and .authority_binding.shape_or_guarded_flake_result_bound == false
+      and .authority_binding.descriptor_or_fv_output_bound == false
+      and .final_tree_record_protocol.descriptor_immutable_file_paths == {
+        "aarch64_darwin": {
+          "first_receipt": ".agents/results/task-13-r20-aarch64-darwin-first-receipt-20260907.json",
+          "fv07_replay_receipt": ".agents/results/task-13-r20-aarch64-darwin-fv07-replay-receipt-20260907.json",
+          "terminal": ".agents/results/task-13-r20-aarch64-darwin-terminal-20260907.json"
+        },
+        "aarch64_linux": {
+          "first_receipt": ".agents/results/task-13-r20-aarch64-linux-first-receipt-20260907.json",
+          "fv07_replay_receipt": ".agents/results/task-13-r20-aarch64-linux-fv07-replay-receipt-20260907.json",
+          "terminal": ".agents/results/task-13-r20-aarch64-linux-terminal-20260907.json"
+        },
+        "x86_64_linux": {
+          "first_receipt": ".agents/results/task-13-r20-x86_64-linux-first-receipt-20260907.json",
+          "fv07_replay_receipt": ".agents/results/task-13-r20-x86_64-linux-fv07-replay-receipt-20260907.json",
+          "terminal": ".agents/results/task-13-r20-x86_64-linux-terminal-20260907.json"
+        }
+      }
+      and .final_tree_record_protocol.fv_input_sets.canonical_order == ["FV01", "FV02", "FV03", "FV04", "FV05", "FV06", "FV07", "FV08"]
+      and all(.final_tree_record_protocol.fv_input_sets["FV01", "FV02", "FV03", "FV04", "FV05", "FV06", "FV07", "FV08"];
+        .generated_protocol_evidence_input_ids == [
+          "gpe-final-tree-repository-manifest",
+          "gpe-ignored-input-inventory",
+          "gpe-input-coverage-oracle",
+          "gpe-source-snapshot-hash-artifact"
+        ]
+        and (.explicit_ignored_evidence_input_ids | index("ignored-r20-recorded-digest")) != null
+      )
+      and .operator_surfaces.final_verify.dispatch_by_id["fv-07-supported-system-builder-matrix"].dispatch == [
+        "scripts/tasks/task-13/mod.just linux-builder-check <r20-recorded-digest> <gpe-map-digest> fv07-replay",
+        "scripts/tasks/task-13/mod.just aarch64-linux-builder-check <r20-recorded-digest> <gpe-map-digest> fv07-replay",
+        "scripts/tasks/task-13/mod.just cross-system-verify <r20-recorded-digest> fv07-replay"
+      ]
+      and .operator_surfaces.final_verify.dispatch_by_id["fv-09-redacted-no-mutation-closeout"].handoff_path == ".agents/results/task-13-r20-final-verify-handoff-20260907.json"
+      and .final_tree_snapshot.record_protocol_ref == "assertion_manifests.task13_r20.final_tree_record_protocol"
+      and .final_tree_snapshot.old_active_catalog_ids_rejected == [
+        "g0-f1-approved-plan",
+        "g0-f1-approved-requirements",
+        "g0-f2-authority-plan-snapshot",
+        "g0-f2-authority-requirements-snapshot",
+        "g0-f2-authority-approval",
+        "g0-f2-completion-token",
+        "g0-f2-token-integrity-review",
+        "g0-f3-authority-plan-snapshot",
+        "g0-f3-authority-requirements-snapshot",
+        "g0-f3-authority-approval",
+        "g0-f3-completion-token",
+        "g0-f3-token-integrity-review",
+        "g0-f4-authority-plan-snapshot",
+        "g0-f4-authority-requirements-snapshot",
+        "g0-f4-authority-approval",
+        "g0-f4-completion-token",
+        "g0-f4-token-integrity-review",
+        "g0-f5-authority-plan-snapshot",
+        "g0-f5-authority-requirements-snapshot",
+        "g0-f5-authority-approval",
+        "g0-f5-completion-token",
+        "g0-f5-token-integrity-review",
+        "g0-f6-authority-plan-snapshot",
+        "g0-f6-authority-requirements-snapshot",
+        "g0-f6-authority-approval",
+        "g0-f6-completion-token",
+        "g0-f6-token-integrity-review",
+        "g0-f7-authority-plan-snapshot",
+        "g0-f7-authority-requirements-snapshot",
+        "g0-f7-authority-approval",
+        "g0-f7-completion-token",
+        "g0-f7-token-integrity-review"
+      ]
+      and (([.final_tree_snapshot.catalog_fixed_entries[].input_id] + .final_tree_snapshot.catalog_required_entries) as $catalog
+        | [.final_tree_snapshot.old_active_catalog_ids_rejected[] as $old | select(($catalog | index($old)) != null)]
+        | length == 0)
+      and ([.final_tree_snapshot.catalog_fixed_entries[].input_id | select(startswith("g0-f8-"))] == [
+        "g0-f8-authority-plan-snapshot",
+        "g0-f8-authority-requirements-snapshot",
+        "g0-f8-authority-approval",
+        "g0-f8-completion-token",
+        "g0-f8-token-integrity-review"
+      ])
+      and ([.final_tree_snapshot.catalog_required_entries[] | select(startswith("g0-f8-"))] == [
+        "g0-f8-authority-plan-snapshot",
+        "g0-f8-authority-requirements-snapshot",
+        "g0-f8-authority-approval",
+        "g0-f8-completion-token",
+        "g0-f8-token-integrity-review"
+      ])
+      and ([.final_tree_snapshot.catalog_fixed_entries[].input_id] | unique | length) == (.final_tree_snapshot.catalog_fixed_entries | length)
+      and (.final_tree_snapshot.catalog_required_entries | unique | length) == (.final_tree_snapshot.catalog_required_entries | length)
+    ' "$source_file" >/dev/null || reject 'active R20 final-tree, descriptor, or authority schema is missing or incompatible'
+
+  [[ "$(jq -cS '.token_schema' "$source_file" | sha256sum | awk '{print $1}')" == "$expected_token_schema_sha" ]] || reject 'active R20 manifest token schema hash mismatch'
+  [[ "$(jq -cS '.token_schema.token_template' "$source_file" | sha256sum | awk '{print $1}')" == "$expected_token_template_sha" ]] || reject 'active R20 manifest token template hash mismatch'
+  [[ "$(jq -r '.coverage.green.ordered_commands[]' "$source_file" | sha256sum | awk '{print $1}')" == "$expected_coverage_stream_sha" ]] || reject 'active R20 manifest coverage stream hash mismatch'
+}
+
+active_execution_class_for_pair() {
+  jq -er --arg justfile "$target_justfile" --arg recipe "$target_recipe" '
+    [.guarded_dispatch.execution_classes
+      | to_entries[]
+      | select(any(.value[]; .justfile == $justfile and .recipe == $recipe))
+      | .key]
+    | if length == 1 then .[0] else error("active pair classification must be exact") end
+  ' "$manifest_snapshot"
+}
+verify_recorded_source_at_root() {
+  local source_root="$1"
+  local phase="$2"
+  local expected_sha="$3"
+  local relative_path="$4"
+  local source_directory source_basename physical_directory physical_source actual_sha
+  [[ "$source_root" == /* && -d "$source_root" ]] || reject "active R20 recorded-source root is invalid at ${phase}"
+  [[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]] || reject "active R20 recorded-source digest is malformed at ${phase}"
+  case "$relative_path" in
+    scripts/tasks/task-13/r20-shape.just | scripts/tasks/task-13/guarded-just-r20.sh | tests/nix/flake-shape-aarch64-linux-r20.sh | scripts/tasks/task-13/flake-source-snapshot-r20.sh | tests/nix/coverage-executor-toctou-r20.sh | scripts/tasks/task-1/mod.just | tests/nix/task-13-r20-authority-plan-20260907.json | tests/nix/task-13-r20-authority-requirements-20260907.md) ;;
+    *) reject "active R20 recorded-source path is noncanonical at ${phase}" ;;
+  esac
+  source_directory="$source_root/$(dirname -- "$relative_path")"
+  source_basename="$(basename -- "$relative_path")"
+  [[ -d "$source_directory" ]] || reject "active R20 command-source directory is missing at ${phase}"
+  physical_directory="$(cd -P -- "$source_directory" && pwd -P)" || reject "active R20 command-source directory cannot be resolved at ${phase}"
+  physical_source="${physical_directory}/${source_basename}"
+  [[ "$physical_source" == "$source_root/$relative_path" && -f "$physical_source" && ! -L "$physical_source" ]] || reject "active R20 recorded source is missing, linked, or escaped at ${phase}"
+  actual_sha="$(sha256sum "$physical_source" | awk '{print $1}')"
+  [[ "$actual_sha" == "$expected_sha" ]] || reject "active R20 recorded-source hash mismatch at ${phase}"
+}
+
+verify_command_sources_at_root() {
+  local source_root="$1"
+  local phase="$2"
+  local source_file="${3:-$manifest_snapshot}"
+  local expected_sha relative_path
+  while IFS=$'\t' read -r expected_sha relative_path; do
+    verify_recorded_source_at_root "$source_root" "$phase" "$expected_sha" "$relative_path"
+  done < <(jq -r '.command_source_integrity.sources[] | "\(.sha256)\t\(.path)"' "$source_file")
+}
+
+verify_fixture_at_root() {
+  local source_root="$1"
+  local phase="$2"
+  local source_file="$3"
+  local expected_sha
+  expected_sha="$(jq -er '.command_source_integrity.post_validation_mutation_fixture.executable_sha256' "$source_file")" || reject "R20 fixture digest is missing at ${phase}"
+  [[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]] || reject "R20 fixture digest is malformed at ${phase}"
+  verify_recorded_source_at_root "$source_root" "$phase" "$expected_sha" "$fixture_path"
+}
+
+verify_reused_task1_source_at_root() {
+  local source_root="$1"
+  local phase="$2"
+  local source_file="${3:-$manifest_snapshot}"
+  local expected_sha relative_path
+  expected_sha="$(jq -er '.command_source_integrity.reused_target_sources[0].sha256' "$source_file")" || reject 'active R20 reused Task-1 source digest is missing'
+  relative_path="$(jq -er '.command_source_integrity.reused_target_sources[0].path' "$source_file")" || reject 'active R20 reused Task-1 source path is missing'
+  verify_recorded_source_at_root "$source_root" "$phase" "$expected_sha" "$relative_path"
+}
+
+allowed_pairs_from_snapshot() {
+  jq -r '
+    .guarded_dispatch.allowed_pairs[]
+    | select(
+        ((.justfile == "scripts/tasks/task-13/r20-shape.just") or (.justfile | test("^scripts/tasks/[A-Za-z0-9-]+/mod\\.just$")))
+        and (.recipe | test("^[A-Za-z0-9][A-Za-z0-9-]*$"))
+      )
+    | "\(.justfile)\t\(.recipe)"
+  ' "$manifest_snapshot" | LC_ALL=C sort -u
+}
+
+if [[ "$mode" == 'receipt' ]]; then
+  verify_manifest_file "$manifest"
+  verify_active_authority_prerequisite
+  verify_authority_snapshots_at_root "$repo_root" 'receipt-live' "$manifest"
+  verify_active_command_source_schema "$manifest"
+  verify_active_protocol_schema "$manifest"
+  verify_command_sources_at_root "$repo_root" 'receipt-live' "$manifest"
+  verify_fixture_at_root "$repo_root" 'receipt-live' "$manifest"
+  printf 'task13_assertion_generation=%s\n' "$active_generation"
+  printf 'task13_assertion_manifest_sha256=%s\n' "$snapshot_digest"
+  printf 'coordinator record path=%s\n' "$fixed_record"
+  printf '%s\n' 'DISPOSITION: ACTIVE_R20_MANIFEST_VERIFIED (zero mutation)'
+  exit 0
+fi
+
+readonly recorded_digest target_justfile target_recipe
+[[ "$recorded_digest" =~ ^[0-9a-f]{64}$ ]] || reject 'recorded digest must be lowercase 64-hex'
+[[ "$target_justfile" == 'scripts/tasks/task-13/r20-shape.just' || "$target_justfile" =~ ^scripts/tasks/[A-Za-z0-9-]+/mod\.just$ ]] || reject 'justfile path is not canonical for active R20'
+[[ "$target_recipe" =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]] || reject 'recipe is not canonical'
+verify_regular_repo_file "$target_justfile" 'R20 target Justfile'
+manifest_snapshot="$(mktemp "${TMPDIR:-/tmp}/jamye-task13-r20-manifest.XXXXXX")" || reject 'cannot create R20 manifest snapshot'
+cp -- "$manifest" "$manifest_snapshot" || reject 'cannot snapshot R20 manifest'
+verify_manifest_file "$manifest_snapshot"
+
+verify_inputs_against_snapshot
+verify_active_authority_prerequisite
+verify_authority_snapshots_at_root "$repo_root" 'live-before-pair-selection' "$manifest_snapshot"
+if ! allowed_pairs_from_snapshot | rg -Fqx -- "${target_justfile}"$'\t'"${target_recipe}"; then
+  reject 'justfile and recipe pair is not allowlisted by the verified manifest snapshot'
+fi
+
+target_directory="$(dirname -- "$target_justfile")"
+target_basename="$(basename -- "$target_justfile")"
+physical_directory="$(cd -P -- "$target_directory" && pwd -P)" || reject 'justfile path cannot be resolved'
+physical_justfile="${physical_directory}/${target_basename}"
+[[ "$physical_justfile" == "$repo_root/$target_justfile" && -f "$physical_justfile" ]] || reject 'justfile path escapes or changes the approved task identity'
+
+# Revalidate byte identity immediately before dispatch. If A→B→A occurs, the
+# B allowlist cannot survive because it was derived only from this A snapshot.
+verify_inputs_against_snapshot
+[[ ! -L "$target_justfile" ]] || reject 'justfile final path became a symlink before dispatch'
+dispatch_directory="$(cd -P -- "$target_directory" && pwd -P)" || reject 'justfile path cannot be resolved before dispatch'
+dispatch_justfile="${dispatch_directory}/${target_basename}"
+[[ "$dispatch_justfile" == "$repo_root/$target_justfile" && -f "$dispatch_justfile" ]] || reject 'justfile path changed approved task identity before dispatch'
+
+verify_active_command_source_schema "$manifest_snapshot"
+verify_active_protocol_schema "$manifest_snapshot"
+verify_active_authority_prerequisite
+verify_authority_snapshots_at_root "$repo_root" 'live-before-dispatch' "$manifest_snapshot"
+active_execution_class="$(active_execution_class_for_pair)" || reject 'active R20 dispatch pair classification failed'
+verify_command_sources_at_root "$repo_root" 'live-before-dispatch'
+verify_fixture_at_root "$repo_root" 'live-before-dispatch' "$manifest_snapshot"
+
+if [[ "$active_execution_class" == 'immutable_snapshot' ]]; then
+    if [[ "$target_justfile" == 'scripts/tasks/task-1/mod.just' ]]; then
+      verify_reused_task1_source_at_root "$repo_root" 'live-before-snapshot'
+    fi
+
+    snapshot_helper_relative='scripts/tasks/task-13/flake-source-snapshot-r20.sh'
+    snapshot_helper_expected_sha="$(jq -er --arg path "$snapshot_helper_relative" '.command_source_integrity.sources[] | select(.path == $path) | .sha256' "$manifest_snapshot")" || reject 'active R20 snapshot-helper hash is missing'
+    snapshot_helper_copy="$(mktemp "${TMPDIR:-/tmp}/jamye-task13-r20-snapshot-helper.XXXXXX")" || reject 'cannot create verified snapshot-helper copy'
+    cp -- "$repo_root/$snapshot_helper_relative" "$snapshot_helper_copy" || reject 'cannot copy the verified snapshot helper'
+    [[ "$(sha256sum "$snapshot_helper_copy" | awk '{print $1}')" == "$snapshot_helper_expected_sha" ]] || reject 'verified snapshot-helper copy hash mismatch'
+
+    if ! source_snapshot="$(TASK13_SOURCE_ROOT="$repo_root" bash "$snapshot_helper_copy")"; then
+      reject 'filtered source snapshot creation failed'
+    fi
+    [[ "$source_snapshot" == /nix/store/* && "$source_snapshot" != *$'\n'* && -d "$source_snapshot" ]] || reject 'filtered source snapshot is not a Nix store directory'
+
+    verify_inputs_against_snapshot
+    verify_active_authority_prerequisite
+    verify_authority_snapshots_at_root "$repo_root" 'live-after-snapshot-creation' "$manifest_snapshot"
+    snapshot_manifest="$source_snapshot/$manifest"
+    [[ -f "$snapshot_manifest" && ! -L "$snapshot_manifest" ]] || reject 'filtered source snapshot active manifest is missing or linked'
+    cmp -s "$manifest_snapshot" "$snapshot_manifest" || reject 'filtered source snapshot active manifest differs from the verified manifest'
+    [[ "$(sha256sum "$snapshot_manifest" | awk '{print $1}')" == "$snapshot_digest" ]] || reject 'filtered source snapshot active manifest digest mismatch'
+    verify_active_command_source_schema "$snapshot_manifest"
+    verify_active_protocol_schema "$snapshot_manifest"
+    verify_authority_snapshots_at_root "$source_snapshot" 'immutable-snapshot' "$snapshot_manifest"
+    verify_command_sources_at_root "$source_snapshot" 'immutable-snapshot'
+    verify_fixture_at_root "$source_snapshot" 'immutable-snapshot' "$snapshot_manifest"
+    if [[ "$target_justfile" == 'scripts/tasks/task-1/mod.just' ]]; then
+      verify_reused_task1_source_at_root "$source_snapshot" 'immutable-snapshot'
+    fi
+    snapshot_target_directory="$(cd -P -- "$source_snapshot/$target_directory" && pwd -P)" || reject 'filtered source snapshot justfile directory cannot be resolved'
+    snapshot_justfile="${snapshot_target_directory}/${target_basename}"
+    [[ "$snapshot_justfile" == "$source_snapshot/$target_justfile" && -f "$snapshot_justfile" && ! -L "$snapshot_justfile" ]] || reject 'filtered source snapshot justfile is invalid'
+    [[ ! -L "$target_justfile" ]] || reject 'live justfile became a symlink after snapshot creation'
+    final_dispatch_directory="$(cd -P -- "$target_directory" && pwd -P)" || reject 'live justfile path cannot be resolved after snapshot creation'
+    final_dispatch_justfile="${final_dispatch_directory}/${target_basename}"
+    [[ "$final_dispatch_justfile" == "$repo_root/$target_justfile" && -f "$final_dispatch_justfile" ]] || reject 'live justfile changed approved task identity after snapshot creation'
+    cmp -s "$snapshot_justfile" "$final_dispatch_justfile" || reject 'filtered source snapshot justfile differs from validated live justfile'
+
+    # Static fixture contract: a mutation or path replacement after the first
+    # live validation is caught here, before the sole nested Just dispatch.
+    verify_command_sources_at_root "$repo_root" 'live-after-snapshot'
+    if [[ "$target_justfile" == 'scripts/tasks/task-1/mod.just' ]]; then
+      verify_reused_task1_source_at_root "$repo_root" 'live-after-snapshot'
+    fi
+    verify_inputs_against_snapshot
+    verify_active_authority_prerequisite
+    verify_authority_snapshots_at_root "$repo_root" 'live-final-pre-dispatch' "$manifest_snapshot"
+
+    printf 'task13_assertion_generation=%s\n' "$generation_id"
+    printf 'task13_assertion_manifest_sha256=%s\n' "$snapshot_digest"
+    printf 'task13_flake_source_snapshot=%s\n' "$source_snapshot"
+    rm -f -- "$manifest_snapshot" "$snapshot_helper_copy"
+    manifest_snapshot=''
+    snapshot_helper_copy=''
+    cd "$source_snapshot"
+    export TASK13_ASSERTION_GENERATION="$generation_id"
+    export TASK13_ASSERTION_DIGEST="$snapshot_digest"
+    export TASK13_FLAKE_SOURCE_SNAPSHOT="$source_snapshot"
+    exec just --justfile "$snapshot_justfile" "$target_recipe"
+fi
+
+[[ "$active_execution_class" == 'live_worktree' ]] || reject 'active R20 dispatch pair has an invalid execution class'
+verify_regular_repo_file "$target_justfile" 'live-target-before-copy'
+live_target_identity_before="$(stat -c '%d:%i' -- "$physical_justfile")" || reject 'live target identity cannot be read before copy'
+live_target_sha_before="$(sha256sum "$physical_justfile" | awk '{print $1}')"
+live_justfile_copy="$(mktemp "$target_directory/.jamye-task13-r20-live-justfile.XXXXXX")" || reject 'cannot create adjacent live target copy'
+cp -- "$physical_justfile" "$live_justfile_copy" || reject 'cannot copy live target Justfile'
+chmod 0400 -- "$live_justfile_copy" || reject 'cannot make live target copy read-only'
+live_copy_directory="$(cd -P -- "$(dirname -- "$live_justfile_copy")" && pwd -P)" || reject 'live target copy directory cannot be resolved'
+live_justfile_copy="${live_copy_directory}/$(basename -- "$live_justfile_copy")"
+[[ "$live_copy_directory" == "$physical_directory" && -f "$live_justfile_copy" && ! -L "$live_justfile_copy" ]] || reject 'live target copy does not preserve Justfile directory identity'
+live_copy_identity="$(stat -c '%d:%i' -- "$live_justfile_copy")" || reject 'live target copy identity cannot be read'
+[[ "$(sha256sum "$live_justfile_copy" | awk '{print $1}')" == "$live_target_sha_before" ]] || reject 'live target copy differs from selected bytes'
+
+verify_command_sources_at_root "$repo_root" 'live-before-worktree-dispatch'
+verify_inputs_against_snapshot
+verify_active_authority_prerequisite
+verify_authority_snapshots_at_root "$repo_root" 'live-before-worktree-dispatch' "$manifest_snapshot"
+verify_fixture_at_root "$repo_root" 'live-before-worktree-dispatch' "$manifest_snapshot"
+wait_at_deterministic_post_copy_fixture_barrier
+verify_fixture_at_root "$repo_root" 'live-final-pre-dispatch' "$manifest_snapshot"
+verify_bound_live_file_and_copy "$target_justfile" "$physical_justfile" "$live_target_identity_before" "$live_target_sha_before" "$live_justfile_copy" "$live_copy_identity" 'live-target-final-pre-dispatch'
+printf 'task13_assertion_manifest_sha256=%s\n' "$snapshot_digest"
+printf 'task13_assertion_generation=%s\n' "$generation_id"
+rm -f -- "$manifest_snapshot"
+manifest_snapshot=''
+export TASK13_ASSERTION_GENERATION="$generation_id"
+export TASK13_ASSERTION_DIGEST="$snapshot_digest"
+export TASK13_BOUND_JUSTFILE="$live_justfile_copy"
+export TASK13_BOUND_JUSTFILE_IDENTITY="$live_copy_identity"
+export TASK13_BOUND_JUSTFILE_SHA256="$live_target_sha_before"
+unset TASK13_COVERAGE_RED_ASSERTION TASK13_COVERAGE_RED_ASSERTION_IDENTITY TASK13_COVERAGE_RED_ASSERTION_SHA256
+if just --justfile "$live_justfile_copy" "$target_recipe"; then
+  nested_exit=0
+else
+  nested_exit=$?
+fi
+rm -f -- "$live_justfile_copy"
+live_justfile_copy=''
+exit "$nested_exit"

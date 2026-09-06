@@ -23,6 +23,7 @@
     let
       supportedSystems = [
         "aarch64-darwin"
+        "aarch64-linux"
         "x86_64-linux"
       ];
 
@@ -41,7 +42,48 @@
             sha256 = "sha256-P30Tm3O7vQAE725YtDCDHGjNrSsfZO4us11UwJGZSJo=";
           };
           craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
-          src = craneLib.cleanCargoSource self;
+          projectSrc = pkgs.lib.cleanSourceWith {
+            # Crane's default source filter retains Rust/Cargo sources only,
+            # but this repository's compiled contract generation and tests
+            # also consume the listed contract, migration, documentation, and
+            # task-script inputs. Keep that exact build input set while
+            # excluding local build products, agent state, and dotfiles.
+            src = self;
+            filter = path: type:
+              let
+                relativePath = pkgs.lib.removePrefix "${toString self}/" (toString path);
+                allowedDirectories = [
+                  "src"
+                  "tests"
+                  "migrations"
+                  "contracts"
+                  "data"
+                  "production_composition"
+                  "scripts"
+                  "docs/adr"
+                  "docs/commands"
+                ];
+                requiredRootFiles = [
+                  "Cargo.lock"
+                  "Cargo.toml"
+                  "rust-toolchain.toml"
+                ];
+                isAllowedDirectory = directory:
+                  relativePath == directory || pkgs.lib.hasPrefix "${directory}/" relativePath;
+                blockedNamedSegment = (builtins.match "(^|.*/)(target|result|[.]git|[.]agents)(/.*|$)" relativePath) != null;
+                hiddenSegment = (builtins.match "(^|.*/)[.][^/]+(/.*|$)" relativePath) != null;
+                environmentSegment = (builtins.match "(^|.*/)[.]env[^/]*(/.*|$)" relativePath) != null;
+              in
+              type != "symlink"
+              && pkgs.lib.cleanSourceFilter path type
+              && !(blockedNamedSegment || hiddenSegment || environmentSegment)
+              && (
+                relativePath == ""
+                || pkgs.lib.elem relativePath requiredRootFiles
+                || pkgs.lib.any isAllowedDirectory allowedDirectories
+              );
+          };
+          src = projectSrc;
 
           commonArgs = {
             inherit src;
@@ -51,6 +93,55 @@
           };
 
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+
+          contractDrift = craneLib.mkCargoDerivation {
+            inherit cargoArtifacts;
+            src = projectSrc;
+            strictDeps = true;
+            nativeBuildInputs = [
+              pkgs.pkg-config
+              pkgs.coreutils
+              pkgs.diffutils
+              pkgs.findutils
+              pkgs.gnugrep
+            ];
+            buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.libiconv ];
+            pnameSuffix = "-contract-drift";
+
+            # This is intentionally the existing task-3b checker, not a Nix
+            # reimplementation of its provenance and byte-comparison logic.
+            # Crane supplies a vendored, offline Cargo environment and the
+            # reusable dependency artifacts inside the sandbox.
+            buildPhaseCargoCommand = ''
+              IN_NIX_SHELL=1 CARGO_NET_OFFLINE=true \
+                bash ./scripts/tasks/task-3b/contract-check.sh
+            '';
+            installPhaseCommand = "mkdir -p $out";
+          };
+
+          cargoTestDefault = craneLib.mkCargoDerivation (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              pnameSuffix = "-test-default";
+              # Compile the complete default-feature test inventory without
+              # running its service-backed tests inside the Nix sandbox.
+              buildPhaseCargoCommand = "cargo test --locked --all-targets --no-run";
+              installPhaseCommand = "mkdir -p $out";
+            }
+          );
+
+          cargoTestAllFeatures = craneLib.mkCargoDerivation (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              pnameSuffix = "-test-all-features";
+              # Compile the complete all-feature test inventory without
+              # running its service-backed tests inside the Nix sandbox.
+              buildPhaseCargoCommand = "cargo test --locked --all-targets --all-features --no-run";
+              installPhaseCommand = "mkdir -p $out";
+            }
+          );
 
           api = craneLib.buildPackage (
             commonArgs
@@ -75,11 +166,11 @@
         {
           packages = {
             inherit api worker;
-            default = api;
           };
 
           checks = {
             inherit api worker;
+            "contract-drift" = contractDrift;
 
             cargo-fmt = craneLib.cargoFmt { inherit src; };
 
@@ -91,21 +182,9 @@
               }
             );
 
-            cargo-test-default = craneLib.cargoTest (
-              commonArgs
-              // {
-                inherit cargoArtifacts;
-                cargoTestExtraArgs = "--all-targets";
-              }
-            );
+            "cargo-test-default" = cargoTestDefault;
 
-            cargo-test-all-features = craneLib.cargoTest (
-              commonArgs
-              // {
-                inherit cargoArtifacts;
-                cargoTestExtraArgs = "--all-targets --all-features";
-              }
-            );
+            "cargo-test-all-features" = cargoTestAllFeatures;
 
             architecture = craneLib.cargoTest (
               commonArgs
@@ -120,6 +199,7 @@
             packages = [
               rustToolchain
               pkgs.cargo-deny
+              pkgs.cargo-llvm-cov
               pkgs.coreutils
               pkgs.curl
               pkgs.git
@@ -145,5 +225,9 @@
       packages = nixpkgs.lib.mapAttrs (_: value: value.packages) systemOutputs;
       checks = nixpkgs.lib.mapAttrs (_: value: value.checks) systemOutputs;
       devShells = nixpkgs.lib.mapAttrs (_: value: value.devShells) systemOutputs;
+      nixosModules.default = {
+        options = { };
+        config = { };
+      };
     };
 }

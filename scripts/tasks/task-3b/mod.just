@@ -4,9 +4,9 @@ set working-directory := "../../.."
 
 [private]
 require-nix-shell:
-    @if [[ -z "${IN_NIX_SHELL:-}" ]]; then printf '%s\n' 'error: enter with `nix develop path:.` before running task-3b' >&2; exit 2; fi
+    @if [[ -z "${IN_NIX_SHELL:-}" ]]; then printf '%s\n' 'error: an active pinned development shell is required before running task-3b' >&2; exit 2; fi
 
-# Generate the committed C0 snapshot from the explicit pre-publication provenance input.
+# Generate generic C0 from the explicit pre-publication provenance input; legacy generate is not a prerequisite for check.
 generate: require-nix-shell
     cargo run --locked --bin generate_contracts -- generate --output contracts --provenance src/contract_generation/provenance.json
 
@@ -14,6 +14,6 @@ generate: require-nix-shell
 test: require-nix-shell
     cargo test --locked --test contract
 
-# Regenerate in a disposable tree and prove the committed snapshot has no drift.
+# Run C0 coverage plus the exact committed release-candidate assertion, then verify both profiles independently.
 check: require-nix-shell
     bash scripts/tasks/task-3b/contract-check.sh
