@@ -1,0 +1,18 @@
+name: Trigger homelab deploy
+
+# Tells the homelab repo that main moved. Homelab's update-flake-input
+# workflow re-pins its `jamye-server` input and uses the normal CI/CD pipeline,
+# so deployments occur only after every required host build passes.
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send repository_dispatch to smg1024/homelab
+        env:
+          GH_TOKEN: ${{ secrets.HOMELAB_PAT }}
+        run: gh api repos/smg1024/homelab/dispatches -f event_type=jamye-server-updated
