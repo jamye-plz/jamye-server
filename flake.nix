@@ -57,7 +57,6 @@
                   "tests"
                   "migrations"
                   "contracts"
-                  "data"
                   "production_composition"
                   "scripts"
                   "docs/adr"
