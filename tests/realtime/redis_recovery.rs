@@ -47,7 +47,7 @@ use crate::{TestResult, fixture_support::insert_owner_fixture, postgres_support:
 const TEST_BEARER: &str = "task-4b-recovery-bearer";
 
 #[tokio::test]
-#[ignore = "the task-4b Redis recovery card coordinates the guarded container lifecycle"]
+#[ignore = "run through `just test-recovery` to coordinate Redis stop/start"]
 async fn redis_stop_restart_keeps_postgres_correctness_and_same_router_recovery() -> TestResult {
     let coordination_dir = recovery_coordination_dir()?;
     let redis_url = guarded_redis_url()?;
@@ -351,9 +351,8 @@ async fn next_message(socket: &mut TestSocket) -> TestResult<ClientMessage> {
 }
 
 fn recovery_coordination_dir() -> TestResult<PathBuf> {
-    let directory = env::var("JAMYE_TASK4B_RECOVERY_COORD_DIR").map_err(|_| {
-        io::Error::other("JAMYE_TASK4B_RECOVERY_COORD_DIR is required for the ignored test")
-    })?;
+    let directory = env::var("JAMYE_REALTIME_REDIS_RECOVERY_COORD_DIR")
+        .map_err(|_| io::Error::other("JAMYE_REALTIME_REDIS_RECOVERY_COORD_DIR is required"))?;
     let directory = PathBuf::from(directory);
     if !directory.is_dir() {
         return Err(io::Error::other("recovery coordination directory is absent").into());

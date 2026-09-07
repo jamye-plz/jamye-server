@@ -92,7 +92,7 @@ async fn postgres_unavailability_keeps_liveness_and_returns_safe_503() -> TestRe
 }
 
 #[tokio::test(flavor = "current_thread")]
-#[ignore = "requires the task-4a guarded PostgreSQL stop/start card"]
+#[ignore = "run through `just test-recovery` to coordinate PostgreSQL stop/start"]
 async fn postgres_stop_restart_keeps_the_same_router_alive_and_recovers() -> TestResult {
     let coordination = coordination_directory()?;
     let persisted = TestApp::new().await?;
@@ -265,11 +265,13 @@ async fn wait_for_ready(app: &Router) -> TestResult {
 }
 
 fn coordination_directory() -> TestResult<PathBuf> {
-    let path = PathBuf::from(env::var("JAMYE_TASK4A_RECOVERY_COORD_DIR").map_err(|_| {
-        io::Error::other("run this ignored test only through the task-4a postgres-recovery card")
+    let path = PathBuf::from(env::var("JAMYE_POSTGRES_RECOVERY_COORD_DIR").map_err(|_| {
+        io::Error::other("run this ignored test only through `just test-recovery`")
     })?);
     if !path.is_dir() {
-        return Err(io::Error::other("task-4a recovery coordination directory is absent").into());
+        return Err(
+            io::Error::other("PostgreSQL recovery coordination directory is absent").into(),
+        );
     }
     Ok(path)
 }

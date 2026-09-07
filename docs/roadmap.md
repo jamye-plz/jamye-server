@@ -1,9 +1,9 @@
 # jamye-server 로드맵 — FastAPI 전체 이관, 신뢰성 고도화, 모바일 계약
 
 > 세션: ultrawork/20260822-200110
-> 현재 단계: PLAN_GATE passed; M0·M1·M2·M2b·M3a·M3b·M4·M5(task-6)·M5b(task-6b)·M5c(task-6c)·M6(task-7)·M7(task-8)·M8(task-9)·M10(task-11) 완료, M11a(task-12) 새 ultrawork 인계
-> 상태: task-11은 D5=A/D10=A, migration `0008`, 원자적 tombstone/private-state 전환, durable object cleanup, U3 HTTP와 push interleaving을 네 TDD sprint로 materialize했고 final VERIFY, REFINE, SHIP Steps 14-17 및 2026-08-31 사용자 최종 승인을 통과했다. 최종 사용자 실행 format apply/check와 strict Clippy가 exit `0`, aggregate는 account deletion 25/25와 architecture 4/4 및 exit `0`이다. 재현 가능한 all-target/all-feature 80% coverage는 면제하지 않고 Task-12 최종 바이너리 조합 뒤 Task-13 선언 도구 게이트로 이동한다.
-> 진행률: 구현 task 15/17, 마일스톤 14/16 완료(단순 개수 기준); task-12·13과 최종 통합 VERIFY/SHIP이 남는다.
+> 현재 단계: Task 12까지 백엔드 기능과 C2 계약 완료; Task 13 검증 체계 간소화 진행
+> 상태: 기존 task별 command card와 R13~R26 immutable-evidence 체계를 Git 기준선으로 보존한 뒤, 루트 `Justfile` 단일 검증 체계로 교체한다. 이 체계가 통과한 후 실제 NixOS module과 대상 Linux 패키지 검증을 진행한다.
+> 진행률: 제품 구현 완료, 검증 체계 정리 진행, NixOS 배포 준비 대기
 > 기계 SSOT: .agents/results/plan-20260822-200110.json
 
 ## 1. 목표와 범위
@@ -24,8 +24,8 @@
 
 - 계획 단계는 종료됐고 사용자가 별도로 “M0 시작”을 승인했다. task-1 M0, `docs/migration-from-jamye-plz.md`의 task-2 M1 scope lock, task-3a core schema가 완료됐다. 사용자가 2026-08-25에 D1=A, D8=A, D12=A, D13=A를 명시적으로 선택했으며 각 earliest materializer가 해당 evidence를 소비한다.
 - M0 다음 feature, migration, generated contract와 production composition은 해당 dependency와 decision gate가 열리기 전에는 구현하지 않는다.
-- 구현 중 consequential local/dev 명령도 사용자가 직접 실행한다. 루트 Justfile은 task module만 등록하고, 각 feature owner는 자기 module과 `docs/commands/<task-id>/`에 명령, 목적, 부작용, 예상 결과, 복구 방법을 기록한다. 별도 Bash는 credential/trap/wait/guarded deletion처럼 실제 안전 경계를 제공할 때만 둔다.
-- 모든 command card는 nix develop path:. 안에서 실행한다. 계획 문서에 shell body를 중복하지 않는다.
+- 루트 `Justfile`이 유일한 공개 명령 목록이다. task 번호, RED/GREEN card, manifest digest는 활성 검증에 사용하지 않는다.
+- 별도 Bash는 credential/trap/wait/guarded deletion과 서비스 stop/start recovery처럼 실제 안전 경계를 제공할 때만 둔다.
 - pending 제품 결정은 가장 이른 materializer가 한 번만 사용자 선택을 받아 evidence를 고정한다. 후속 task와 VERIFY/SHIP는 dependency를 통해 그 evidence를 소비하며 같은 결정을 다시 승인받지 않는다.
 - production/release/SCM 변경은 별도 승인이 있어야 한다.
 - legacy jamye-plz, homelab, 운영 PostgreSQL/Redis/MinIO는 읽기 전용 또는 범위 밖이다.
@@ -125,7 +125,7 @@ C0는 ordinary 401에서 outbox intent와 client_msg_id를 보존하고 후속 a
 - Redis publish, Expo call, object HEAD/delete 같은 짧은 I/O는 검증된 timeout과 safety margin을 가지며 합이 lease보다 짧다.
 - duplicate external work는 가능하지만 stale durable mutation은 불가능해야 한다.
 - timeout/reclaim/stale-completion 테스트는 deterministic barrier/clock control로 작성한다.
-- 각 worker owner가 timeout/lease 값을 feature-local non-secret config로 정의·검증하고, task-13은 최종 `.env.example`과 NixOS module에 그 값을 노출한다.
+- 각 worker owner가 timeout/lease 값을 feature-local non-secret config로 정의·검증하고, Task-13의 Nix 배포 단계가 최종 `.env.example`과 NixOS module에 그 값을 노출한다.
 
 ### Push send authorization linearization
 
@@ -170,7 +170,7 @@ provider와 access-token codec에 실제로 연결한다. 이 연결 전 반복�
 - 각 migration owner는 실제 schema prerequisite를 가진 disposable DB에서 transactional up/upgrade와 forced-failure rollback을 증명한다.
 - `0001`은 `chatrooms.topic_id`를 nullable UUID, CHECK, partial index로만 만들고 FK는 만들지 않는다. `0005`가 `topics`를 만든 뒤 `chatrooms.topic_id REFERENCES topics(id)`를 추가한다.
 - `0007`은 notifications/push, `0008`은 account deletion/object cleanup을 소유한다. 각 owner는 바로 앞 numbered schema를 가진 disposable DB에서 검증하며, task-12와 VERIFY가 canonical `0001→0008` fresh chain과 upgrade를 검증한다. persistent/production DB에는 partial chain을 적용하지 않는다.
-- disposable local reset은 guarded command card로 문서화한다.
+- disposable local reset은 guarded `just infra-reset` 명령으로 문서화한다.
 - production restore/import/cutover는 별도 승인 대상이다.
 
 ### Frozen legacy evidence
@@ -197,21 +197,21 @@ M1은 /Users/poby/Developer/jamye-plz의 정확한 PF1 source set을 determinist
 
 ## 9. Nix, Rust, Just, Podman, NixOS
 
-- 지원 system은 aarch64-darwin development와 x86_64-linux production이다.
+- 지원 system은 aarch64-darwin, aarch64-linux, x86_64-linux다.
 - rust-toolchain.toml이 exact Rust release/profile/components/targets의 유일한 원본이다.
 - flake.nix는 그 파일을 읽어 devShell과 package가 같은 Rust derivation을 사용하게 한다. Rust 값을 다시 적지 않는다.
 - mise, rustup, .tool-versions, 두 번째 Rust version declaration은 없다.
 - Justfile은 task runner일 뿐이며 tool 설치나 version pinning을 하지 않는다.
-- 모든 command card는 nix develop path:.에서 실행한다.
-- task-1은 M0/C0에서 실제 쓰는 dependency, task-1 Just module, base `.env.example`만 고정한다. 미래 feature graph나 behavior recipe를 미리 만들지 않는다.
+- 루트 `Justfile`이 유일한 공개 명령 목록이며 실행 전 pinned devShell이 활성화돼 있어야 한다.
+- credential 생성, bounded wait, guarded deletion, service recovery처럼 안전 경계가 있는 동작만 `scripts/dev/`와 `scripts/recovery/`에 둔다.
 - 현재 후속 Cargo 공유 파일 owner는 의존 순서가 보장된 task-3c(dev-only JWT), task-5(auth), task-8(S3/media)다. task-3c는 optional JWT로 dev surface를 열었고, task-5는 같은 `jsonwebtoken` verifier를 production 기본 graph로 승격하면서 PKCE Base64URL과 OAuth form/JSON feature만 추가한다. 각 owner 뒤 사용자가 lock/no-drift와 dependency/license card를 다시 실행한다.
-- task-13은 `flake.nix`, `nix/`, module evaluation, `.env.example`, `docs/deployment-nix.md`, task-owned command docs/module/scripts만 소유한다. 루트 README/Justfile에 개별 feature recipe를 추가하지 않는다.
+- 교체된 Task-13 1단계는 루트 검증 체계 정리와 통과 확인만 소유한다. 2단계에서 실제 NixOS module, package realization, runtime smoke를 별도로 구현한다.
 - rootless Podman compose.yaml은 local disposable PostgreSQL/Redis/MinIO 전용이다. macOS podman machine과 lifecycle/reset은 사용자가 실행한다.
 - production은 native Nix package와 NixOS systemd module이다. Podman compose는 production SSOT가 아니다.
 - flake는 supported system마다 api/worker package, checks, devShell, nixosModules.default를 export한다.
-- api/worker package matrix는 두 system 모두를 대상으로 한다. x86_64-linux builder가 없으면 production lane blocker이며 skip 성공으로 기록하지 않는다.
-- default-feature Rust tests와 all-feature Rust tests는 별도 card다.
-- coverage card는 Task-12 최종 api/worker 조합 뒤 Task-13이 재현 가능한 도구를 선언할 때 구현한다. 공식 확인한 all-target/all-feature command로 library, binaries, integration targets를 모두 포함해 80% 이상을 요구한다. 이 순서 이동은 2026-08-31 사용자 승인으로 locked됐으며 coverage 자체를 면제하지 않는다.
+- api/worker package matrix는 세 system 모두를 대상으로 한다. Linux builder가 없으면 production lane blocker이며 현재-host 평가 성공을 Linux build 성공으로 기록하지 않는다.
+- `just test`는 default-feature와 all-feature Rust suite를 연속 실행한다.
+- `just coverage`는 library, binaries, integration targets를 포함하는 all-feature 관측 도구다. 고정 퍼센트는 구현 완료 권한이 아니며 `just check` 통과를 대신하지 않는다.
 - STT worker/inference package와 관련 Nix input/config는 만들지 않는다.
 - NixOS module은 package, listenAddress, environmentFile, migration policy와 선택적 `objectStorage.createLocally`를 소유한다. 로컬 개발·통합 테스트는 rootless Podman Compose를 사용하고, production에서 이 옵션을 켜면 homelab이 소비하는 module이 native `services.minio`를 함께 실행한다. D11=B에 따라 별도 bucket oneshot은 두지 않고 API `ensure_bucket`만 버킷 lifecycle을 소유한다. DB/Redis와 host/domain/volume, SOPS secret, ingress, monitoring, backup/restore는 계속 homelab 소유다.
 
@@ -263,53 +263,29 @@ D3=C에 따라 이번 작업과 C2에는 STT contract, field, job, migration, ev
 | 9 | M8 | task-9 | notifications, Expo push, send-authorization fence | task-6c,8 + D9 |
 | 10 | M10 | task-11 | account deletion + durable object cleanup + `0008` | task-9 + locked D5=A,D10=A (충족) |
 | 11 | M11a | task-12 | backend static api/worker + three UoW compositions + selected C2 | task-11; frozen decision evidence 소비 |
-| 12 | M11b | task-13 | dual-system packages/checks/NixOS module/docs | task-12 |
+| 12 | M11b | task-13 | 검증 체계 정리 및 간소화, Nix flake 배포 준비 | task-12 |
 
 우선순위는 dependency가 없는 task는 1, 나머지는 1 + max(dependency priority)다. 같은 tier에는 dependency나 directory-prefix scope collision이 없어야 한다.
 
 task-10은 사용자 승인 STT non-goal로 삭제했다. 기존 참조 안정성을 위해 task-11 이후 ID는 renumber하지 않아 task ID가 의도적으로 비연속이다.
 
-## 12. 테스트와 증거의 소유권
+## 12. 테스트와 완료 판정
 
-- 각 feature task가 자신의 RED/GREEN behavior를 소유한다.
-- migration owner가 자신의 transactional up/upgrade/rollback evidence를 소유한다.
-- task-12/backend는 task-4a의 shared handle을 소비해 final static api/worker composition, 세 개 UoW의 직접 조합, selected operation → handler/test/fixture reachability, deterministic C2 generation/provenance와 한 개의 실제 cumulative rollback integration target을 구현한다. transaction port/SQLx adapter는 소유하지 않는다.
-- task-12는 feature behavior를 다시 구현하거나 final QA authority가 되지 않는다.
-- VERIFY/SHIP만 PF1 재발견, task-2 최종 inventory/matrix, migration metadata/full chain, log/secret/license/package/security와 whole-tree regression을 감사한다.
-- secret scanner sentinel self-test는 M0에서 한 번 실행한다. SHIP에서는 final clean working-tree scan만 실행한다.
-- exact command는 task-owned Just module에, 목적·부작용·복구는 `docs/commands/`에 둔다. 별도 `scripts/tasks/`는 안전상 독립 script가 필요한 동작만 소유하고 루트 README/Justfile에는 module catalog만 존재한다.
+- `just check`가 format, strict Clippy, default/all-feature tests와 contract drift를 한 번씩 실행한다.
+- `just check` 통과는 동결된 제품 범위의 구현 완료를 뜻한다.
+- PostgreSQL/Redis stop/start는 상태를 바꾸므로 `just test-recovery`로 분리하고 release 전에 실행한다.
+- coverage는 품질 관찰 지표이며 임의의 백분율이나 manifest hash가 구현 완료 권한을 갖지 않는다.
+- Git history가 구현 이력을, `Cargo.lock`과 `flake.lock`이 dependency resolution을 보존한다.
+- 배포 준비는 실제 NixOS module 평가, 대상 Linux package realization, service health smoke가 모두 통과해야 별도로 완료된다.
 
-최종 VERIFY/SHIP 범주는 다음과 같다.
-
-- one final-verify dispatcher path: format/lint/default+all-feature/all-target tests/architecture/migration/contract/coverage
-- PF1 frozen-source equality와 정확히 42 REST/2 realtime inventory audit
-- PostgreSQL/Redis/MinIO outage + paginated delta recovery
-- push privacy/send-authorization interleaving
-- worker short-I/O timeout/lease/reclaim/stale-discard
-- runtime secret log + dependency/license/advisory + final clean secret scan
-- aarch64-darwin/x86_64-linux api/worker package + NixOS module evaluation
-- bodyless exactly-one-audio voice의 atomic send, history/delta/message.created, authorized presigned-GET 재발급 evidence
-
-외부 서비스나 Linux builder가 없으면 조용히 skip하지 않는다. 필요한 조건과 blocker를 기록한다.
+세부 명령과 부작용은 [validation](validation.md)과 [local development](development.md)에 기록한다.
 
 ## 13. 다음 단계
 
-구조 계획은 SHA-256 `3961a5108d4fb384d7e92e7b9fdaeca4c96e8e303acea8fa330b0f393679c973`에서 fresh r16 completeness, meta, simplicity review를 material finding 0으로 통과했다. D1=A, D4=A current server/C2 deferred, D8=A, D12=A, D13=A, D11=B, D9=A, D5=A, D10=A evidence와 현재 task-11 수용 기준을 반영한 실행 snapshot은 SHA-256 `9757feda2b7515daf0e71fe4689bb6ac4a037ddb6ac5f423ce0c9e2758e81b4a`이다. Task, dependency, contract count는 바뀌지 않았고 이미 점유된 ADR `0003`/`0004`를 보존하기 위해 task-5 ADR artifact path만 `0005`/`0006`으로 교정했다.
+다음 순서로 Task 13을 완료한다.
 
-다음 순서는 고정한다.
-
-1. task-1/M0과 task-2/M1은 platform 기준선, PF1 inventory/matrix, L08=A scope lock을 완료했다.
-2. task-3a/task-3b/task-3c는 core schema, C0 deterministic contract와 guarded dev identity/fixture lane을 완료했다.
-3. task-4a/task-4b는 atomic message/event/outbox, paginated delta, Redis/authorized WebSocket C1 delivery와 outage recovery를 완료했다.
-4. task-5/task-6/task-6b/task-6c는 Kakao/Google PKCE auth, profile/rate limit, groups/memberships/invites, chatroom history/read와 multi-node membership revocation fence를 완료했다.
-5. task-7/M6과 task-8/M7은 topics/unread/announcement transaction, private media/voice binding, migration `0005`/`0006`과 D11=B API bucket lifecycle을 완료했다.
-6. task-9/M8은 D9=A notification history, Expo installation/delivery, privacy/send-authorization fence와 migration `0007`을 commit `1dcef1f`로 완료했다. 최종 evidence는 notifications 54/54, architecture 4/4, strict Clippy/format 및 aggregate exit `0`이다.
-7. 사용자가 D5=A와 D10=A를 승인했고 task-11/M10은 ownership-transfer 409 fence, tombstone/anonymize disposition, migration `0008`, durable object cleanup을 네 TDD sprint와 25+4 aggregate로 materialize했다. Final VERIFY, REFINE, SHIP Steps 14-17 및 2026-08-31 사용자 최종 승인을 통과해 완료됐다.
-8. task-12/M11a 새 ultrawork에서 final static api/worker·3 UoW·selected C2를 진행한 뒤, task-13/M11b dual-system package/NixOS module과 재현 가능한 all-target/all-feature 80% coverage, 최종 VERIFY/SHIP 순서로 진행한다.
-9. dependency, locked decision evidence와 user-run evidence가 충족되면 별도 milestone-start 승인은 필요하지 않다. production/release/추가 SCM 작업은 계속 별도 승인을 요구한다.
-
-아래 장문 단락은 task-5 RED 준비 시점까지의 누적 실행 이력을 보존한 historical
-snapshot이다. 현재 실행 상태는 문서 머리말과 task-owned command evidence가 우선하며,
-task-5는 2026-08-26 GREEN과 Redis recovery를 마치고 task-6 RED 준비로 전환됐다.
-
-task-1, task-2, task-3a, task-3b, task-3c, task-4a, task-4b는 completed이고 task-5는 D12=A 결정 materialization과 RED gate 준비 상태이며 후속 9개 task는 pending이다. 계획 문서와 `.serena/project.yml`은 commit `a86d51c`로 기록돼 있으며, M0 변경은 사용자 승인에 따라 기준선 commit `0b1b04b`와 후속 보정 commit들로 기록했다. 사용자 실행으로 provider/toolchain, Cargo/Nix lock no-drift, dependency advisory/ban/license/source, working-directory secret-scan clean/detect/clean, Cargo format/Clippy/default+all-feature+architecture test gate까지 통과했다. 사용자 결정에 따라 generic script dispatcher를 task-1 Just module과 safety-only Bash 경계로 단순화했고, Just 1.58.0 parser/format 및 Bash syntax 정적 검증을 통과했다. rootless Podman에서 PostgreSQL 17.11, Redis 8.10.1, MinIO RELEASE.2025-09-07T16-13-09Z가 loopback binding으로 모두 healthy임을 확인했다. 실행 중인 API의 `/health/live`는 `live`, `/health/ready`는 PostgreSQL 필수 및 Redis/MinIO 선택 의존성이 모두 `ready`임을 반환했다. worker와 API가 Test 환경에서 정상 시작했으며 `Ctrl-C` 뒤 각각 종료 로그를 남겼다. local flake show에서 aarch64-darwin과 x86_64-linux의 package/devShell/check shape를 확인했고 aarch64-darwin flake check가 통과했다. 사용자가 구성한 `linux-builder-vz`를 통해 x86_64-linux API와 worker를 실제 빌드해 `/nix/store/sqhc2lpyly8p9w7mdwyib21df3rsxaq4-jamye-server-0.1.0`, `/nix/store/fifjz6gkpm32g7nvc4ki1h7iljg5yr02-jamye-server-0.1.0` output을 생성했으며 `flake_linux_exit=0`을 확인했다. task-2는 legacy 저장소를 수정하지 않고 PF1 inventory, behavior/discrepancy matrix, target reverse coverage를 동결했으며 사용자의 L08=A 선택을 `approved_by_user_2026-08-25_option_A`로 기록했다. task-3a는 빈 disposable PostgreSQL에서 `0001` 적용, 7개 core table/constraint/index, server-generated cursor, typed outbox defaults, forced-failure 전체 rollback을 사용자 실행 GREEN 6/6과 exit `0`으로 검증했다. task-3b는 C0 5개 REST operation과 `message.created` realtime contract를 16개 deterministic artifact로 생성했으며, 사용자 실행 테스트 5/5, committed/temp tree 검증, provenance/checksum 및 byte-for-byte drift 검사 exit `0`을 확인했다. task-3c는 예상한 구현 부재 RED exit `101` 뒤 사용자 승인 A로 optional `jsonwebtoken 11.0.0` 경계를 선택했다. 첫 lock/no-drift exit `0`은 `rust_crypto` graph를 고정했지만 이어진 dependency card가 사용하지 않는 `rsa 0.9.10`의 `RUSTSEC-2023-0071`로 exit `1`을 반환했다. 예외 등록 대신 공식 `aws_lc_rs` backend로 교정했고, 사용자 재실행 lock/no-drift exit `0`으로 `Cargo.lock` SHA-256 `1dce2310998050f3f00e8dd418f169d36ddbc4e91538e2815beedaff4386d87e` 및 기존 `flake.lock` SHA-256 `31403f6a698d7386579ca297f53952fd8cb47616affa8ff49c9fc71517f05bd9`를 고정했다. 새 lock에서 미사용 RSA/ECDSA/EdDSA package는 제거됐고, 재실행 dependency card는 중복 경고만 남긴 채 advisories/bans/licenses/sources 모두 ok와 exit `0`을 반환했다. 첫 GREEN은 SQLx macro feature mismatch로 exit `101`이었으나 기존 runtime `Migrator` 경계로 교정한 뒤 기본 graph 1/1, guarded unit 1/1, PostgreSQL 통합 5/5, architecture 4/4와 최종 exit `0`을 확인했다. task-3c 구현은 `8d2e0ad`, 최종 crypto backend 문서 보정은 `8c97924`로 기록했다. task-4a는 user-run RED exit `101` 뒤 메시지 REST, 단일 shared TransactionHandle, atomic message/event/outbox, D8 idempotency와 paginated delta를 구현했다. PostgreSQL 예약 키워드 CTE 결함을 focused diagnostic으로 찾아 수정한 뒤 GREEN messaging 10/10, architecture 4/4, 주입형 PostgreSQL outage/recovery와 structured-log redaction 2/2가 exit `0`으로 통과했다. 이어 실제 guarded Compose PostgreSQL을 중지·재시작하면서 같은 in-process Router가 liveness 200, readiness와 C4/S1 safe 503, 재연결 후 partial row 0개, 같은 `client_msg_id`의 message/event/outbox 각 1개 commit을 증명했고 actual lifecycle 1/1 및 최종 exit `0`을 확인했다. task-4b RED gate는 production surface와 Cargo/lockfile을 건드리지 않은 채 사용자 실행에서 예상한 surface 부재와 exit `101`을 확인했다. 그 뒤 bounded Axum WebSocket/CSPRNG/SHA-256/test-client dependency만 추가했고, 사용자 실행 lock/no-drift가 `Cargo.lock` SHA-256 `de00bfd644191e367eaa4979940c19655d87464d23551776e8f08ac336fa4a5e`, 기존 `flake.lock` SHA-256 `31403f6a698d7386579ca297f53952fd8cb47616affa8ff49c9fc71517f05bd9`, exit `0`을 확인했다. dependency card도 중복 crate 경고만 남긴 채 advisories/bans/licenses/sources 모두 ok와 exit `0`을 반환했다. 첫 GREEN compile은 `tungstenite 0.29` `Utf8Bytes`의 다중 `AsRef` 구현 때문에 close reason assertion 5곳에서 E0283으로 실패했으나 비교를 `as_str()`로 명시한 뒤 realtime 21/21과 architecture 4/4가 통과해 `task_4b_green_exit=0`을 확인했다. 이어 guarded Redis container만 실제로 중지·재시작한 recovery target 1/1이 같은 Router/worker의 복구와 PostgreSQL outbox byte 보존을 증명했고 `task_4b_redis_recovery_exit=0`으로 완료됐다. 사용자가 D12=A를 선택해 task-5의 Authorization Code + PKCE S256, digest-only 10분 OAuth attempt 경계를 잠갔으며 production source나 dependency를 추가하기 전 compile-only RED card를 준비했다. production deployment/migration은 계속 별도 승인 범위다.
+1. 루트 `Justfile` 단일 검증 체계와 일반 목적 안전 스크립트로 전환한다.
+2. `just check`와 별도 recovery gate를 통과시켜 제품 구현 완료를 확정한다.
+3. 실제 `nixosModules.default` 옵션과 API/worker systemd 구성을 구현한다.
+4. production 대상 Linux에서 package/module 평가와 runtime health smoke를 통과한다.
+5. homelab input 연결과 실제 배포는 별도 사용자 승인 범위로 유지한다.

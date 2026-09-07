@@ -34,9 +34,7 @@ fn production_groups_surface_is_statically_registered() -> io::Result<()> {
         "contracts/contributions/task-6/dto/operations.json",
         "contracts/contributions/task-6/schemas/groups-wire.schema.json",
         "contracts/contributions/task-6/fixtures/group-invite-flow.json",
-        "docs/commands/task-6/groups.md",
-        "scripts/tasks/task-6/mod.just",
-        "scripts/tasks/task-6/redis-recovery.sh",
+        "scripts/recovery/redis.sh",
     ] {
         assert!(
             fs::metadata(path)?.is_file(),

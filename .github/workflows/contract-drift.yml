@@ -21,7 +21,7 @@ jobs:
       - name: Install pinned Determinate Nix
         uses: DeterminateSystems/determinate-nix-action@527f17dd63d2d60d3e5552934bc84b9a33a14d11 # v3.22.2
 
-      - name: Verify deterministic C0 contracts
+      - name: Verify deterministic contracts
         run: >-
-          nix develop path:.
-          --command just --justfile scripts/tasks/task-3b/mod.just check
+          nix develop .
+          --command just contract-check

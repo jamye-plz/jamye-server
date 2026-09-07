@@ -49,7 +49,7 @@ PostgreSQL identity column의 `GENERATED ALWAYS`는 client가 conversation curso
 
 일반 GREEN test는 `JAMYE_ENVIRONMENT=test`, loopback PostgreSQL, base database `/jamye_test`를 모두 확인한 뒤 `jamye_task_<task>_<uuid>` database만 생성하고 exact name만 제거한다. 임의 host, persistent database, production database에서는 실행을 거부한다.
 
-test process가 중단되어 disposable database가 남았다고 의심될 때는 먼저 exact database name과 prefix를 확인한다. 확인 없이 database나 Podman volume을 삭제하지 않는다. 전체 local volume reset이 정말 필요하면 [task-1 local infrastructure card](../commands/task-1/local-infrastructure.md)의 guarded `infra-reset`을 사용자가 명시적으로 선택한다. 이 명령은 migration test의 기본 복구 수단이 아니다.
+test process가 중단되어 disposable database가 남았다고 의심될 때는 먼저 exact database name과 prefix를 확인한다. 확인 없이 database나 Podman volume을 삭제하지 않는다. 전체 local volume reset이 정말 필요하면 [local development guide](../development.md)의 guarded `just infra-reset`을 사용자가 명시적으로 선택한다. 이 명령은 migration test의 기본 복구 수단이 아니다.
 
 ## Data ownership and operational boundary
 

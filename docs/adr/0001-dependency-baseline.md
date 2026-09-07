@@ -22,7 +22,7 @@
 - flake input의 exact revisions와 Nix-provided tool versions는 사용자가 생성할 `flake.lock`이 고정한다.
 - `flake.lock`이 고정한 Crane의 `cargoClippy`와 `cargoTest`는 `cargoExtraArgs` 기본값으로 이미 `--locked`를 전달한다. 따라서 `cargoClippyExtraArgs`/`cargoTestExtraArgs`에는 target·feature·lint selector만 두며 `--locked`를 중복하지 않는다.
 
-Fenix는 upstream이 `aarch64-darwin`과 `x86_64-linux`를 supported platform으로 명시하고 binary cache도 두 platform을 제공하므로 선택했다. oxalica rust-overlay의 `fromRustupToolchainFile`은 hash 없이 더 단순하지만 공식 README가 CI 보장을 주로 x86_64-linux에 한정해 dual-system baseline의 근거가 더 약했다.
+Fenix는 upstream이 `aarch64-darwin`, `aarch64-linux`, `x86_64-linux`를 지원하고 binary cache를 제공하므로 선택했다. oxalica rust-overlay의 `fromRustupToolchainFile`은 hash 없이 더 단순하지만 공식 README가 CI 보장을 주로 x86_64-linux에 한정해 multi-system baseline의 근거가 더 약했다.
 
 Official evidence:
 
@@ -99,7 +99,7 @@ no-drift card를 다시 실행한다.
 devShell은 Nix로 다음 tool을 제공한다.
 
 - `cargo-deny`: advisory, ban, source, explicit SPDX license policy
-- `gitleaks`: Git history가 아닌 working-directory scan. 기본 rule을 그대로 사용하고 재생성 가능한 `target/` compiler/linker output만 제외하며 `.env.local`과 ignored/untracked source/state는 계속 포함한다.
+- `gitleaks`: Git history가 아닌 commit 대상 working-tree scan. tracked file과 ignore되지 않은 새 file을 임시 tree로 복사해 검사하고, `.env.local`, `target/`, agent run output처럼 명시적으로 ignore된 local state는 제외한다.
 - `sqlx-cli`: migration commands
 - `just`: stable task-module command catalog
 - `podman` + `podman-compose`: rootless local harness
@@ -135,7 +135,7 @@ MinIO upstream repository는 2026-04-25 archived됐고 2025-10 security source r
 1. `Cargo.lock`, `flake.lock` 생성
 2. 두 파일 SHA-256 기록
 3. locked Cargo resolution 성공
-4. `path:.` Nix metadata/show evaluation 성공
+4. Git-tracked working tree의 Nix metadata/show evaluation 성공
 5. 반복 실행 후 두 checksum 무변경
 
 package build, current-system flake check, Linux builder matrix는 별도 card다. lockfile 생성은 staging/commit/push 승인을 포함하지 않는다.

@@ -18,7 +18,7 @@ use crate::{
 };
 
 #[tokio::test]
-#[ignore = "the task-6 Redis recovery card coordinates the guarded container lifecycle"]
+#[ignore = "run through `just test-recovery` to coordinate Redis stop/start"]
 async fn redis_stop_restart_preserves_invite_authority_and_recovers_the_same_limiter() -> TestResult
 {
     let coordination_dir = recovery_coordination_dir()?;
@@ -80,9 +80,8 @@ async fn redis_stop_restart_preserves_invite_authority_and_recovers_the_same_lim
 }
 
 fn recovery_coordination_dir() -> TestResult<PathBuf> {
-    let path = env::var("JAMYE_TASK6_RECOVERY_COORD_DIR").map_err(|_| {
-        io::Error::other("JAMYE_TASK6_RECOVERY_COORD_DIR is required for the ignored recovery test")
-    })?;
+    let path = env::var("JAMYE_GROUPS_REDIS_RECOVERY_COORD_DIR")
+        .map_err(|_| io::Error::other("JAMYE_GROUPS_REDIS_RECOVERY_COORD_DIR is required"))?;
     let path = PathBuf::from(path);
     if !path.is_absolute() || !path.is_dir() {
         return Err(io::Error::other(

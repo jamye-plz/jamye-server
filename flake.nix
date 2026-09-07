@@ -61,7 +61,6 @@
                   "production_composition"
                   "scripts"
                   "docs/adr"
-                  "docs/commands"
                 ];
                 requiredRootFiles = [
                   "Cargo.lock"
@@ -108,13 +107,13 @@
             buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.libiconv ];
             pnameSuffix = "-contract-drift";
 
-            # This is intentionally the existing task-3b checker, not a Nix
-            # reimplementation of its provenance and byte-comparison logic.
+            # Reuse the repository contract checker instead of reimplementing
+            # its provenance and byte-comparison logic in Nix.
             # Crane supplies a vendored, offline Cargo environment and the
             # reusable dependency artifacts inside the sandbox.
             buildPhaseCargoCommand = ''
               IN_NIX_SHELL=1 CARGO_NET_OFFLINE=true \
-                bash ./scripts/tasks/task-3b/contract-check.sh
+                bash ./scripts/check-contracts.sh
             '';
             installPhaseCommand = "mkdir -p $out";
           };

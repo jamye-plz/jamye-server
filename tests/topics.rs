@@ -32,8 +32,6 @@ fn production_topics_surface_is_statically_registered() -> io::Result<()> {
         "contracts/contributions/task-7/dto/operations.json",
         "contracts/contributions/task-7/schemas/topics-wire.schema.json",
         "contracts/contributions/task-7/fixtures/topic-flow.json",
-        "docs/commands/task-7/topics.md",
-        "scripts/tasks/task-7/mod.just",
     ] {
         assert!(
             fs::metadata(path)?.is_file(),

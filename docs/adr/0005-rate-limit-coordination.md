@@ -50,7 +50,7 @@ Task-5 integration test는 두 adapter instance의 16개 동시 increment에서 
 정확히 공유하고, 8개 허용·8개 거절, endpoint/subject 격리, TTL reset과 raw-subject 비노출을
 검증한다. 주입형 outage test는 `503`이 모든 mutation 전에 반환됨을 검증한다.
 
-실제 local recovery card는 guarded loopback Redis container 하나만 중지·재시작한다. 같은
+실제 `just test-recovery` 명령은 guarded loopback Redis container 하나만 중지·재시작한다. 같은
 `RedisRateLimiter` instance가 중지 중 실패하고 재시작 뒤 다시 연결되는 동안 PostgreSQL에
 저장된 refresh token digest bytes가 바뀌지 않는지 확인한다. Volume reset이나 production
 service 조작은 이 card의 권한이 아니다.
@@ -67,7 +67,7 @@ service 조작은 이 card의 권한이 아니다.
 
 ## References
 
-- [Task-5 authentication command cards](../commands/task-5/auth.md)
+- [검증 절차](../validation.md)
 - [Redis `EVAL`](https://redis.io/docs/latest/commands/eval/)
 - [Redis `INCR`](https://redis.io/docs/latest/commands/incr/)
 - [Forward-only PostgreSQL migrations](0003-forward-only-sqlx-migrations.md)

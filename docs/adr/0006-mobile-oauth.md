@@ -96,4 +96,4 @@ refresh 또는 replay의 두 번째 401은 credential을 지우고 loop 없이 �
 - [Google OpenID Connect](https://developers.google.com/identity/openid-connect/openid-connect)
 - [Google OAuth 2.0 for web server applications](https://developers.google.com/identity/protocols/oauth2/web-server)
 - [Realtime ticket and D13 boundary](0004-realtime-ticket-storage.md)
-- [Task-5 authentication command cards](../commands/task-5/auth.md)
+- [검증 절차](../validation.md)

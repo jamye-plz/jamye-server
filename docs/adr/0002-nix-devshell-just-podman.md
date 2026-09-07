@@ -1,5 +1,10 @@
 # ADR 0002: Nix devShell, Just, rootless Podman responsibility split
 
+> Command organization in this ADR is superseded by
+> [ADR 0007](0007-root-just-validation.md). The pinned-toolchain, rootless
+> Podman, destructive-operation, and production ownership boundaries remain in
+> force.
+
 - 상태: Accepted, task-module boundary amended
 - 날짜: 2026-08-24
 
@@ -39,42 +44,40 @@ mise, rustup, `.tool-versions`, 별도 Rust version literal을 추가하지 않�
 
 ### Just boundary
 
-루트 `Justfile`은 다음 stable primitive만 가진다.
-
-- `nix develop path:.` 진입 안내
-- card 목록
-- task별 Just module 등록
-
-각 module은 `just task-1 platform-check`처럼 명시적이고 `just task-1`로 발견 가능한 recipe를 제공한다. 단순 tool invocation과 순서는 module에 두고, credential 생성, trap cleanup, bounded wait, guarded deletion처럼 상태와 복구 안전성이 필요한 구현만 `scripts/tasks/<task-id>/`의 Bash에 둔다. 목적/부작용/성공 기준/복구는 `docs/commands/<task-id>/`가 소유한다. 이후 feature task는 루트 README/Justfile에 개별 recipe를 쌓지 않고 자기 module을 추가한다. Just는 tool을 설치하거나 version을 고정하지 않는다.
-
-초기 generic `<task-id> <card>` filename dispatcher는 모든 동작을 별도 `.sh`로 강제해 짧은 command까지 간접화했고 `just --list`에서 실제 명령을 숨겼다. 사용자 검토 후 이를 task module로 대체했으며, 안전 로직이 없는 thin wrapper script는 제거했다.
+루트 `Justfile`이 유일한 공개 명령 목록이다. `just`로 format, lint, test,
+contract drift, local infrastructure, recovery, flake 검증을 한 번에 찾을 수 있다.
+credential 생성, bounded wait, guarded deletion, service stop/start처럼 실제 안전
+경계가 필요한 동작만 `scripts/dev/`와 `scripts/recovery/`의 Bash로 유지한다.
+Just는 tool을 설치하거나 version을 고정하지 않는다. 세부 근거와 completion
+의미는 [ADR 0007](0007-root-just-validation.md)에 정의한다.
 
 ### Podman boundary
 
 `compose.yaml`은 top-level project `jamye-server-test`와 정확히 PostgreSQL, Redis, MinIO 세 local service만 가진다. loopback port, fixed non-latest image tag, healthcheck, project-owned named volume을 사용한다.
 
-devShell은 Podman client와 `podman-compose`를 제공하며 `PODMAN_COMPOSE_PROVIDER`를 Nix store executable에 고정한다. provider/version card는 service를 시작하지 않고 ambient fallback이 없는지 먼저 확인한다.
+devShell은 Podman client와 `podman-compose`를 제공하며 `PODMAN_COMPOSE_PROVIDER`를 Nix store executable에 고정한다. `just tools-check`는 service를 시작하지 않고 ambient fallback이 없는지 먼저 확인한다.
 
 macOS `podman machine`은 user-owned prerequisite다. repository/Just/agent는 VM을 만들거나 시작·정지·reset·삭제하지 않는다. Linux는 VM layer 없이 같은 rootless project를 사용한다.
 
-service lifecycle도 사용자가 명시적으로 card를 실행해야만 바뀐다. `down`은 bytes를 보존한다. `reset`은 별도 confirmation, exact project, exact volume 이름과 ownership label을 검증해 local test volume 세 개만 삭제한다.
+service lifecycle도 사용자가 명시적으로 루트 명령을 실행해야만 바뀐다. `infra-down`은 bytes를 보존한다. `infra-reset`은 별도 confirmation, exact project, exact volume 이름과 ownership label을 검증해 local test volume 세 개만 삭제한다.
 
 M0 MinIO bootstrap은 disposable admin과 별도 app identity만 준비한다. app은 권한이 없고 bucket/policy/lifecycle은 만들지 않는다. task-8에서 사용자가 D11을 선택하기 전까지 production 또는 local object policy를 선점하지 않는다.
 
 ### Production boundary
 
-Compose는 production SSOT가 아니다. production은 flake의 native `api`/`worker` package와 task-13 NixOS module을 homelab이 pin해 systemd로 실행한다.
+Compose는 production SSOT가 아니다. production은 flake의 native `api`/`worker` package와 NixOS module을 homelab이 pin해 systemd로 실행한다.
 
 server repository의 module은 package, listen address, environment file, migration policy만 소유한다. homelab이 PostgreSQL/Redis/MinIO, host/domain/volume, SOPS secret, ingress, monitoring, backup/restore를 소유한다. 이 저장소의 env/flake/module에 production value를 넣지 않는다.
 
 ## Supported systems and validation
 
 - `aarch64-darwin`: development devShell, package, checks
+- `aarch64-linux`: production package, checks, devShell evaluation
 - `x86_64-linux`: production package, checks, devShell evaluation
 
-모든 pre-SCM flake command는 Git index 밖의 파일도 포함하도록 `path:.`를 사용한다. macOS에 Linux builder가 없으면 PF2 hard blocker로 기록하고 Linux package 성공을 주장하지 않는다.
+flake command는 Git-tracked working tree를 source로 사용한다. 새 flake 입력 파일은 검증 전에 index에 추가하며, Git이 무시하는 `target/`과 local state를 Nix store snapshot에 포함하지 않는다. macOS에 Linux builder가 없으면 Linux package 성공을 주장하지 않는다.
 
-사용자는 task-1 cards로 다음 evidence를 반환한다.
+루트 명령은 다음 evidence를 제공한다.
 
 1. exact Nix Podman/Compose provider path와 version
 2. Cargo/Nix lock checksum과 no-drift
@@ -88,7 +91,7 @@ server repository의 module은 package, listen address, environment file, migrat
 - 장점: version authority와 lifecycle authority가 한눈에 보인다.
 - 장점: agent가 중요한 host/service state를 암묵적으로 바꾸지 않는다.
 - 장점: local service harness와 production deployment가 섞이지 않는다.
-- 비용: 사용자가 command card를 직접 실행하고 evidence를 돌려줘야 gate가 닫힌다.
+- 비용: stateful recovery와 cross-system package 실현은 빠른 `just check`와 분리해 실행해야 한다.
 - 비용: macOS의 Linux production build에는 별도 builder가 필요하다.
 - 위험: nixpkgs의 Podman Darwin availability 또는 external provider compatibility가 lock revision에서 깨질 수 있다. provider card 실패 시 ambient 도구로 우회하지 않고 flake를 수정한다.
 - 위험: fixed Compose image의 security/availability는 local compatibility 목적에만 유효하다. production 선택으로 전이하지 않는다.

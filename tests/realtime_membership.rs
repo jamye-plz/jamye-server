@@ -23,8 +23,6 @@ fn production_realtime_membership_surface_is_statically_registered() -> io::Resu
         "src/adapters/redis/realtime_control/mod.rs",
         "src/transport/realtime/authorization/mod.rs",
         "src/transport/realtime/registry/revocation.rs",
-        "docs/commands/task-6c/realtime-membership.md",
-        "scripts/tasks/task-6c/mod.just",
     ] {
         assert!(
             fs::metadata(path)?.is_file(),

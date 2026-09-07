@@ -187,6 +187,6 @@ M0 MinIO check는 official unauthenticated `/minio/health/live` URL만 사용한
 
 `rust-toolchain.toml`이 exact Rust value의 유일한 원본이고 flake는 Fenix로 그 파일을 한 번 읽어 devShell과 Crane package에 같은 derivation을 넘긴다. flake input, Cargo 외 도구, native dependency는 `flake.lock`이 고정한다.
 
-지원 system은 `aarch64-darwin` development와 `x86_64-linux` production이다. macOS에 Linux builder가 없으면 production package matrix는 blocker이며 skip 성공이 아니다.
+지원 system은 `aarch64-darwin`, `aarch64-linux`, `x86_64-linux`다. macOS에 Linux builder가 없으면 Linux package 실현은 별도 배포 준비 단계의 blocker이며, 현재 host의 평가 성공을 Linux build 성공으로 간주하지 않는다.
 
 Rootless Podman Compose는 local disposable PostgreSQL/Redis/MinIO만 제공한다. production은 task-13의 native Nix package와 NixOS systemd module이며, 실제 host/secret/service/volume/ingress/monitoring/backup/restore는 별도 homelab repository가 소유한다.

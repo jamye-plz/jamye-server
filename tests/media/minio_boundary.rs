@@ -31,7 +31,7 @@ use crate::TestResult;
 const MINIO_ORIGIN: &str = "http://127.0.0.1:9000";
 const MINIO_HEALTH_URL: &str = "http://127.0.0.1:9000/minio/health/live";
 const PRIVATE_BUCKET: &str = "jamye-task8-media";
-const POLICY_PATH: &str = "scripts/tasks/task-8/minio-app-policy.json";
+const POLICY_PATH: &str = "scripts/dev/minio-app-policy.json";
 
 #[test]
 fn disposable_app_policy_is_exactly_scoped_to_task_8_media() -> TestResult {
@@ -39,7 +39,7 @@ fn disposable_app_policy_is_exactly_scoped_to_task_8_media() -> TestResult {
     let policy = fs::read_to_string(&path).map_err(|error| {
         if error.kind() == io::ErrorKind::NotFound {
             io::Error::other(format!(
-                "RED: {POLICY_PATH} is absent; task-8 must publish the disposable MinIO least-privilege app policy"
+                "{POLICY_PATH} is absent; the disposable MinIO policy is required"
             ))
         } else {
             error

@@ -30,8 +30,6 @@ fn production_chatrooms_surface_is_statically_registered() -> io::Result<()> {
         "contracts/contributions/task-6b/dto/operations.json",
         "contracts/contributions/task-6b/schemas/chatrooms-wire.schema.json",
         "contracts/contributions/task-6b/fixtures/chatroom-history-read.json",
-        "docs/commands/task-6b/chatrooms.md",
-        "scripts/tasks/task-6b/mod.just",
     ] {
         assert!(
             fs::metadata(path)?.is_file(),

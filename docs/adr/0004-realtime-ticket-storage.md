@@ -84,8 +84,8 @@ delta phase #2 완전 drain이다. WebSocket에서 본 known event도 phase #2 c
 
 - `compose.yaml`의 Redis는 loopback disposable integration fixture다. production Redis
   topology, persistence, failover, capacity를 결정하지 않는다.
-- 실제 local Redis stop/start는 task-4b recovery card를 사용자가 명시적으로 실행할 때만
-  수행한다. card는 Redis container 하나만 다루고 volume reset을 호출하지 않는다.
+- 실제 local Redis stop/start는 사용자가 `just test-recovery`를 명시적으로 실행할 때만
+  수행한다. 명령은 Redis container 하나만 다루고 volume reset을 호출하지 않는다.
 - PostgreSQL migration, production deployment, homelab service lifecycle은 이 ADR의
   실행 권한에 포함되지 않는다.
 
@@ -102,5 +102,5 @@ delta phase #2 완전 drain이다. WebSocket에서 본 known event도 phase #2 c
 ## References
 
 - [Frozen realtime protocol](../../contracts/realtime/protocol.json)
-- [Task-4b command cards](../commands/task-4b/realtime.md)
+- [검증 절차](../validation.md)
 - [Forward-only PostgreSQL migrations](0003-forward-only-sqlx-migrations.md)
