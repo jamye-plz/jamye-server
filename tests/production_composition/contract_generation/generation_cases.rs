@@ -134,7 +134,7 @@ fn committed_explicit_provenance_inputs_are_parseable_and_locked() -> TestResult
 }
 
 #[test]
-fn generated_inventory_has_exactly_42_rest_operations_and_two_selected_realtime_events()
+fn generated_inventory_has_exactly_43_rest_operations_and_two_selected_realtime_events()
 -> TestResult {
     let _filesystem = filesystem_lock();
     let generated = generate_current(DIRTY, "inventory")?;
@@ -149,7 +149,7 @@ fn generated_inventory_has_exactly_42_rest_operations_and_two_selected_realtime_
     let expected_events = expected_realtime_event_types();
     if actual_operations != expected_operations || actual_events != expected_events {
         return Err(io::Error::other(format!(
-            "Task-12 RED: generated selected inventory must contain the exact 42 operation/method/path rows and two unique selected realtime events; actual_rest_count={}, actual_rest={actual_operations:?}, actual_realtime_count={}, actual_realtime={actual_events:?}",
+            "generated selected inventory must contain the exact 43 operation/method/path rows and two unique selected realtime events; actual_rest_count={}, actual_rest={actual_operations:?}, actual_realtime_count={}, actual_realtime={actual_events:?}",
             actual_operations.len(),
             actual_events.len(),
         ))
@@ -160,6 +160,106 @@ fn generated_inventory_has_exactly_42_rest_operations_and_two_selected_realtime_
     }
     Ok(())
 }
+
+#[test]
+fn generated_openapi_is_a_client_consumable_production_reference() -> TestResult {
+    const PUBLIC_OPERATIONS: [&str; 6] = ["H1", "H2", "A1", "A2", "A3", "A5"];
+
+    let _filesystem = filesystem_lock();
+    let generated = generate_current(DIRTY, "client-openapi")?;
+    let openapi = read_json(&generated.path().join("openapi.json"))?;
+    require_eq(
+        openapi.pointer("/servers/0/url").and_then(Value::as_str),
+        Some("https://jamye-api.ridewithmin.com"),
+        "release OpenAPI production server URL differs",
+    )?;
+    require_eq(
+        openapi
+            .pointer("/x-jamye-realtime/ticket_operation_id")
+            .and_then(Value::as_str),
+        Some("R1"),
+        "release OpenAPI realtime ticket handoff differs",
+    )?;
+
+    let paths = openapi
+        .get("paths")
+        .and_then(Value::as_object)
+        .ok_or_else(|| io::Error::other("release OpenAPI paths are missing"))?;
+    for (operation_id, method, path) in EXPECTED_REST_OPERATIONS {
+        let operation = paths
+            .get(path)
+            .and_then(Value::as_object)
+            .and_then(|path_item| path_item.get(method))
+            .and_then(Value::as_object)
+            .ok_or_else(|| {
+                io::Error::other(format!(
+                    "release OpenAPI operation is missing: {operation_id} {method} {path}"
+                ))
+            })?;
+        if operation
+            .get("summary")
+            .and_then(Value::as_str)
+            .is_none_or(str::is_empty)
+            || operation
+                .get("tags")
+                .and_then(Value::as_array)
+                .is_none_or(Vec::is_empty)
+            || operation
+                .get("responses")
+                .and_then(Value::as_object)
+                .is_none_or(serde_json::Map::is_empty)
+            || operation
+                .get("x-jamye-behavior-test")
+                .and_then(Value::as_str)
+                .is_none()
+            || operation
+                .get("x-jamye-fixture")
+                .and_then(Value::as_str)
+                .is_none()
+        {
+            return Err(io::Error::other(format!(
+                "release OpenAPI operation is incomplete: {operation_id}"
+            ))
+            .into());
+        }
+        if !PUBLIC_OPERATIONS.contains(&operation_id)
+            && operation
+                .get("security")
+                .and_then(Value::as_array)
+                .is_none_or(Vec::is_empty)
+        {
+            return Err(io::Error::other(format!(
+                "release OpenAPI protected operation has no bearer security: {operation_id}"
+            ))
+            .into());
+        }
+    }
+
+    require_eq(
+        openapi
+            .pointer("/paths/~1api~1v1~1auth~1oauth~1{provider}~1callback/get/responses/302/headers/Location/schema/format")
+            .and_then(Value::as_str),
+        Some("uri"),
+        "release OpenAPI callback redirect must document its fixed Location header",
+    )?;
+    require_eq(
+        openapi
+            .pointer("/paths/~1api~1v1~1auth~1oauth~1{provider}~1callback/get/responses/302/headers/Cache-Control/schema/const")
+            .and_then(Value::as_str),
+        Some("no-store"),
+        "release OpenAPI callback redirect must document no-store",
+    )?;
+
+    let serialized = serde_json::to_string(&openapi)?;
+    if serialized.contains("Selected ") || serialized.contains("#/$defs/") {
+        return Err(io::Error::other(
+            "release OpenAPI retains a placeholder summary or unresolved owner-schema reference",
+        )
+        .into());
+    }
+    Ok(())
+}
+
 #[test]
 fn generated_selected_surface_mapping_has_one_handler_owner_test_and_fixture_per_operation_and_event()
 -> TestResult {

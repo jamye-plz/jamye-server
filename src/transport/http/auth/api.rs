@@ -1,12 +1,15 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{collections::BTreeSet, net::SocketAddr, sync::Arc};
 
 use axum::{
     Json, Router,
     body::{Body, to_bytes},
     extract::{ConnectInfo, FromRef, Path, Request, State},
-    http::{HeaderValue, StatusCode, header::RETRY_AFTER},
+    http::{
+        HeaderValue, StatusCode,
+        header::{CACHE_CONTROL, LOCATION, REFERRER_POLICY, RETRY_AFTER, X_CONTENT_TYPE_OPTIONS},
+    },
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -20,6 +23,12 @@ use crate::{
 };
 
 const MAX_AUTH_BODY_BYTES: usize = 16 * 1024;
+const MAX_CALLBACK_QUERY_BYTES: usize = 8 * 1024;
+const MAX_CALLBACK_PARAMETERS: usize = 16;
+const MAX_CALLBACK_CODE_BYTES: usize = 4096;
+const MAX_CALLBACK_METADATA_BYTES: usize = 1024;
+const KAKAO_APP_RETURN_URI: &str = "jamye://oauth/kakao";
+const GOOGLE_APP_RETURN_URI: &str = "jamye://oauth/google";
 
 #[derive(Clone)]
 pub struct AuthHttpState {
@@ -46,9 +55,189 @@ pub fn router(state: AuthHttpState) -> Router {
     Router::new()
         .route("/api/v1/auth/oauth/{provider}/authorize", post(authorize))
         .route("/api/v1/auth/oauth/{provider}/exchange", post(exchange))
+        .route("/api/v1/auth/oauth/{provider}/callback", get(callback))
         .route("/api/v1/auth/refresh", post(refresh))
         .route("/api/v1/auth/logout", post(logout))
         .with_state(state)
+}
+
+async fn callback(Path(provider): Path<String>, request: Request) -> Response {
+    let (parts, _) = request.into_parts();
+    let request_id = request_id(&parts);
+    let result = callback_location(&provider, parts.uri.query()).and_then(callback_redirect);
+    match result {
+        Ok(response) => response,
+        Err(error) => callback_error_response(error, request_id),
+    }
+}
+
+fn callback_location(provider: &str, query: Option<&str>) -> Result<String, AuthError> {
+    let app_return_uri = app_return_uri(provider)?;
+    let callback = parse_callback_query(query)?;
+    let mut query = url::form_urlencoded::Serializer::new(String::new());
+    query.append_pair("state", &callback.state);
+    match callback.outcome {
+        CallbackOutcome::Code(code) => query.append_pair("code", &code),
+        CallbackOutcome::Error(error) => query.append_pair("error", error),
+    };
+    Ok(format!("{app_return_uri}?{}", query.finish()))
+}
+
+fn app_return_uri(provider: &str) -> Result<&'static str, AuthError> {
+    match provider {
+        "kakao" => Ok(KAKAO_APP_RETURN_URI),
+        "google" => Ok(GOOGLE_APP_RETURN_URI),
+        _ => Err(AuthError::OAuthProviderNotSupported),
+    }
+}
+
+fn callback_redirect(location: String) -> Result<Response, AuthError> {
+    let mut response = StatusCode::FOUND.into_response();
+    let location = HeaderValue::from_str(&location).map_err(|_| AuthError::RequestValidation)?;
+    response.headers_mut().insert(LOCATION, location);
+    apply_callback_safety_headers(&mut response);
+    Ok(response)
+}
+
+fn callback_error_response(error: AuthError, request_id: Uuid) -> Response {
+    let (status, code, message) = error_profile(error);
+    let mut response = error_response(status, code, message, request_id);
+    apply_callback_safety_headers(&mut response);
+    response
+}
+
+fn apply_callback_safety_headers(response: &mut Response) {
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+        .headers_mut()
+        .insert(REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    response
+        .headers_mut()
+        .insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+}
+
+struct CallbackQuery {
+    state: String,
+    outcome: CallbackOutcome,
+}
+
+enum CallbackOutcome {
+    Code(String),
+    Error(&'static str),
+}
+
+fn parse_callback_query(query: Option<&str>) -> Result<CallbackQuery, AuthError> {
+    let query = query.ok_or(AuthError::RequestValidation)?;
+    if query.is_empty() || query.len() > MAX_CALLBACK_QUERY_BYTES {
+        return Err(AuthError::RequestValidation);
+    }
+
+    let mut fields = BTreeSet::new();
+    let mut code = None;
+    let mut state = None;
+    let mut provider_error = None;
+    for pair in query.split('&') {
+        if pair.is_empty() || fields.len() == MAX_CALLBACK_PARAMETERS {
+            return Err(AuthError::RequestValidation);
+        }
+        let (raw_key, raw_value) = pair.split_once('=').ok_or(AuthError::RequestValidation)?;
+        let key = strict_query_decode(raw_key, 64)?;
+        let value_limit = match key.as_str() {
+            "code" => MAX_CALLBACK_CODE_BYTES,
+            "state" | "error" | "error_description" | "error_uri" | "scope" | "authuser"
+            | "prompt" | "iss" => MAX_CALLBACK_METADATA_BYTES,
+            _ => return Err(AuthError::RequestValidation),
+        };
+        let value = strict_query_decode(raw_value, value_limit)?;
+        if !fields.insert(key.clone()) {
+            return Err(AuthError::RequestValidation);
+        }
+        match key.as_str() {
+            "code" => code = Some(value),
+            "state" => state = Some(value),
+            "error" => provider_error = Some(value),
+            _ => {
+                if value.is_empty() || value.chars().any(char::is_control) {
+                    return Err(AuthError::RequestValidation);
+                }
+            }
+        }
+    }
+
+    let state = state.ok_or(AuthError::RequestValidation)?;
+    if !valid_callback_state(&state) {
+        return Err(AuthError::RequestValidation);
+    }
+    match (code, provider_error) {
+        (Some(code), None) if valid_callback_code(&code) => Ok(CallbackQuery {
+            state,
+            outcome: CallbackOutcome::Code(code),
+        }),
+        (None, Some(error)) if valid_callback_error(&error) => Ok(CallbackQuery {
+            state,
+            outcome: CallbackOutcome::Error(if error == "access_denied" {
+                "access_denied"
+            } else {
+                "oauth_failed"
+            }),
+        }),
+        _ => Err(AuthError::RequestValidation),
+    }
+}
+
+fn strict_query_decode(value: &str, maximum_bytes: usize) -> Result<String, AuthError> {
+    let mut decoded = Vec::with_capacity(value.len());
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = match bytes[index] {
+            b'+' => b' ',
+            b'%' => {
+                let high = *bytes.get(index + 1).ok_or(AuthError::RequestValidation)?;
+                let low = *bytes.get(index + 2).ok_or(AuthError::RequestValidation)?;
+                index += 2;
+                (hex_value(high).ok_or(AuthError::RequestValidation)? << 4)
+                    | hex_value(low).ok_or(AuthError::RequestValidation)?
+            }
+            byte => byte,
+        };
+        decoded.push(byte);
+        if decoded.len() > maximum_bytes {
+            return Err(AuthError::RequestValidation);
+        }
+        index += 1;
+    }
+    String::from_utf8(decoded).map_err(|_| AuthError::RequestValidation)
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn valid_callback_state(value: &str) -> bool {
+    value.len() == 43
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+}
+
+fn valid_callback_code(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_CALLBACK_CODE_BYTES
+        && !value.chars().any(char::is_control)
+}
+
+fn valid_callback_error(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_CALLBACK_METADATA_BYTES
+        && !value.chars().any(char::is_control)
 }
 
 async fn authorize(

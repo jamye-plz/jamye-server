@@ -29,6 +29,7 @@ fn feature_contract_contribution_is_the_exact_selected_auth_wire() -> TestResult
             Some("A2"),
             Some("A3"),
             Some("A4"),
+            Some("A5"),
             Some("U1"),
             Some("U2")
         ]
@@ -39,6 +40,12 @@ fn feature_contract_contribution_is_the_exact_selected_auth_wire() -> TestResult
     );
     assert_eq!(operation_rows[2]["request"], "RefreshIn");
     assert_eq!(operation_rows[2]["response"], "TokenPair");
+    assert_eq!(operation_rows[4]["method"], "GET");
+    assert_eq!(
+        operation_rows[4]["path"],
+        "/api/v1/auth/oauth/{provider}/callback"
+    );
+    assert_eq!(operation_rows[4]["success_status"], 302);
 
     let schema: Value = serde_json::from_str(include_str!(
         "../../contracts/contributions/task-5/schemas/auth-wire.schema.json"

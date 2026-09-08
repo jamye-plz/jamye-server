@@ -35,6 +35,7 @@
     "A2",
     "A3",
     "A4",
+    "A5",
     "U1",
     "U2",
     "U3",
@@ -76,5 +77,5 @@
     "message.created",
     "topic.created"
   ],
-  "sha256": "1465fdee708cadaa459a7dc0939b4db8d2a56c19f278c430c316cd7e7f11a942"
+  "sha256": "d2b88eddfa47bc88ad84f64c4dc80cc853cc86ac42254b7817e7b65b3b6f8d66"
 }

@@ -89,6 +89,14 @@ pub(crate) const REST_SURFACES: &[RestSurface] = &[
         "contracts/contributions/task-5/fixtures/mobile-auth-handoff.json"
     ),
     row!(
+        "A5",
+        "get",
+        "/api/v1/auth/oauth/{provider}/callback",
+        "src/transport/http/auth/api.rs::callback",
+        "tests/auth/callback.rs::callback_bridge_redirects_only_code_and_state_to_the_fixed_provider_app_uri",
+        "contracts/contributions/task-5/fixtures/mobile-auth-handoff.json"
+    ),
+    row!(
         "U1",
         "get",
         "/api/v1/me",
