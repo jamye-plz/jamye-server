@@ -32,13 +32,14 @@ const EXPECTED_RELEASE_CANDIDATE_ONLY_ARTIFACTS: [&str; 5] = [
     "fixtures/selected-surface-mapping.json",
     "realtime/topic.created.schema.json",
 ];
-const EXPECTED_REST_OPERATIONS: [(&str, &str, &str); 42] = [
+const EXPECTED_REST_OPERATIONS: [(&str, &str, &str); 43] = [
     ("H1", "get", "/health/live"),
     ("H2", "get", "/health/ready"),
     ("A1", "post", "/api/v1/auth/oauth/{provider}/authorize"),
     ("A2", "post", "/api/v1/auth/oauth/{provider}/exchange"),
     ("A3", "post", "/api/v1/auth/refresh"),
     ("A4", "post", "/api/v1/auth/logout"),
+    ("A5", "get", "/api/v1/auth/oauth/{provider}/callback"),
     ("U1", "get", "/api/v1/me"),
     ("U2", "patch", "/api/v1/me"),
     ("U3", "delete", "/api/v1/me"),
@@ -116,7 +117,7 @@ const REALTIME_MAPPING_FIELDS: [&str; 7] = [
     "version",
 ];
 const ROUTE_PROBE: &str = "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory";
-const EXPECTED_REST_MAPPING: [RestMappingOracle; 42] = [
+const EXPECTED_REST_MAPPING: [RestMappingOracle; 43] = [
     RestMappingOracle::new(
         "H1",
         "get",
@@ -163,6 +164,14 @@ const EXPECTED_REST_MAPPING: [RestMappingOracle; 42] = [
         "/api/v1/auth/logout",
         "src/transport/http/auth/api.rs::logout",
         "tests/auth/session.rs::logout_revokes_only_refresh_authority_and_access_remains_valid_to_expiry",
+        "contracts/contributions/task-5/fixtures/mobile-auth-handoff.json",
+    ),
+    RestMappingOracle::new(
+        "A5",
+        "get",
+        "/api/v1/auth/oauth/{provider}/callback",
+        "src/transport/http/auth/api.rs::callback",
+        "tests/auth/callback.rs::callback_bridge_redirects_only_code_and_state_to_the_fixed_provider_app_uri",
         "contracts/contributions/task-5/fixtures/mobile-auth-handoff.json",
     ),
     RestMappingOracle::new(

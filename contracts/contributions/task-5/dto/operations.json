@@ -36,6 +36,15 @@
       "success_status": 204
     },
     {
+      "errors": "EA5",
+      "id": "A5",
+      "method": "GET",
+      "path": "/api/v1/auth/oauth/{provider}/callback",
+      "request": null,
+      "response": null,
+      "success_status": 302
+    },
+    {
       "errors": "E1",
       "id": "U1",
       "method": "GET",

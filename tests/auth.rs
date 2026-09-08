@@ -2,6 +2,8 @@ use std::{error::Error, fs, io};
 
 #[path = "auth/helpers.rs"]
 mod auth_helpers;
+#[path = "auth/callback.rs"]
+mod callback;
 #[path = "auth/contract.rs"]
 mod contract;
 #[path = "auth/google_id_token.rs"]

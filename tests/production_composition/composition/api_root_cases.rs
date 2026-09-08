@@ -189,6 +189,12 @@ fn selected_surfaces() -> Vec<Surface> {
             ExpectedResponse::RequestValidation,
         ),
         (
+            "auth.callback",
+            Method::GET,
+            "/api/v1/auth/oauth/kakao/callback".to_owned(),
+            ExpectedResponse::RequestValidation,
+        ),
+        (
             "auth.refresh",
             Method::POST,
             "/api/v1/auth/refresh".to_owned(),
