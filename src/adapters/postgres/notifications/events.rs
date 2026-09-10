@@ -76,9 +76,8 @@ pub(super) async fn clear_topic_notifications(
     connection: &mut PgConnection,
     command: &ClearTopicNotificationsCommand,
 ) -> Result<NotificationClearReport, NotificationsRepositoryError> {
-    let target = sqlx::query_as::<_, (Uuid, Uuid)>(
-        "SELECT group_id, topic_id FROM chatrooms \
-         WHERE id = $1 AND type = 'topic'",
+    let target = sqlx::query_as::<_, (Uuid, Option<Uuid>)>(
+        "SELECT group_id, topic_id FROM chatrooms WHERE id = $1",
     )
     .bind(command.conversation_id)
     .fetch_optional(&mut *connection)
@@ -100,6 +99,12 @@ pub(super) async fn clear_topic_notifications(
     .map_err(|error| database_error("notification_clear_marker", error))?
     .ok_or(NotificationsRepositoryError::InvalidData)?;
 
+    // Main chatrooms have no topic notifications. Keep the live membership and
+    // persisted marker checks above, but do not reject their successful C3 read.
+    let Some(topic_id) = target.1 else {
+        return Ok(NotificationClearReport { cleared_count: 0 });
+    };
+
     let result = sqlx::query(
         "UPDATE notifications \
          SET read_at = clock_timestamp() \
@@ -108,7 +113,7 @@ pub(super) async fn clear_topic_notifications(
            AND source_cursor <= $4 AND read_at IS NULL",
     )
     .bind(command.user_id)
-    .bind(target.1)
+    .bind(topic_id)
     .bind(command.conversation_id)
     .bind(read_cursor)
     .execute(connection)
