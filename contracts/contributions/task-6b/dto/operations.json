@@ -30,7 +30,7 @@
       "id": "C3",
       "method": "POST",
       "path": "/api/v1/chatrooms/{chatroom_id}/read",
-      "request": "ReadCursorIn",
+      "request": "ReadAnchorIn",
       "response": "ReadMarker",
       "success_status": 200
     }

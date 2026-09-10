@@ -32,6 +32,10 @@ nix develop .
 
 devShell에 들어왔다고 서비스가 시작되지는 않는다. 지원하는 명령은 루트에서 바로 확인하고 실행한다.
 
+에이전트는 프로젝트별 devShell을 한 번 열어 후속 명령에 재사용한다. 명령마다 환경을 다시
+열거나 `path:.`로 로컬 산출물까지 flake 입력에 포함하지 않는다. 자세한 운영 규칙은
+[devShell 세션 재사용](docs/development.md#devshell-진입과-세션-재사용)을 따른다.
+
 ```text
 just
 just check

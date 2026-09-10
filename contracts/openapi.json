@@ -1422,6 +1422,16 @@
         ],
         "type": "object"
       },
+      "ReadAnchorIn": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ReadCursorIn"
+          },
+          {
+            "$ref": "#/components/schemas/ReadMessageIdIn"
+          }
+        ]
+      },
       "ReadCursorIn": {
         "additionalProperties": false,
         "properties": {
@@ -1455,6 +1465,19 @@
           "chatroom_id",
           "last_read_cursor",
           "updated_at"
+        ],
+        "type": "object"
+      },
+      "ReadMessageIdIn": {
+        "additionalProperties": false,
+        "properties": {
+          "message_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_id"
         ],
         "type": "object"
       },
@@ -2820,7 +2843,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ReadCursorIn"
+                "$ref": "#/components/schemas/ReadAnchorIn"
               }
             }
           },

@@ -19,7 +19,7 @@ use crate::{
     application::{
         auth::AccessTokenVerifier,
         chatrooms::{
-            ChatroomPageInput, ChatroomsError, ChatroomsService, HistoryPageInput, ReadCursorInput,
+            ChatroomPageInput, ChatroomsError, ChatroomsService, HistoryPageInput, ReadAnchorInput,
         },
         transactions::TransactionCompositions,
     },
@@ -148,30 +148,22 @@ async fn mark_read(
     let (parts, body) = request.into_parts();
     let request_id = request_id(&parts);
     let input = match parse_uuid(&chatroom_id) {
-        Ok(chatroom_id) => parse_json::<ReadCursorBody>(body).await.map(|payload| {
-            (
-                chatroom_id,
-                ReadCursorInput {
-                    cursor: payload.cursor,
-                },
-            )
-        }),
+        Ok(chatroom_id) => parse_json::<ReadAnchorBody>(body)
+            .await
+            .map(|payload| (chatroom_id, payload.input)),
         Err(error) => Err(error),
     };
     let result = match input {
         Ok((chatroom_id, input)) => match &state.compositions {
-            Some(compositions) => match input.cursor.parse::<i64>() {
-                Ok(cursor) => {
-                    compositions
-                        .mark_read_http(identity.user_id, chatroom_id, cursor)
-                        .await
-                }
-                Err(_) => Err(ChatroomsError::RequestValidation),
-            },
+            Some(compositions) => {
+                compositions
+                    .mark_read_http(identity.user_id, chatroom_id, input)
+                    .await
+            }
             None => {
                 state
                     .service
-                    .mark_read(identity.user_id, chatroom_id, input)
+                    .mark_read_anchor(identity.user_id, chatroom_id, input)
                     .await
             }
         },
@@ -255,10 +247,36 @@ impl IntoResponse for ChatroomsHttpError {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ReadCursorBody {
-    cursor: String,
+struct ReadAnchorBody {
+    input: ReadAnchorInput,
+}
+
+impl<'de> Deserialize<'de> for ReadAnchorBody {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let Some(object) = value.as_object() else {
+            return Err(serde::de::Error::custom("read anchor must be an object"));
+        };
+        if object.len() != 1 {
+            return Err(serde::de::Error::custom(
+                "read anchor must have exactly one field",
+            ));
+        }
+        let Some((field, serde_json::Value::String(value))) = object.iter().next() else {
+            return Err(serde::de::Error::custom("read anchor must be a string"));
+        };
+        let input = match field.as_str() {
+            "cursor" => ReadAnchorInput::Cursor(value.clone()),
+            "message_id" => Uuid::try_parse(value)
+                .map(ReadAnchorInput::MessageId)
+                .map_err(|_| serde::de::Error::custom("message_id must be a UUID"))?,
+            _ => return Err(serde::de::Error::custom("read anchor field is unknown")),
+        };
+        Ok(Self { input })
+    }
 }
 
 #[derive(Serialize)]

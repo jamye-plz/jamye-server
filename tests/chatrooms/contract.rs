@@ -50,6 +50,11 @@ fn task_6b_contract_contribution_is_the_exact_selected_chatroom_wire() -> TestRe
             ),
         ]
     );
+    let c3 = operations
+        .iter()
+        .find(|operation| operation["id"] == "C3")
+        .ok_or_else(|| io::Error::other("C3 operation is missing"))?;
+    assert_eq!(c3["request"], "ReadAnchorIn");
 
     let schema: Value = serde_json::from_str(&fs::read_to_string(
         "contracts/contributions/task-6b/schemas/chatrooms-wire.schema.json",
@@ -66,6 +71,18 @@ fn task_6b_contract_contribution_is_the_exact_selected_chatroom_wire() -> TestRe
     assert_eq!(
         schema["$defs"]["ReadCursorIn"]["properties"]["cursor"]["type"],
         "string"
+    );
+    assert_eq!(
+        schema["$defs"]["ReadAnchorIn"]["oneOf"][0]["$ref"],
+        "#/$defs/ReadCursorIn"
+    );
+    assert_eq!(
+        schema["$defs"]["ReadAnchorIn"]["oneOf"][1]["$ref"],
+        "#/$defs/ReadMessageIdIn"
+    );
+    assert_eq!(
+        schema["$defs"]["ReadMessageIdIn"]["properties"]["message_id"]["format"],
+        "uuid"
     );
     assert!(
         schema["$defs"]["ReadMarker"]["properties"]
@@ -91,6 +108,18 @@ fn task_6b_contract_contribution_is_the_exact_selected_chatroom_wire() -> TestRe
     assert_eq!(fixture["c3"]["response"]["last_read_cursor"], "140");
     assert_eq!(fixture["c3"]["row_count"], 1);
     assert_eq!(fixture["c3"]["unknown_cursor_mutates"], false);
+    assert_eq!(
+        fixture["c3"]["message_id_anchor_uses_exact_message_created_cursor"],
+        true
+    );
+    assert_eq!(
+        fixture["c3"]["message_id_anchor_does_not_mark_later_events_read"],
+        true
+    );
+    assert_eq!(
+        fixture["c3"]["missing_cross_room_or_no_event_message_anchor_mutates"],
+        false
+    );
     assert_eq!(
         fixture["future_composition"]["mark_conversation_read_owner"],
         "task-12"

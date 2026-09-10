@@ -71,6 +71,14 @@
     "system_sender_fields_are_null": true
   },
   "c3": {
+    "accepted_request_anchors": [
+      {
+        "cursor": "140"
+      },
+      {
+        "message_id": "63000000-0000-4000-8000-000000000001"
+      }
+    ],
     "canonical_last_read_cursor": "140",
     "commands": [
       "101",
@@ -79,6 +87,9 @@
       "140"
     ],
     "cross_conversation_cursor_mutates": false,
+    "message_id_anchor_uses_exact_message_created_cursor": true,
+    "message_id_anchor_does_not_mark_later_events_read": true,
+    "missing_cross_room_or_no_event_message_anchor_mutates": false,
     "response": {
       "chatroom_id": "62000000-0000-4000-8000-000000000001",
       "last_read_cursor": "140",

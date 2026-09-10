@@ -13,7 +13,8 @@ use uuid::Uuid;
 use crate::{
     TestResult,
     chatroom_helpers::{
-        TestAccessVerifier, bearer, harness, insert_event, insert_user_message, topology,
+        TestAccessVerifier, bearer, harness, insert_event, insert_message_created_event,
+        insert_user_message, topology,
     },
     postgres_support::TestDatabase,
 };
@@ -32,7 +33,8 @@ async fn c1_c2_and_c3_http_use_exact_authenticated_mobile_shapes() -> TestResult
         OffsetDateTime::UNIX_EPOCH + time::Duration::hours(4),
     )
     .await?;
-    let cursor = insert_event(&pool, fixture.chatroom_id).await?;
+    let cursor = insert_message_created_event(&pool, fixture.chatroom_id, message_id).await?;
+    let unseen_later_cursor = insert_event(&pool, fixture.chatroom_id).await?;
     let router = chatrooms_router(ChatroomsHttpState::new(
         harness.service,
         Arc::new(TestAccessVerifier),
@@ -107,6 +109,20 @@ async fn c1_c2_and_c3_http_use_exact_authenticated_mobile_shapes() -> TestResult
     assert!(read.get("id").is_none());
     assert!(read.get("user_id").is_none());
 
+    let read_by_message_id = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/api/v1/chatrooms/{}/read", fixture.chatroom_id),
+            Some(fixture.owner_id),
+            json!({"message_id": message_id}),
+        )?)
+        .await?;
+    assert_eq!(read_by_message_id.status(), StatusCode::OK);
+    let read_by_message_id = response_json(read_by_message_id).await?;
+    assert_eq!(read_by_message_id["last_read_cursor"], cursor.to_string());
+    assert!(unseen_later_cursor > cursor);
+
     for request in [
         empty_request(
             "GET",
@@ -139,6 +155,193 @@ async fn c1_c2_and_c3_http_use_exact_authenticated_mobile_shapes() -> TestResult
 
     pool.close().await;
     database.dispose().await
+}
+
+#[tokio::test]
+async fn c3_message_id_input_is_strict_nondisclosing_and_does_not_mutate_on_invalid_anchor()
+-> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let fixture = topology(&pool).await?;
+    let harness = harness(pool.clone());
+    let anchored_message = insert_user_message(
+        &pool,
+        fixture.chatroom_id,
+        fixture.owner_id,
+        "표시된 메시지",
+        OffsetDateTime::UNIX_EPOCH + time::Duration::hours(4),
+    )
+    .await?;
+    insert_message_created_event(&pool, fixture.chatroom_id, anchored_message).await?;
+    let no_event_message = insert_user_message(
+        &pool,
+        fixture.chatroom_id,
+        fixture.owner_id,
+        "이벤트 없는 메시지",
+        OffsetDateTime::UNIX_EPOCH + time::Duration::hours(5),
+    )
+    .await?;
+    let foreign_message = insert_user_message(
+        &pool,
+        fixture.other_chatroom_id,
+        fixture.outsider_id,
+        "외부 메시지",
+        OffsetDateTime::UNIX_EPOCH + time::Duration::hours(6),
+    )
+    .await?;
+    let router = chatrooms_router(ChatroomsHttpState::new(
+        harness.service,
+        Arc::new(TestAccessVerifier),
+    ));
+    let path = format!("/api/v1/chatrooms/{}/read", fixture.chatroom_id);
+
+    for body in [
+        json!({}),
+        json!({"cursor": null}),
+        json!({"message_id": null}),
+        json!({"cursor": null, "message_id": anchored_message}),
+        json!({"cursor": cursor_string(1), "message_id": anchored_message}),
+        json!({"cursor": 1}),
+        json!({"message_id": "not-a-uuid"}),
+        json!({"message_id": anchored_message, "unexpected": true}),
+        json!({"message_id": no_event_message}),
+        json!({"message_id": foreign_message}),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(json_request("POST", &path, Some(fixture.owner_id), body)?)
+            .await?;
+        assert_error(
+            response,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "request_validation_failed",
+        )
+        .await?;
+    }
+    let outsider = router
+        .oneshot(json_request(
+            "POST",
+            &path,
+            Some(fixture.outsider_id),
+            json!({"message_id": anchored_message}),
+        )?)
+        .await?;
+    assert_error(outsider, StatusCode::FORBIDDEN, "membership_required").await?;
+    let marker_count: i64 = sqlx::query_scalar("SELECT count(*) FROM chatroom_reads")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(marker_count, 0);
+
+    pool.close().await;
+    database.dispose().await
+}
+
+#[tokio::test]
+async fn c3_message_id_anchor_uses_the_production_composition_and_preserves_monotonic_marker()
+-> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let fixture = topology(&pool).await?;
+    let harness = harness(pool.clone());
+    let message_id = insert_user_message(
+        &pool,
+        fixture.chatroom_id,
+        fixture.owner_id,
+        "production composition anchor",
+        OffsetDateTime::UNIX_EPOCH + time::Duration::hours(7),
+    )
+    .await?;
+    let anchor_cursor =
+        insert_message_created_event(&pool, fixture.chatroom_id, message_id).await?;
+    let later_cursor = insert_event(&pool, fixture.chatroom_id).await?;
+    let no_event_message = insert_user_message(
+        &pool,
+        fixture.chatroom_id,
+        fixture.owner_id,
+        "production composition no event",
+        OffsetDateTime::UNIX_EPOCH + time::Duration::hours(8),
+    )
+    .await?;
+    let router = chatrooms_router(
+        ChatroomsHttpState::new(harness.service, Arc::new(TestAccessVerifier))
+            .with_compositions(harness.compositions),
+    );
+    let path = format!("/api/v1/chatrooms/{}/read", fixture.chatroom_id);
+
+    let anchored = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &path,
+            Some(fixture.owner_id),
+            json!({"message_id": message_id}),
+        )?)
+        .await?;
+    assert_eq!(anchored.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(anchored).await?["last_read_cursor"],
+        anchor_cursor.to_string()
+    );
+
+    let later = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &path,
+            Some(fixture.owner_id),
+            json!({"cursor": later_cursor.to_string()}),
+        )?)
+        .await?;
+    assert_eq!(later.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(later).await?["last_read_cursor"],
+        later_cursor.to_string()
+    );
+
+    let stale_anchor = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &path,
+            Some(fixture.owner_id),
+            json!({"message_id": message_id}),
+        )?)
+        .await?;
+    assert_eq!(stale_anchor.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(stale_anchor).await?["last_read_cursor"],
+        later_cursor.to_string()
+    );
+
+    let invalid_anchor = router
+        .oneshot(json_request(
+            "POST",
+            &path,
+            Some(fixture.owner_id),
+            json!({"message_id": no_event_message}),
+        )?)
+        .await?;
+    assert_error(
+        invalid_anchor,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "request_validation_failed",
+    )
+    .await?;
+    let marker_cursor: i64 = sqlx::query_scalar(
+        "SELECT last_read_cursor FROM chatroom_reads WHERE user_id = $1 AND chatroom_id = $2",
+    )
+    .bind(fixture.owner_id)
+    .bind(fixture.chatroom_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(marker_cursor, later_cursor);
+
+    pool.close().await;
+    database.dispose().await
+}
+
+fn cursor_string(cursor: i64) -> String {
+    cursor.to_string()
 }
 
 #[tokio::test]

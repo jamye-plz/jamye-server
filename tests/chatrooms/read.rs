@@ -2,7 +2,7 @@ use std::{io, sync::Arc};
 
 use jamye_server::{
     adapters::postgres::transactions::SqlxTransactionManager,
-    application::chatrooms::{ChatroomsError, ReadCursorInput},
+    application::chatrooms::{ChatroomsError, ReadAnchorInput, ReadCursorInput},
     ports::transactions::TransactionManager,
 };
 use tokio::sync::Barrier;
@@ -10,7 +10,9 @@ use uuid::Uuid;
 
 use crate::{
     TestResult,
-    chatroom_helpers::{harness, insert_event, topology},
+    chatroom_helpers::{
+        harness, insert_event, insert_message_created_event, insert_user_message, topology,
+    },
     postgres_support::TestDatabase,
 };
 
@@ -52,6 +54,90 @@ async fn unknown_cross_conversation_and_nonmember_reads_mutate_nothing() -> Test
             ReadCursorInput {
                 cursor: valid_cursor.to_string(),
             },
+        )
+        .await;
+    assert_eq!(outsider, Err(ChatroomsError::MembershipRequired));
+    let marker_count: i64 = sqlx::query_scalar("SELECT count(*) FROM chatroom_reads")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(marker_count, 0);
+
+    pool.close().await;
+    database.dispose().await
+}
+
+#[tokio::test]
+async fn message_id_anchor_uses_its_exact_message_created_cursor_and_never_skips_later_events()
+-> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let fixture = topology(&pool).await?;
+    let service = harness(pool.clone()).service;
+    let message_id = insert_user_message(
+        &pool,
+        fixture.chatroom_id,
+        fixture.owner_id,
+        "앵커 메시지",
+        time::OffsetDateTime::UNIX_EPOCH + time::Duration::hours(3),
+    )
+    .await?;
+    let anchor_cursor =
+        insert_message_created_event(&pool, fixture.chatroom_id, message_id).await?;
+    let later_cursor = insert_event(&pool, fixture.chatroom_id).await?;
+
+    let marker = service
+        .mark_read_anchor(
+            fixture.owner_id,
+            fixture.chatroom_id,
+            ReadAnchorInput::MessageId(message_id),
+        )
+        .await?;
+    assert_eq!(marker.last_read_cursor, anchor_cursor);
+    assert!(later_cursor > marker.last_read_cursor);
+
+    pool.close().await;
+    database.dispose().await
+}
+
+#[tokio::test]
+async fn message_id_anchor_requires_membership_a_same_room_message_and_one_canonical_event()
+-> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let fixture = topology(&pool).await?;
+    let service = harness(pool.clone()).service;
+    let missing_event = insert_user_message(
+        &pool,
+        fixture.chatroom_id,
+        fixture.owner_id,
+        "이벤트 없는 메시지",
+        time::OffsetDateTime::UNIX_EPOCH + time::Duration::hours(3),
+    )
+    .await?;
+    let foreign_message = insert_user_message(
+        &pool,
+        fixture.other_chatroom_id,
+        fixture.outsider_id,
+        "다른 방 메시지",
+        time::OffsetDateTime::UNIX_EPOCH + time::Duration::hours(4),
+    )
+    .await?;
+
+    for message_id in [Uuid::new_v4(), missing_event, foreign_message] {
+        let result = service
+            .mark_read_anchor(
+                fixture.owner_id,
+                fixture.chatroom_id,
+                ReadAnchorInput::MessageId(message_id),
+            )
+            .await;
+        assert_eq!(result, Err(ChatroomsError::RequestValidation));
+    }
+    let outsider = service
+        .mark_read_anchor(
+            fixture.outsider_id,
+            fixture.chatroom_id,
+            ReadAnchorInput::MessageId(missing_event),
         )
         .await;
     assert_eq!(outsider, Err(ChatroomsError::MembershipRequired));

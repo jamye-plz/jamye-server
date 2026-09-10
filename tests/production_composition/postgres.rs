@@ -27,7 +27,7 @@ use jamye_server::{
         chatrooms::{
             ChatroomPage, ChatroomsRepository, ChatroomsRepositoryError, ChatroomsRepositoryFuture,
             ListChatroomsQuery, MarkReadCommand, MessageHistoryPage, MessageHistoryQuery,
-            ReadMarker, ReadMarkerQuery,
+            ReadMarker, ReadMarkerAnchor, ReadMarkerQuery,
         },
         media::{
             AuthorizeMediaAccessQuery, BindMessageMediaCommand, BindMessageMediaItem,

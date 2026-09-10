@@ -4,7 +4,7 @@ fn mark_read_input() -> MarkConversationReadCompositionInput {
             marker_id: id(),
             user_id: id(),
             chatroom_id: id(),
-            cursor: 1,
+            anchor: ReadMarkerAnchor::Cursor(1),
         },
     }
 }

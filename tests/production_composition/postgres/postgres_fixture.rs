@@ -149,7 +149,7 @@ impl PostgresFixture {
                     marker_id: Uuid::new_v4(),
                     user_id: recipient_id,
                     chatroom_id: topic_chatroom_id,
-                    cursor,
+                    anchor: ReadMarkerAnchor::Cursor(cursor),
                 },
             },
         })
