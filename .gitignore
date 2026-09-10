@@ -21,3 +21,6 @@ docs/plans/
 # Local coverage output
 /coverage/
 /lcov.info
+
+# oma docs generated artifacts
+docs/generated/
