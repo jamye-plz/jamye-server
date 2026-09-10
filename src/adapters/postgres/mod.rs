@@ -15,6 +15,7 @@ pub mod dev_fixtures;
 pub mod groups;
 pub mod health;
 pub mod media;
+mod message_order;
 pub mod messaging;
 pub mod notifications;
 pub mod push;

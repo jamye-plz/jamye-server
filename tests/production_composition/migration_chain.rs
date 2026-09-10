@@ -7,12 +7,12 @@ use sqlx::{Connection, PgConnection};
 use crate::{TestResult, postgres_support::TestDatabase};
 
 #[tokio::test]
-async fn fresh_disposable_database_applies_the_canonical_0001_through_0008_chain() -> TestResult {
+async fn fresh_disposable_database_applies_the_canonical_0001_through_0009_chain() -> TestResult {
     let database = TestDatabase::migrated().await?;
     let mut connection = database.connection().await?;
     let result: TestResult = async {
         let applied: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM _sqlx_migrations WHERE success AND version BETWEEN 1 AND 8",
+            "SELECT count(*) FROM _sqlx_migrations WHERE success AND version BETWEEN 1 AND 9",
         )
         .fetch_one(&mut connection)
         .await?;
@@ -23,10 +23,10 @@ async fn fresh_disposable_database_applies_the_canonical_0001_through_0008_chain
         .await?;
         require_eq(
             applied,
-            8,
-            "fresh disposable chain did not apply 0001 through 0008",
+            9,
+            "fresh disposable chain did not apply 0001 through 0009",
         )?;
-        require_eq(latest, 8, "fresh disposable chain did not end at 0008")?;
+        require_eq(latest, 9, "fresh disposable chain did not end at 0009")?;
         Ok(())
     }
     .await;

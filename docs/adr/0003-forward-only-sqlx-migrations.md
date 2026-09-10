@@ -41,7 +41,7 @@ PostgreSQL은 사용자·그룹·메시지·동기화 이벤트·outbox의 autho
   2. 기대 table, column, constraint, index가 존재하고 잘못된 write를 거부한다.
   3. migration 끝에 강제 오류를 붙이면 migration 전체가 rollback되어 partial schema가 남지 않는다.
 - `0001`의 immediate-prior state는 application table이 하나도 없는 빈 database다.
-- task-12와 최종 VERIFY는 별도로 canonical `0001`부터 `0008`까지의 fresh chain과 누적 upgrade path를 검증한다. 일부 번호만 persistent 또는 production database에 적용하지 않는다.
+- production composition 검증은 별도로 canonical `0001`부터 현재 최신 번호까지의 fresh chain과 누적 upgrade path를 검증한다. 일부 번호만 persistent 또는 production database에 적용하지 않는다.
 
 PostgreSQL identity column의 `GENERATED ALWAYS`는 client가 conversation cursor를 일반 INSERT로 덮어쓰지 못하게 하며, cursor에는 별도 UNIQUE constraint를 둔다. Partial UNIQUE index는 조건을 만족하는 row에만 uniqueness를 적용하므로 main chatroom, topic chatroom, user message idempotency key의 제한된 유일성에 사용한다.
 

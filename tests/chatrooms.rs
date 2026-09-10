@@ -1,11 +1,15 @@
 use std::{error::Error, fs, io};
 
+#[path = "chatrooms/anchor_index.rs"]
+mod anchor_index;
 #[path = "chatrooms/helpers.rs"]
 mod chatroom_helpers;
 #[path = "chatrooms/contract.rs"]
 mod contract;
 #[path = "chatrooms/http.rs"]
 mod http;
+#[path = "chatrooms/message_order.rs"]
+mod message_order;
 #[path = "chatrooms/migration.rs"]
 mod migration;
 #[path = "chatrooms/pagination.rs"]

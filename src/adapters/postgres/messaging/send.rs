@@ -3,7 +3,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
-    adapters::postgres::transactions::connection,
+    adapters::postgres::{message_order, transactions::connection},
     domain::messaging::{
         CanonicalMessage, MessageCreatedEvent, MessageCreatedType, MessageKind, SendMessageCommand,
     },
@@ -31,8 +31,11 @@ pub(super) async fn persist(
 ) -> Result<PersistMessageOutcome, MessagingRepositoryError> {
     let connection = connection(handle).map_err(|_| database_error("transaction_handle"))?;
     authorize(connection, command).await?;
+    let created_at = message_order::next_timestamp(connection, command.chatroom_id)
+        .await
+        .map_err(|_| database_error("message_order"))?;
     let proposed_id = Uuid::new_v4();
-    let inserted = insert_message(connection, command, proposed_id).await?;
+    let inserted = insert_message(connection, command, proposed_id, created_at).await?;
     let Some(row) = inserted else {
         return existing_message(connection, command).await;
     };
@@ -120,10 +123,11 @@ async fn insert_message(
     connection: &mut PgConnection,
     command: &SendMessageCommand,
     id: Uuid,
+    created_at: OffsetDateTime,
 ) -> Result<Option<MessageRow>, MessagingRepositoryError> {
     sqlx::query_as::<_, MessageRow>(
-        "INSERT INTO messages (id, chatroom_id, sender_id, client_msg_id, body, type) \
-         VALUES ($1, $2, $3, $4, $5, 'user') \
+        "INSERT INTO messages (id, chatroom_id, sender_id, client_msg_id, body, type, created_at) \
+         VALUES ($1, $2, $3, $4, $5, 'user', $6) \
          ON CONFLICT (sender_id, client_msg_id) WHERE client_msg_id IS NOT NULL \
          DO NOTHING \
          RETURNING id, chatroom_id, sender_id, client_msg_id, body, created_at",
@@ -133,6 +137,7 @@ async fn insert_message(
     .bind(command.sender_id)
     .bind(command.client_msg_id)
     .bind(&command.body)
+    .bind(created_at)
     .fetch_optional(&mut *connection)
     .await
     .map_err(|_| database_error("insert_message"))
