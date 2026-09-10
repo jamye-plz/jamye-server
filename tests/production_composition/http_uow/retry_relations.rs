@@ -61,12 +61,13 @@ async fn retry_relations(
         }
         Boundary::ReadMarker | Boundary::ReadClear => {
             let command = fixture.read.read;
+            let cursor = fixture_read_cursor(fixture)?;
             let (response_chatroom_id, response_cursor) = response_read_marker(body)?;
             require(
-                response_chatroom_id == command.chatroom_id && response_cursor == command.cursor,
+                response_chatroom_id == command.chatroom_id && response_cursor == cursor,
                 "read retry response did not preserve the requested chatroom/cursor",
             )?;
-            let marker_ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM chatroom_reads WHERE user_id = $1 AND chatroom_id = $2 AND last_read_cursor = $3 ORDER BY id").bind(command.user_id).bind(command.chatroom_id).bind(command.cursor).fetch_all(pool).await?;
+            let marker_ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM chatroom_reads WHERE user_id = $1 AND chatroom_id = $2 AND last_read_cursor = $3 ORDER BY id").bind(command.user_id).bind(command.chatroom_id).bind(cursor).fetch_all(pool).await?;
             let [marker_id] = marker_ids.as_slice() else {
                 return Err(format!(
                     "read retry did not produce one exact durable marker: found {}",
@@ -75,7 +76,7 @@ async fn retry_relations(
                 .into());
             };
             let marker_id = *marker_id;
-            require(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM chatroom_reads WHERE id = $1 AND user_id = $2 AND chatroom_id = $3 AND last_read_cursor = $4").bind(marker_id).bind(command.user_id).bind(command.chatroom_id).bind(command.cursor).fetch_one(pool).await? == 1, "read retry did not retain the exact marker relation")?;
+            require(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM chatroom_reads WHERE id = $1 AND user_id = $2 AND chatroom_id = $3 AND last_read_cursor = $4").bind(marker_id).bind(command.user_id).bind(command.chatroom_id).bind(cursor).fetch_one(pool).await? == 1, "read retry did not retain the exact marker relation")?;
             require(
                 sqlx::query_scalar::<_, i64>(
                     "SELECT count(*) FROM notifications WHERE id = $1 AND read_at IS NOT NULL",

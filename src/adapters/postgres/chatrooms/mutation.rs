@@ -2,7 +2,9 @@ use sqlx::PgConnection;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::ports::chatrooms::{ChatroomsRepositoryError, MarkReadCommand, ReadMarker};
+use crate::ports::chatrooms::{
+    ChatroomsRepositoryError, MarkReadCommand, ReadMarker, ReadMarkerAnchor,
+};
 
 use super::database_error;
 
@@ -31,18 +33,14 @@ pub(super) async fn mark_read(
         return Err(ChatroomsRepositoryError::MembershipRequired);
     }
 
-    let cursor = sqlx::query_scalar::<_, i64>(
-        "SELECT cursor FROM conversation_events \
-         WHERE conversation_id = $1 AND cursor = $2",
-    )
-    .bind(command.chatroom_id)
-    .bind(command.cursor)
-    .fetch_optional(&mut *connection)
-    .await
-    .map_err(|error| database_error("read_cursor_validate", error))?;
-    if cursor.is_none() {
-        return Err(ChatroomsRepositoryError::CursorInvalid);
-    }
+    let cursor = match command.anchor {
+        ReadMarkerAnchor::Cursor(cursor) => {
+            cursor_for_existing_cursor(connection, command, cursor).await?
+        }
+        ReadMarkerAnchor::MessageId(message_id) => {
+            cursor_for_message_anchor(connection, command, message_id).await?
+        }
+    };
 
     let row = sqlx::query_as::<_, ReadMarkerRow>(
         "INSERT INTO chatroom_reads \
@@ -63,7 +61,7 @@ pub(super) async fn mark_read(
     .bind(command.marker_id)
     .bind(command.user_id)
     .bind(command.chatroom_id)
-    .bind(command.cursor)
+    .bind(cursor)
     .fetch_one(connection)
     .await
     .map_err(|error| database_error("read_marker_upsert", error))?;
@@ -75,4 +73,52 @@ pub(super) async fn mark_read(
         last_read_cursor: row.3,
         updated_at: row.4,
     })
+}
+
+async fn cursor_for_existing_cursor(
+    connection: &mut PgConnection,
+    command: &MarkReadCommand,
+    cursor: i64,
+) -> Result<i64, ChatroomsRepositoryError> {
+    let cursor = sqlx::query_scalar::<_, i64>(
+        "SELECT cursor FROM conversation_events \
+         WHERE conversation_id = $1 AND cursor = $2",
+    )
+    .bind(command.chatroom_id)
+    .bind(cursor)
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(|error| database_error("read_cursor_validate", error))?;
+    let Some(cursor) = cursor else {
+        return Err(ChatroomsRepositoryError::CursorInvalid);
+    };
+    Ok(cursor)
+}
+
+async fn cursor_for_message_anchor(
+    connection: &mut PgConnection,
+    command: &MarkReadCommand,
+    message_id: Uuid,
+) -> Result<i64, ChatroomsRepositoryError> {
+    let cursors = sqlx::query_scalar::<_, i64>(
+        "SELECT event.cursor \
+         FROM messages AS message \
+         JOIN conversation_events AS event \
+           ON event.conversation_id = message.chatroom_id \
+          AND event.event_type = 'message.created' \
+          AND event.event_version = 1 \
+          AND event.payload ->> 'id' = message.id::TEXT \
+         WHERE message.id = $1 AND message.chatroom_id = $2 \
+         ORDER BY event.cursor \
+         FOR SHARE OF message, event",
+    )
+    .bind(message_id)
+    .bind(command.chatroom_id)
+    .fetch_all(&mut *connection)
+    .await
+    .map_err(|error| database_error("read_message_anchor", error))?;
+    let [cursor] = cursors.as_slice() else {
+        return Err(ChatroomsRepositoryError::CursorInvalid);
+    };
+    Ok(*cursor)
 }

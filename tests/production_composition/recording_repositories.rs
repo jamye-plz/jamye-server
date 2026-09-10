@@ -234,7 +234,10 @@ impl ChatroomsRepository for RecordingRepositories {
             id: command.marker_id,
             user_id: command.user_id,
             chatroom_id: command.chatroom_id,
-            last_read_cursor: command.cursor,
+            last_read_cursor: match command.anchor {
+                ReadMarkerAnchor::Cursor(cursor) => cursor,
+                ReadMarkerAnchor::MessageId(_) => 1,
+            },
             updated_at: OffsetDateTime::UNIX_EPOCH,
         };
         Box::pin(async move {

@@ -2,11 +2,16 @@ use std::sync::Arc;
 
 use jamye_server::{
     adapters::postgres::{
-        chatrooms::PostgresChatroomsRepository, transactions::SqlxTransactionManager,
+        chatrooms::PostgresChatroomsRepository, media::PostgresMediaRepository,
+        messaging::PostgresMessagingRepository, notifications::PostgresNotificationsRepository,
+        topics::PostgresTopicsRepository, transactions::SqlxTransactionManager,
     },
     application::{
         auth::{AccessIdentity, AccessTokenVerifier, AuthenticationError},
         chatrooms::ChatroomsService,
+        messaging::MessagingService,
+        topics::{TopicsDependencies, TopicsService},
+        transactions::{TransactionCompositionDependencies, TransactionCompositions},
     },
 };
 use serde_json::json;
@@ -18,6 +23,7 @@ use crate::TestResult;
 
 pub struct ChatroomsHarness {
     pub service: Arc<ChatroomsService>,
+    pub compositions: Arc<TransactionCompositions>,
 }
 
 pub struct Topology {
@@ -30,9 +36,27 @@ pub struct Topology {
 
 pub fn harness(pool: PgPool) -> ChatroomsHarness {
     let repository = Arc::new(PostgresChatroomsRepository::new(pool.clone()));
-    let transactions = Arc::new(SqlxTransactionManager::new(pool));
+    let transactions = Arc::new(SqlxTransactionManager::new(pool.clone()));
+    let messaging = Arc::new(PostgresMessagingRepository::new(pool.clone()));
+    let media = Arc::new(PostgresMediaRepository::new(pool.clone()));
+    let topics = Arc::new(PostgresTopicsRepository::new(pool.clone()));
+    let notifications = Arc::new(PostgresNotificationsRepository::new(pool));
+    let service = Arc::new(ChatroomsService::new(transactions.clone(), repository));
     ChatroomsHarness {
-        service: Arc::new(ChatroomsService::new(transactions, repository)),
+        compositions: Arc::new(TransactionCompositions::new(
+            TransactionCompositionDependencies {
+                transactions: transactions.clone(),
+                messaging: Arc::new(MessagingService::new(transactions.clone(), messaging)),
+                media,
+                topics: Arc::new(TopicsService::new(TopicsDependencies {
+                    transactions,
+                    repository: topics,
+                })),
+                chatrooms: service.clone(),
+                notifications,
+            },
+        )),
+        service,
     }
 }
 
@@ -189,6 +213,24 @@ pub async fn insert_event(pool: &PgPool, chatroom_id: Uuid) -> TestResult<i64> {
     .bind(Uuid::new_v4())
     .bind(chatroom_id)
     .bind(json!({"fixture": "task-6b"}))
+    .fetch_one(pool)
+    .await?)
+}
+
+pub async fn insert_message_created_event(
+    pool: &PgPool,
+    chatroom_id: Uuid,
+    message_id: Uuid,
+) -> TestResult<i64> {
+    Ok(sqlx::query_scalar::<_, i64>(
+        "INSERT INTO conversation_events \
+             (id, conversation_id, event_type, event_version, payload) \
+         VALUES ($1, $2, 'message.created', 1, $3) \
+         RETURNING cursor",
+    )
+    .bind(Uuid::new_v4())
+    .bind(chatroom_id)
+    .bind(json!({"id": message_id}))
     .fetch_one(pool)
     .await?)
 }

@@ -54,7 +54,13 @@ pub struct MarkReadCommand {
     pub marker_id: Uuid,
     pub user_id: Uuid,
     pub chatroom_id: Uuid,
-    pub cursor: i64,
+    pub anchor: ReadMarkerAnchor,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReadMarkerAnchor {
+    Cursor(i64),
+    MessageId(Uuid),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

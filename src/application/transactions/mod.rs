@@ -8,7 +8,7 @@ use std::{error::Error, fmt, sync::Arc};
 
 use crate::{
     application::{
-        chatrooms::{ChatroomsError, ChatroomsService},
+        chatrooms::{ChatroomsError, ChatroomsService, ReadAnchorInput},
         messaging::{MessagingError, MessagingService, SendMessageInput, SendMessageOutcome},
         topics::{TopicCreateInput, TopicsError, TopicsService},
     },
@@ -255,12 +255,12 @@ impl TransactionCompositions {
         &self,
         user_id: uuid::Uuid,
         chatroom_id: uuid::Uuid,
-        cursor: i64,
+        input: ReadAnchorInput,
     ) -> Result<crate::ports::chatrooms::ReadMarker, ChatroomsError> {
-        let command =
-            self.dependencies
-                .chatrooms
-                .prepare_mark_read_command(user_id, chatroom_id, cursor)?;
+        let command = self
+            .dependencies
+            .chatrooms
+            .prepare_mark_read_anchor_command(user_id, chatroom_id, input)?;
         let mut transaction = self
             .begin()
             .await

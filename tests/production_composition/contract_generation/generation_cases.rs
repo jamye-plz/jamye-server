@@ -162,6 +162,49 @@ fn generated_inventory_has_exactly_43_rest_operations_and_two_selected_realtime_
 }
 
 #[test]
+fn generated_c3_request_supports_cursor_or_message_id_without_changing_the_response() -> TestResult {
+    let _filesystem = filesystem_lock();
+    let generated = generate_current(DIRTY, "c3-read-anchor")?;
+    let openapi = read_json(&generated.path().join("openapi.json"))?;
+    let operation = &openapi["paths"]["/api/v1/chatrooms/{chatroom_id}/read"]["post"];
+    assert_eq!(
+        operation["requestBody"]["content"]["application/json"]["schema"],
+        serde_json::json!({"$ref": "#/components/schemas/ReadAnchorIn"}),
+    );
+    let schemas = &openapi["components"]["schemas"];
+    assert_eq!(
+        schemas["ReadAnchorIn"],
+        serde_json::json!({"oneOf": [
+            {"$ref": "#/components/schemas/ReadCursorIn"},
+            {"$ref": "#/components/schemas/ReadMessageIdIn"},
+        ]}),
+    );
+    assert_eq!(
+        schemas["ReadCursorIn"],
+        serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["cursor"],
+            "properties": {"cursor": {"type": "string", "pattern": "^[1-9][0-9]*$"}},
+        }),
+    );
+    assert_eq!(
+        schemas["ReadMessageIdIn"],
+        serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["message_id"],
+            "properties": {"message_id": {"type": "string", "format": "uuid"}},
+        }),
+    );
+    assert_eq!(
+        operation["responses"]["200"]["content"]["application/json"]["schema"],
+        serde_json::json!({"$ref": "#/components/schemas/ReadMarker"}),
+    );
+    Ok(())
+}
+
+#[test]
 fn generated_openapi_is_a_client_consumable_production_reference() -> TestResult {
     const PUBLIC_OPERATIONS: [&str; 6] = ["H1", "H2", "A1", "A2", "A3", "A5"];
 

@@ -581,7 +581,7 @@ fn request_component(operation_id: &str) -> Option<&'static str> {
         "T6" => Some("TagReplace"),
         "MD1" => Some("UploadIntentCreate"),
         "MD2" => Some("UploadFinalize"),
-        "C3" => Some("ReadCursorIn"),
+        "C3" => Some("ReadAnchorIn"),
         "P2" => Some("ExpoInstallationCreate"),
         "P3" => Some("ExpoInstallationPut"),
         _ => None,

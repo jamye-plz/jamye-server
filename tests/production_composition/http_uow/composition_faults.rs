@@ -110,7 +110,7 @@ async fn http_prebridge_golden_error_envelopes_remain_exact_for_all_three_bridge
             fixture.recipient_id,
             &format!("/api/v1/chatrooms/{}/read", fixture.topic_chatroom_id),
             None,
-            json!({"cursor": fixture.read.read.cursor.to_string()}),
+            json!({"cursor": fixture_read_cursor(&fixture)?.to_string()}),
         )
         .await?;
         assert_golden_body(
@@ -119,7 +119,7 @@ async fn http_prebridge_golden_error_envelopes_remain_exact_for_all_three_bridge
             StatusCode::OK,
             &format!(
                 r#"{{"chatroom_id":"<resource_uuid>","last_read_cursor":"{}","updated_at":"<timestamp>"}}"#,
-                fixture.read.read.cursor
+                fixture_read_cursor(&fixture)?
             ),
         )?;
         Ok(())

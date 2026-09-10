@@ -192,7 +192,7 @@ async fn invoke(
         Boundary::ReadMarker | Boundary::ReadClear => (
             Method::POST,
             format!("/api/v1/chatrooms/{}/read", fixture.topic_chatroom_id),
-            format!(r#"{{"cursor":"{}"}}"#, fixture.read.read.cursor),
+            format!(r#"{{"cursor":"{}"}}"#, fixture_read_cursor(fixture)?),
             fixture.read.read.user_id,
             None,
         ),
@@ -226,6 +226,15 @@ struct ArmedFault {
     function: String,
     trigger: String,
     table: &'static str,
+}
+
+fn fixture_read_cursor(fixture: &PostgresFixture) -> TestResult<i64> {
+    match fixture.read.read.anchor {
+        crate::ReadMarkerAnchor::Cursor(cursor) => Ok(cursor),
+        crate::ReadMarkerAnchor::MessageId(_) => {
+            Err(io::Error::other("legacy HTTP UoW fixture requires a cursor anchor").into())
+        }
+    }
 }
 
 impl ArmedFault {
@@ -284,7 +293,7 @@ async fn arm(
         table: boundary.target().0,
     };
     let (_, event) = boundary.target();
-    let condition = trigger_condition(boundary, fixture);
+    let condition = trigger_condition(boundary, fixture)?;
     let sequence = qualified(&fault.schema, &fault.sequence);
     let function = qualified(&fault.schema, &fault.function);
     sqlx::query(AssertSqlSafe(format!(
@@ -307,8 +316,8 @@ async fn arm(
     Ok(fault)
 }
 
-fn trigger_condition(boundary: Boundary, fixture: &PostgresFixture) -> String {
-    match boundary {
+fn trigger_condition(boundary: Boundary, fixture: &PostgresFixture) -> TestResult<String> {
+    Ok(match boundary {
         Boundary::SendCore => format!(
             "NEW.event_type = 'message.created' AND NEW.aggregate_id = {}::uuid AND EXISTS (SELECT 1 FROM conversation_events event JOIN messages message ON message.id = (event.payload ->> 'id')::uuid WHERE event.id = NEW.conversation_event_id AND message.chatroom_id = NEW.aggregate_id AND message.client_msg_id = {}::uuid)",
             sql_literal(&fixture.topic_chatroom_id.to_string()),
@@ -343,13 +352,13 @@ fn trigger_condition(boundary: Boundary, fixture: &PostgresFixture) -> String {
             "NEW.user_id = {}::uuid AND NEW.chatroom_id = {}::uuid AND NEW.last_read_cursor = {}",
             sql_literal(&fixture.recipient_id.to_string()),
             sql_literal(&fixture.topic_chatroom_id.to_string()),
-            fixture.read.read.cursor
+            fixture_read_cursor(fixture)?
         ),
         Boundary::ReadClear => format!(
             "NEW.id = {}::uuid AND OLD.read_at IS NULL AND NEW.read_at IS NOT NULL",
             sql_literal(&fixture.seeded_notification_id.to_string())
         ),
-    }
+    })
 }
 
 fn quote_identifier(value: &str) -> String {

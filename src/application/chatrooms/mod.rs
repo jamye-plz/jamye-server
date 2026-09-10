@@ -74,10 +74,20 @@ impl ChatroomsService {
         chatroom_id: Uuid,
         input: ReadCursorInput,
     ) -> Result<ReadMarker, ChatroomsError> {
-        let cursor = validate_read_cursor(&input.cursor)?;
+        self.mark_read_anchor(user_id, chatroom_id, ReadAnchorInput::Cursor(input.cursor))
+            .await
+    }
+
+    pub async fn mark_read_anchor(
+        &self,
+        user_id: Uuid,
+        chatroom_id: Uuid,
+        input: ReadAnchorInput,
+    ) -> Result<ReadMarker, ChatroomsError> {
+        let command = self.prepare_mark_read_anchor_command(user_id, chatroom_id, input)?;
         let mut transaction = self.begin().await?;
         let result = self
-            .mark_read_in_transaction(transaction.as_mut(), user_id, chatroom_id, cursor)
+            .mark_read_command_in_transaction(transaction.as_mut(), &command)
             .await;
         self.finish(transaction, result).await
     }
@@ -109,8 +119,30 @@ impl ChatroomsService {
             marker_id: Uuid::new_v4(),
             user_id,
             chatroom_id,
-            cursor,
+            anchor: crate::ports::chatrooms::ReadMarkerAnchor::Cursor(cursor),
         })
+    }
+
+    /// Validates a mounted HTTP anchor before its composition opens a
+    /// transaction. Message-id anchors are resolved by the repository only
+    /// after its membership lock is held on that transaction.
+    pub(crate) fn prepare_mark_read_anchor_command(
+        &self,
+        user_id: Uuid,
+        chatroom_id: Uuid,
+        input: ReadAnchorInput,
+    ) -> Result<MarkReadCommand, ChatroomsError> {
+        match input {
+            ReadAnchorInput::Cursor(cursor) => {
+                self.prepare_mark_read_command(user_id, chatroom_id, validate_read_cursor(&cursor)?)
+            }
+            ReadAnchorInput::MessageId(message_id) => Ok(MarkReadCommand {
+                marker_id: Uuid::new_v4(),
+                user_id,
+                chatroom_id,
+                anchor: crate::ports::chatrooms::ReadMarkerAnchor::MessageId(message_id),
+            }),
+        }
     }
 
     /// Applies an already-constructed read marker on a caller-owned Task-4a
@@ -211,6 +243,12 @@ pub struct HistoryPageInput {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReadCursorInput {
     pub cursor: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ReadAnchorInput {
+    Cursor(String),
+    MessageId(Uuid),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
