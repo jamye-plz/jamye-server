@@ -4,6 +4,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
+    adapters::postgres::message_order,
     domain::messaging::{CanonicalMessage, MessageCreatedEvent, MessageCreatedType, MessageKind},
     ports::topics::{
         CreateTopicCommand, CreateTopicOutcome, PatchTopicCommand, ReplaceTopicTagsCommand,
@@ -140,10 +141,13 @@ pub(super) async fn create_topic(
     .await
     .map_err(|error| database_error("topic_main_chatroom", error))?
     .ok_or(TopicsRepositoryError::InvalidData)?;
+    let announcement_timestamp = message_order::next_timestamp(connection, main_chatroom_id)
+        .await
+        .map_err(|error| database_error("topic_announcement_order", error))?;
     let announcement_created_at = sqlx::query_scalar::<_, OffsetDateTime>(
         "INSERT INTO messages \
-             (id, chatroom_id, sender_id, client_msg_id, body, type) \
-         VALUES ($1, $2, $3, $4, $5, 'user') \
+             (id, chatroom_id, sender_id, client_msg_id, body, type, created_at) \
+         VALUES ($1, $2, $3, $4, $5, 'user', $6) \
          RETURNING created_at",
     )
     .bind(command.announcement_message_id)
@@ -151,6 +155,7 @@ pub(super) async fn create_topic(
     .bind(command.author_id)
     .bind(command.announcement_client_msg_id)
     .bind(&command.announcement_body)
+    .bind(announcement_timestamp)
     .fetch_one(&mut *connection)
     .await
     .map_err(|error| database_error("topic_announcement_insert", error))?;
