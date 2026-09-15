@@ -55,10 +55,7 @@ async fn validation_failure_never_opens_a_transaction() {
 #[tokio::test]
 async fn public_send_outcome_preserves_its_canonical_message_only_projection() {
     let canonical = message();
-    let harness = Harness::new(Ok(PersistMessageOutcome::Created(PersistedMessage::new(
-        canonical.clone(),
-        canonical.id,
-    ))));
+    let harness = Harness::new(Ok(PersistMessageOutcome::Created(canonical.clone())));
 
     let result = harness.service.send_message(&identity(), input()).await;
 
@@ -165,6 +162,18 @@ impl MessagingRepository for RecordingRepository {
             })
         })
     }
+
+    fn record_created_event<'a>(
+        &'a self,
+        _handle: &'a mut dyn TransactionHandle,
+        message: &'a CanonicalMessage,
+    ) -> MessagingFuture<'a, PersistedMessage> {
+        let message = message.clone();
+        Box::pin(async move {
+            let source_event_id = message.id;
+            Ok(PersistedMessage::new(message, source_event_id))
+        })
+    }
 }
 
 fn identity() -> AccessIdentity {
@@ -186,6 +195,8 @@ fn message() -> CanonicalMessage {
         id: Uuid::new_v4(),
         chatroom_id: Uuid::new_v4(),
         sender_id: Some(Uuid::new_v4()),
+        sender_nickname: None,
+        sender_avatar_url: None,
         client_msg_id: Some(Uuid::new_v4()),
         body: Some("hello".to_owned()),
         message_type: MessageKind::User,
@@ -195,6 +206,5 @@ fn message() -> CanonicalMessage {
 }
 
 fn created(message: CanonicalMessage) -> PersistMessageOutcome {
-    let source_event_id = message.id;
-    PersistMessageOutcome::Created(PersistedMessage::new(message, source_event_id))
+    PersistMessageOutcome::Created(message)
 }

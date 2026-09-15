@@ -35,8 +35,20 @@
             },
             "type": "array"
           },
+          "sender_avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "sender_id": {
             "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sender_nickname": {
             "type": [
               "string",
               "null"

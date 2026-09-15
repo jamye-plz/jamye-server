@@ -12,13 +12,14 @@ async fn send_message_calls_every_feature_operation_on_one_handle_then_commits_o
     assert_eq!(
         fixture.trace(),
         vec![
-            Step::MessageEventOutbox,
+            Step::MessageInsert,
             Step::MessageMediaBinding,
+            Step::MessageEventOutbox,
             Step::MessageNotificationPush,
         ],
-        "SendMessage must preserve message -> media -> notification order",
+        "SendMessage must insert -> bind media -> record the event (with final media) -> notify",
     );
-    assert_eq!(fixture.handle_ids(), vec![1, 1, 1]);
+    assert_eq!(fixture.handle_ids(), vec![1, 1, 1, 1]);
     assert_eq!(fixture.transaction_counts(), (1, 1, 0));
 }
 
@@ -67,8 +68,8 @@ async fn mark_conversation_read_calls_every_feature_operation_on_one_handle_then
 #[tokio::test]
 async fn send_message_failure_after_message_rolls_back_then_clean_retry_commits() {
     let fixture = RecordingFixture::new();
-    fixture.set_failure(Step::MessageEventOutbox);
-    assert_send_failure_then_clean_retry(&fixture, Step::MessageEventOutbox).await;
+    fixture.set_failure(Step::MessageInsert);
+    assert_send_failure_then_clean_retry(&fixture, Step::MessageInsert).await;
 }
 
 #[tokio::test]
@@ -76,6 +77,13 @@ async fn send_message_failure_after_media_rolls_back_then_clean_retry_commits() 
     let fixture = RecordingFixture::new();
     fixture.set_failure(Step::MessageMediaBinding);
     assert_send_failure_then_clean_retry(&fixture, Step::MessageMediaBinding).await;
+}
+
+#[tokio::test]
+async fn send_message_failure_after_event_record_rolls_back_then_clean_retry_commits() {
+    let fixture = RecordingFixture::new();
+    fixture.set_failure(Step::MessageEventOutbox);
+    assert_send_failure_then_clean_retry(&fixture, Step::MessageEventOutbox).await;
 }
 
 #[tokio::test]
@@ -124,6 +132,8 @@ fn send_message_derives_notification_identity_from_the_message_operation() {
         id: id(),
         chatroom_id: input.message.chatroom_id,
         sender_id: Some(input.message.sender_id),
+        sender_nickname: None,
+        sender_avatar_url: None,
         client_msg_id: Some(input.message.client_msg_id),
         body: input.message.body.clone(),
         message_type: MessageKind::User,
@@ -197,12 +207,13 @@ async fn assert_send_failure_then_clean_retry(fixture: &RecordingFixture, step: 
     assert_eq!(
         fixture.trace(),
         vec![
-            Step::MessageEventOutbox,
+            Step::MessageInsert,
             Step::MessageMediaBinding,
+            Step::MessageEventOutbox,
             Step::MessageNotificationPush,
         ],
     );
-    assert_eq!(fixture.handle_ids(), vec![1, 1, 1]);
+    assert_eq!(fixture.handle_ids(), vec![1, 1, 1, 1]);
     assert_eq!(fixture.transaction_counts(), (2, 1, 1));
 }
 
@@ -265,11 +276,17 @@ async fn assert_mark_read_failure_then_clean_retry(fixture: &RecordingFixture, s
 
 fn send_prefix(step: Step) -> Vec<Step> {
     match step {
-        Step::MessageEventOutbox => vec![Step::MessageEventOutbox],
-        Step::MessageMediaBinding => vec![Step::MessageEventOutbox, Step::MessageMediaBinding],
-        Step::MessageNotificationPush => vec![
-            Step::MessageEventOutbox,
+        Step::MessageInsert => vec![Step::MessageInsert],
+        Step::MessageMediaBinding => vec![Step::MessageInsert, Step::MessageMediaBinding],
+        Step::MessageEventOutbox => vec![
+            Step::MessageInsert,
             Step::MessageMediaBinding,
+            Step::MessageEventOutbox,
+        ],
+        Step::MessageNotificationPush => vec![
+            Step::MessageInsert,
+            Step::MessageMediaBinding,
+            Step::MessageEventOutbox,
             Step::MessageNotificationPush,
         ],
         _ => Vec::new(),

@@ -209,6 +209,8 @@ fn known(conversation_id: Uuid, cursor: i64) -> DeltaItem {
             id: Uuid::new_v4(),
             chatroom_id: conversation_id,
             sender_id: Some(Uuid::new_v4()),
+            sender_nickname: None,
+            sender_avatar_url: None,
             client_msg_id: Some(Uuid::new_v4()),
             body: Some(format!("event-{cursor}")),
             message_type: MessageKind::User,

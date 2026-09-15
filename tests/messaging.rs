@@ -4,6 +4,9 @@ use std::{fs, io};
 #[path = "messaging/delta.rs"]
 mod delta;
 #[cfg(feature = "dev-fixtures")]
+#[path = "messaging/media_ordering.rs"]
+mod media_ordering;
+#[cfg(feature = "dev-fixtures")]
 #[path = "messaging/helpers.rs"]
 mod messaging_helpers;
 #[cfg(feature = "dev-fixtures")]

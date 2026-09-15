@@ -10,7 +10,7 @@ use crate::{
     ports::{
         messaging::{
             ContractProjection, DeltaQuery, MessageDeliveryContext, MessagingRepository,
-            MessagingRepositoryError, PersistMessageOutcome,
+            MessagingRepositoryError, PersistMessageOutcome, PersistedMessage,
         },
         transactions::{BoxTransactionHandle, TransactionHandle, TransactionManager},
     },
@@ -61,6 +61,19 @@ impl MessagingService {
         self.finish_send(handle, result).await
     }
 
+    /// Records the event/outbox row deferred by a `Created` outcome from
+    /// `send`, once the caller has finished binding this message's media.
+    pub(crate) async fn record_created_event_in_transaction(
+        &self,
+        transaction: &mut dyn TransactionHandle,
+        message: &CanonicalMessage,
+    ) -> Result<PersistedMessage, MessagingError> {
+        self.repository
+            .record_created_event(transaction, message)
+            .await
+            .map_err(MessagingError::from)
+    }
+
     /// Persists an already-constructed messaging command on a caller-owned
     /// Task-4a transaction.  The caller owns the transaction outcome.
     pub(crate) async fn send_command_in_transaction(
@@ -104,14 +117,13 @@ impl MessagingService {
         let outcome = self
             .send_command_in_transaction(transaction, command)
             .await?;
-        let persisted = match &outcome {
-            PersistMessageOutcome::Created(message) | PersistMessageOutcome::Existing(message) => {
-                message
-            }
+        let message = match &outcome {
+            PersistMessageOutcome::Created(message) => message,
+            PersistMessageOutcome::Existing(persisted) => persisted.message(),
         };
         let delivery_context = self
             .repository
-            .delivery_context(transaction, persisted)
+            .delivery_context(transaction, message)
             .await
             .map_err(MessagingError::from)?;
         Ok(ComposedMessageSend {
@@ -144,16 +156,28 @@ impl MessagingService {
 
     async fn finish_send(
         &self,
-        handle: BoxTransactionHandle,
+        mut handle: BoxTransactionHandle,
         result: Result<PersistMessageOutcome, MessagingError>,
     ) -> Result<SendMessageOutcome, MessagingError> {
-        match result {
+        let outcome = match result {
+            Ok(PersistMessageOutcome::Created(message)) => self
+                .repository
+                .record_created_event(handle.as_mut(), &message)
+                .await
+                .map(|persisted| SendMessageOutcome::Created(persisted.into_message()))
+                .map_err(MessagingError::from),
+            Ok(PersistMessageOutcome::Existing(persisted)) => {
+                Ok(SendMessageOutcome::Existing(persisted.into_message()))
+            }
+            Err(error) => Err(error),
+        };
+        match outcome {
             Ok(outcome) => {
                 self.transactions
                     .commit(handle)
                     .await
                     .map_err(|_| MessagingError::DatabaseUnavailable)?;
-                Ok(outcome.into())
+                Ok(outcome)
             }
             Err(error) => {
                 self.transactions
@@ -224,15 +248,6 @@ pub struct DeltaInput {
 pub enum SendMessageOutcome {
     Created(CanonicalMessage),
     Existing(CanonicalMessage),
-}
-
-impl From<PersistMessageOutcome> for SendMessageOutcome {
-    fn from(outcome: PersistMessageOutcome) -> Self {
-        match outcome {
-            PersistMessageOutcome::Created(message) => Self::Created(message.into_message()),
-            PersistMessageOutcome::Existing(message) => Self::Existing(message.into_message()),
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

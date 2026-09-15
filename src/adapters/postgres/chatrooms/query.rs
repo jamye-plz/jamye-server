@@ -411,6 +411,8 @@ fn message_from_access_row(
                 id,
                 chatroom_id: row.3.ok_or(ChatroomsRepositoryError::InvalidData)?,
                 sender_id,
+                sender_nickname: sender_nickname.clone(),
+                sender_avatar_url: sender_avatar_url.clone(),
                 client_msg_id,
                 body: row.6,
                 message_type,

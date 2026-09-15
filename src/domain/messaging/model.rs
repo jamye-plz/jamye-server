@@ -16,6 +16,10 @@ pub struct CanonicalMessage {
     pub id: Uuid,
     pub chatroom_id: Uuid,
     pub sender_id: Option<Uuid>,
+    #[serde(default)]
+    pub sender_nickname: Option<String>,
+    #[serde(default)]
+    pub sender_avatar_url: Option<String>,
     pub client_msg_id: Option<Uuid>,
     pub body: Option<String>,
     #[serde(rename = "type")]
@@ -80,6 +84,12 @@ pub struct MessageCreatedEvent {
     pub data: CanonicalMessage,
 }
 
+// `MessageCreatedEvent` grew alongside `CanonicalMessage`'s new sender
+// display fields, so it is now noticeably larger than `UnsupportedEventMarker`.
+// Boxing it would ripple through every `DeltaItem::Known(...)` construction
+// site across the delta/realtime adapters for a pure size optimization with
+// no behavioral upside here, so the lint is deliberately suppressed instead.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum DeltaItem {
@@ -127,4 +137,34 @@ pub struct ConversationEvent {
     pub event_version: i16,
     pub payload: Value,
     pub occurred_at: OffsetDateTime,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CanonicalMessage;
+
+    /// A stored `conversation_events`/`outbox_events` payload written before
+    /// this session's `sender_nickname`/`sender_avatar_url` fields existed
+    /// omits both keys entirely. `#[serde(default)]` must let it keep
+    /// deserializing under `CanonicalMessage`'s `#[serde(deny_unknown_fields)]`.
+    #[test]
+    fn legacy_payload_without_sender_display_fields_deserializes_with_none()
+    -> Result<(), serde_json::Error> {
+        let legacy_payload = serde_json::json!({
+            "id": "20000000-0000-4000-8000-000000000001",
+            "chatroom_id": "10000000-0000-4000-8000-000000000001",
+            "sender_id": "10000000-0000-4000-8000-000000000002",
+            "client_msg_id": "30000000-0000-4000-8000-000000000001",
+            "body": "legacy stored payload",
+            "type": "user",
+            "created_at": "2026-08-22T00:00:00Z",
+            "media": [],
+        });
+
+        let message: CanonicalMessage = serde_json::from_value(legacy_payload)?;
+
+        assert_eq!(message.sender_nickname, None);
+        assert_eq!(message.sender_avatar_url, None);
+        Ok(())
+    }
 }

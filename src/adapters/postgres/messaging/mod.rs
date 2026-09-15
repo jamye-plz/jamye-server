@@ -7,7 +7,7 @@ use sqlx::PgPool;
 
 use crate::{
     adapters::postgres::transactions::connection,
-    domain::messaging::{EventPage, SendMessageCommand},
+    domain::messaging::{CanonicalMessage, EventPage, SendMessageCommand},
     ports::{
         messaging::{
             DeltaQuery, MessageDeliveryContext, MessagingFuture, MessagingRepository,
@@ -44,12 +44,20 @@ impl MessagingRepository for PostgresMessagingRepository {
     fn delivery_context<'a>(
         &'a self,
         handle: &'a mut dyn TransactionHandle,
-        message: &'a PersistedMessage,
+        message: &'a CanonicalMessage,
     ) -> MessagingFuture<'a, MessageDeliveryContext> {
         Box::pin(async move {
             let connection =
                 connection(handle).map_err(|_| MessagingRepositoryError::DatabaseUnavailable)?;
             send::delivery_context(connection, message).await
         })
+    }
+
+    fn record_created_event<'a>(
+        &'a self,
+        handle: &'a mut dyn TransactionHandle,
+        message: &'a CanonicalMessage,
+    ) -> MessagingFuture<'a, PersistedMessage> {
+        Box::pin(send::record_created_event(handle, message))
     }
 }

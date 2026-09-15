@@ -76,6 +76,8 @@ pub struct CanonicalMessage {
     pub id: Uuid,
     pub chatroom_id: Uuid,
     pub sender_id: Option<Uuid>,
+    pub sender_nickname: Option<String>,
+    pub sender_avatar_url: Option<String>,
     pub client_msg_id: Option<Uuid>,
     pub body: Option<String>,
     #[serde(rename = "type")]
@@ -154,6 +156,10 @@ pub struct TopicCreatedEvent {
     pub data: TopicCreatedData,
 }
 
+// Mirrors the domain `DeltaItem`'s `#[allow]`: `MessageCreatedEvent` grew
+// alongside `CanonicalMessage`'s new sender display fields, and boxing it
+// here would only affect schema derivation, not any real payload shape.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Deserialize, JsonSchema, Serialize, ToSchema)]
 #[serde(untagged)]
 pub enum DeltaItem {
@@ -215,6 +221,7 @@ pub enum ServerControlFrame {
     },
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(untagged)]
 pub enum ServerFrame {

@@ -163,6 +163,8 @@ pub(super) async fn create_topic(
         id: command.announcement_message_id,
         chatroom_id: main_chatroom_id,
         sender_id: Some(command.author_id),
+        sender_nickname: None,
+        sender_avatar_url: None,
         client_msg_id: Some(command.announcement_client_msg_id),
         body: Some(command.announcement_body.clone()),
         message_type: MessageKind::User,
