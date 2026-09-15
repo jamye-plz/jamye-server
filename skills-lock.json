@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "domain-web": {
+      "source": "actionbook/rust-skills",
+      "sourceType": "github",
+      "skillPath": "skills/domain-web/SKILL.md",
+      "computedHash": "dd853ce97875f139da437df6e09eaca8b326931a98f3eb8dc02669670c12161d"
+    }
+  }
+}
