@@ -281,6 +281,13 @@
             "minLength": 1,
             "type": "string"
           },
+          "poster_upload_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "scope": {
             "$ref": "#/components/schemas/MediaScope"
           },
@@ -299,7 +306,8 @@
           "byte_size",
           "duration",
           "filename",
-          "confirmed_at"
+          "confirmed_at",
+          "poster_upload_id"
         ],
         "type": "object"
       },
@@ -990,6 +998,13 @@
             "minimum": 0,
             "type": "integer"
           },
+          "poster_media_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "type": {
             "enum": [
               "image/jpeg",
@@ -1020,7 +1035,8 @@
           "height",
           "duration",
           "filename",
-          "position"
+          "position",
+          "poster_media_id"
         ],
         "type": "object"
       },
@@ -1988,6 +2004,13 @@
             "minimum": 1,
             "type": [
               "integer",
+              "null"
+            ]
+          },
+          "poster_upload_id": {
+            "format": "uuid",
+            "type": [
+              "string",
               "null"
             ]
           },

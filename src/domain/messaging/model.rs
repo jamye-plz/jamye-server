@@ -38,6 +38,10 @@ pub struct MessageAttachment {
     pub duration: Option<u64>,
     pub filename: Option<String>,
     pub position: u8,
+    /// The `media_uploads` id of this attachment's poster image, when it is a
+    /// video that has one bound alongside it. `None` for non-video kinds,
+    /// legacy rows, or a poster that failed to bind.
+    pub poster_media_id: Option<Uuid>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

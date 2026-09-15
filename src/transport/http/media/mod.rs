@@ -195,6 +195,7 @@ async fn parse_finalize_request(
         UploadFinalizeInput {
             width: payload.width,
             height: payload.height,
+            poster_upload_id: payload.poster_upload_id,
         },
     ))
 }
@@ -305,6 +306,8 @@ impl From<MediaScopeRequest> for MediaScope {
 struct UploadFinalizeRequest {
     width: Option<u32>,
     height: Option<u32>,
+    #[serde(default)]
+    poster_upload_id: Option<Uuid>,
 }
 
 #[derive(Serialize)]
@@ -420,6 +423,7 @@ struct ConfirmedUploadResponse {
     filename: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
     confirmed_at: OffsetDateTime,
+    poster_upload_id: Option<Uuid>,
 }
 
 impl From<ConfirmedUploadRecord> for ConfirmedUploadResponse {
@@ -435,6 +439,7 @@ impl From<ConfirmedUploadRecord> for ConfirmedUploadResponse {
             duration: upload.duration_seconds,
             filename: upload.filename,
             confirmed_at: upload.confirmed_at,
+            poster_upload_id: upload.poster_upload_id,
         }
     }
 }
@@ -574,6 +579,11 @@ fn error_profile(error: MediaError) -> (StatusCode, &'static str, &'static str) 
             StatusCode::UNPROCESSABLE_ENTITY,
             "media_finalize_validation_failed",
             "업로드된 미디어를 확인할 수 없습니다.",
+        ),
+        MediaError::PosterValidation => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "media_poster_invalid",
+            "포스터 이미지를 확인할 수 없습니다.",
         ),
         MediaError::DatabaseUnavailable => (
             StatusCode::SERVICE_UNAVAILABLE,

@@ -6,6 +6,7 @@ use uuid::Uuid;
 use crate::{TestResult, postgres_support::TestDatabase};
 
 const MEDIA_MIGRATION: &str = "migrations/0006_media.sql";
+const MEDIA_POSTERS_MIGRATION: &str = "migrations/0010_media_posters.sql";
 
 #[test]
 fn media_migration_is_forward_only_and_owns_one_time_binding_constraints() -> TestResult {
@@ -311,6 +312,76 @@ async fn a_failed_0006_upgrade_rolls_back_every_media_relation_and_topic_binding
     database.dispose().await
 }
 
+#[test]
+fn poster_migration_is_forward_only_and_links_a_confirmed_image_upload_as_a_video_poster()
+-> TestResult {
+    let sql = fs::read_to_string(MEDIA_POSTERS_MIGRATION).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            io::Error::other(format!(
+                "RED: {MEDIA_POSTERS_MIGRATION} is absent; task-8 S1 must add media_uploads.poster_upload_id"
+            ))
+        } else {
+            error
+        }
+    })?;
+
+    for required in [
+        "-- migration: 0010_media_posters",
+        "-- prerequisite: 0009_message_anchor_index.sql",
+        "-- reversibility: forward-only",
+        "-- recovery: docs/adr/0003-forward-only-sqlx-migrations.md",
+        "ADD COLUMN poster_upload_id UUID NULL",
+        "CONSTRAINT fk_media_uploads_poster_upload",
+        "FOREIGN KEY (poster_upload_id) REFERENCES media_uploads (id)",
+        "CONSTRAINT media_uploads_poster_self_reference_check CHECK (",
+        "poster_upload_id IS NULL OR poster_upload_id <> id",
+        "CREATE UNIQUE INDEX uq_media_uploads_poster_upload",
+        "ON media_uploads (poster_upload_id)",
+        "WHERE poster_upload_id IS NOT NULL",
+    ] {
+        assert!(sql.contains(required), "migration is missing: {required}");
+    }
+    for forbidden in ["DROP TABLE", "DROP COLUMN", "ALTER COLUMN"] {
+        assert!(
+            !sql.contains(forbidden),
+            "forward-only poster migration contains destructive DDL: {forbidden}"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn poster_migration_upgrades_the_exact_0009_predecessor() -> TestResult {
+    let database = TestDatabase::migrated_to(9).await?;
+    let mut connection = database.connection().await?;
+    assert!(!column_exists(&mut connection, "media_uploads", "poster_upload_id").await?);
+    assert!(!index_exists(&mut connection, "uq_media_uploads_poster_upload").await?);
+
+    let migrator = sqlx::migrate::Migrator::new(std::path::Path::new("migrations")).await?;
+    migrator.run_to(10, &mut connection).await?;
+
+    assert!(column_exists(&mut connection, "media_uploads", "poster_upload_id").await?);
+    assert!(index_exists(&mut connection, "uq_media_uploads_poster_upload").await?);
+    for constraint in [
+        "fk_media_uploads_poster_upload",
+        "media_uploads_poster_self_reference_check",
+    ] {
+        assert!(
+            constraint_exists(&mut connection, constraint).await?,
+            "missing poster constraint after upgrade: {constraint}"
+        );
+    }
+    let applied: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM _sqlx_migrations WHERE success AND version BETWEEN 1 AND 10",
+    )
+    .fetch_one(&mut connection)
+    .await?;
+    assert_eq!(applied, 10);
+
+    connection.close().await?;
+    database.dispose().await
+}
+
 async fn insert_bound_chat_attachment(
     connection: &mut sqlx::PgConnection,
     upload_id: Uuid,
@@ -407,6 +478,20 @@ async fn constraint_exists(
         "SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = $1)",
     )
     .bind(constraint)
+    .fetch_one(connection)
+    .await?)
+}
+
+/// `CREATE UNIQUE INDEX ... WHERE ...` (a partial unique index) has no
+/// `pg_constraint` row of its own; it only registers under `pg_class`/`pg_index`.
+async fn index_exists(connection: &mut sqlx::PgConnection, index: &str) -> TestResult<bool> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS ( \
+             SELECT 1 FROM pg_class \
+             WHERE relkind = 'i' AND relname = $1 \
+         )",
+    )
+    .bind(index)
     .fetch_one(connection)
     .await?)
 }
