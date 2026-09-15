@@ -78,8 +78,13 @@ commit/rollback한다. PostgreSQL repository는 이 caller-owned handle을 받�
 2. `(sender_id, client_msg_id)` partial unique index를 대상으로 message insert를 시도한다.
 3. conflict면 기존 row의 `chatroom_id`와 body를 비교해 같을 때만 canonical 200을 반환하고,
    다르면 mutation 없는 409로 transaction을 rollback한다.
-4. 새 message면 같은 handle에서 server identity cursor를 가진 conversation event와 그
-   event를 참조하는 full-envelope outbox row를 순서대로 기록한다.
+4. 새 message면 같은 handle에서 먼저 message insert만 수행한다. 첨부가 있으면 media
+   binding으로 최종 media 목록을 확정한 뒤에야 server identity cursor를 가진
+   conversation event와 그 event를 참조하는 full-envelope outbox row를 기록한다.
+   이 event/outbox payload는 확정된 media와 발신자의 `sender_nickname`/
+   `sender_avatar_url`을 포함하며, notification 기록은 이 event가 확정된 이후에만
+   실행한다. 멱등 재시도(conflict로 기존 row를 반환하는 경우)는 새 event를 쓰지
+   않고 기존 event를 그대로 재사용한다.
 
 기본 PostgreSQL `READ COMMITTED`를 사용한다. command의 row lock과 unique index가
 필요한 직렬화 지점이며 process-local lock이나 Redis lock은 두지 않는다. S1 delta는
