@@ -98,6 +98,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "poster_media_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "type": {
           "type": "string"
         },
@@ -115,7 +122,8 @@
         "media_upload_id",
         "type",
         "byte_size",
-        "position"
+        "position",
+        "poster_media_id"
       ],
       "type": "object"
     },

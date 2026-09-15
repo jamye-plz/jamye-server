@@ -54,6 +54,30 @@ const AUTHORIZED_MEDIA_SQL: &str = "WITH authorized_media AS ( \
            ON actor_membership.group_id = live_group.id \
           AND actor_membership.user_id = $2 \
          WHERE attachment.id = $1 \
+         UNION ALL \
+         SELECT upload.id, upload.id AS media_upload_id, \
+                upload.object_key, upload.content_type, \
+                upload.byte_size, NULL::integer AS width, NULL::integer AS height, \
+                upload.duration, upload.filename \
+         FROM media_uploads AS upload \
+         JOIN media_uploads AS video \
+           ON video.poster_upload_id = upload.id \
+          AND video.status = 'bound' \
+          AND video.bound_message_id = upload.bound_message_id \
+         JOIN messages AS stored_message \
+           ON stored_message.id = upload.bound_message_id \
+         JOIN chatrooms AS chatroom \
+           ON chatroom.id = stored_message.chatroom_id \
+         JOIN groups AS live_group \
+           ON live_group.id = chatroom.group_id \
+          AND live_group.deleted_at IS NULL \
+         JOIN memberships AS actor_membership \
+           ON actor_membership.group_id = live_group.id \
+          AND actor_membership.user_id = $2 \
+         WHERE upload.id = $1 \
+           AND upload.scope = 'chat' \
+           AND upload.status = 'bound' \
+           AND upload.target_id = stored_message.chatroom_id \
      ) \
      SELECT id, media_upload_id, object_key, content_type, byte_size, width, height, \
             duration, filename \

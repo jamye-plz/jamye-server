@@ -110,12 +110,32 @@ pub struct PrepareUploadFinalizeQuery {
     pub upload_id: Uuid,
     pub width: Option<u32>,
     pub height: Option<u32>,
+    pub poster_upload_id: Option<Uuid>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum UploadFinalizePreparation {
-    Pending(UploadIntentRecord),
+    Pending {
+        upload: UploadIntentRecord,
+        poster: Option<PosterCandidateRecord>,
+    },
     Existing(UploadFinalizeRecord),
+}
+
+/// Poster candidate row loaded (and row-locked, when queried through the
+/// PostgreSQL adapter) from the poster upload's own `media_uploads` row.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PosterCandidateRecord {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub scope: MediaScope,
+    pub target_id: Uuid,
+    pub kind: MediaKind,
+    pub content_type: String,
+    pub byte_size: u64,
+    pub status_confirmed: bool,
+    pub already_linked: bool,
+    pub has_own_poster: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -124,6 +144,7 @@ pub enum FinalizeUploadCommand {
         actor_id: Uuid,
         upload_id: Uuid,
         finalized: FinalizedObject,
+        poster_upload_id: Option<Uuid>,
     },
     Topic {
         actor_id: Uuid,
@@ -159,6 +180,7 @@ pub struct ConfirmedUploadRecord {
     pub duration_seconds: Option<u64>,
     pub filename: Option<String>,
     pub confirmed_at: OffsetDateTime,
+    pub poster_upload_id: Option<Uuid>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -24,10 +24,13 @@ use jamye_server::{
         AppEnvironment,
         object_storage::{ObjectStorageConfig, ObjectStorageConfigInput},
     },
-    domain::media::{FinalizedObject, InspectedObject, MediaKind, MediaScope},
+    domain::media::{
+        FinalizedObject, InspectedObject, MediaKind, MediaScope, PosterCandidate,
+        PosterPolicyError, validate_poster_link, validate_upload,
+    },
     ports::{
         media::{
-            FinalizeUploadCommand, MediaRepository, MediaRepositoryError,
+            FinalizeUploadCommand, MediaRepository, MediaRepositoryError, PosterCandidateRecord,
             PrepareUploadFinalizeQuery, UploadFinalizePreparation, UploadFinalizeRecord,
         },
         object_storage::{InspectObjectRequest, MediaObjectStorage},
@@ -48,6 +51,7 @@ const ACCESS_KEY: &str = "task-8-finalize-access-key";
 const SECRET_KEY: &str = "task-8-finalize-secret-key";
 const CONTENT_TYPE: &str = "image/jpeg";
 const BYTE_SIZE: u64 = 1_024;
+const VIDEO_BYTE_SIZE: u64 = 4_096;
 const FILENAME: &str = " 여름/기록.jpg ";
 
 #[tokio::test]
@@ -67,9 +71,14 @@ async fn postgres_prepare_authorizes_upload_owner_and_topic_manager_before_final
     let prepared = repository
         .prepare_upload_finalize(&query(fixture.author_id, chat.id, None, None))
         .await?;
-    let UploadFinalizePreparation::Pending(record) = prepared else {
+    let UploadFinalizePreparation::Pending {
+        upload: record,
+        poster: prepared_poster,
+    } = prepared
+    else {
         return Err(io::Error::other("pending chat upload returned a retry result").into());
     };
+    assert_eq!(prepared_poster, None);
     assert_eq!(record.id, chat.id);
     assert_eq!(record.object_key, chat.object_key);
     assert_eq!(record.kind, MediaKind::Image);
@@ -105,7 +114,7 @@ async fn postgres_prepare_authorizes_upload_owner_and_topic_manager_before_final
                 Some(600),
             ))
             .await,
-        Ok(UploadFinalizePreparation::Pending(_))
+        Ok(UploadFinalizePreparation::Pending { .. })
     ));
 
     let owner_topic = fixture
@@ -120,7 +129,7 @@ async fn postgres_prepare_authorizes_upload_owner_and_topic_manager_before_final
                 Some(600),
             ))
             .await,
-        Ok(UploadFinalizePreparation::Pending(_))
+        Ok(UploadFinalizePreparation::Pending { .. })
     ));
 
     let ordinary_member_topic = fixture
@@ -162,6 +171,172 @@ async fn postgres_prepare_authorizes_upload_owner_and_topic_manager_before_final
 }
 
 #[tokio::test]
+async fn postgres_chat_finalize_with_a_valid_confirmed_poster_sets_poster_upload_id() -> TestResult
+{
+    let fixture = FinalizeDatabaseFixture::new().await?;
+    let repository = PostgresMediaRepository::new(fixture.pool.clone());
+    let transactions = SqlxTransactionManager::new(fixture.pool.clone());
+
+    let poster_id = fixture
+        .insert_confirmed_poster(fixture.author_id, fixture.chatroom_id)
+        .await?;
+    let video = fixture
+        .insert_video_upload(fixture.author_id, fixture.chatroom_id)
+        .await?;
+
+    let prepared = repository
+        .prepare_upload_finalize(&poster_query(fixture.author_id, video.id, poster_id))
+        .await?;
+    let UploadFinalizePreparation::Pending { poster, .. } = prepared else {
+        return Err(io::Error::other("pending video upload returned a retry result").into());
+    };
+    let candidate = poster.ok_or_else(|| io::Error::other("poster candidate was not loaded"))?;
+    assert_eq!(candidate.id, poster_id);
+    assert!(candidate.status_confirmed);
+    assert!(!candidate.already_linked);
+    assert!(!candidate.has_own_poster);
+
+    let command = FinalizeUploadCommand::Chat {
+        actor_id: fixture.author_id,
+        upload_id: video.id,
+        finalized: finalized_video(),
+        poster_upload_id: Some(poster_id),
+    };
+    let mut transaction = transactions.begin().await?;
+    let record = repository
+        .finalize_upload(transaction.as_mut(), &command)
+        .await?;
+    transactions.commit(transaction).await?;
+    let UploadFinalizeRecord::Chat { upload } = record else {
+        return Err(io::Error::other("chat finalize returned a topic binding").into());
+    };
+    assert_eq!(upload.poster_upload_id, Some(poster_id));
+
+    let stored_poster: Option<Uuid> =
+        sqlx::query_scalar("SELECT poster_upload_id FROM media_uploads WHERE id = $1")
+            .bind(video.id)
+            .fetch_one(&fixture.pool)
+            .await?;
+    assert_eq!(stored_poster, Some(poster_id));
+
+    fixture.dispose().await
+}
+
+#[tokio::test]
+async fn postgres_chat_finalize_rejects_reusing_a_poster_already_linked_to_another_video()
+-> TestResult {
+    let fixture = FinalizeDatabaseFixture::new().await?;
+    let repository = PostgresMediaRepository::new(fixture.pool.clone());
+    let transactions = SqlxTransactionManager::new(fixture.pool.clone());
+
+    let poster_id = fixture
+        .insert_confirmed_poster(fixture.author_id, fixture.chatroom_id)
+        .await?;
+    let first_video = fixture
+        .insert_video_upload(fixture.author_id, fixture.chatroom_id)
+        .await?;
+    let second_video = fixture
+        .insert_video_upload(fixture.author_id, fixture.chatroom_id)
+        .await?;
+
+    let first_command = FinalizeUploadCommand::Chat {
+        actor_id: fixture.author_id,
+        upload_id: first_video.id,
+        finalized: finalized_video(),
+        poster_upload_id: Some(poster_id),
+    };
+    let mut first_transaction = transactions.begin().await?;
+    repository
+        .finalize_upload(first_transaction.as_mut(), &first_command)
+        .await?;
+    transactions.commit(first_transaction).await?;
+
+    let second_command = FinalizeUploadCommand::Chat {
+        actor_id: fixture.author_id,
+        upload_id: second_video.id,
+        finalized: finalized_video(),
+        poster_upload_id: Some(poster_id),
+    };
+    let mut second_transaction = transactions.begin().await?;
+    let result = repository
+        .finalize_upload(second_transaction.as_mut(), &second_command)
+        .await;
+    assert_eq!(result, Err(MediaRepositoryError::FinalizeConflict));
+    transactions.rollback(second_transaction).await?;
+
+    fixture.dispose().await
+}
+
+#[tokio::test]
+async fn postgres_prepare_loads_poster_candidate_fields_that_the_domain_rejects_on_owner_or_target_mismatch()
+-> TestResult {
+    let fixture = FinalizeDatabaseFixture::new().await?;
+    let repository = PostgresMediaRepository::new(fixture.pool.clone());
+
+    let target_mismatch_poster = fixture
+        .insert_confirmed_poster(fixture.author_id, fixture.topic_id)
+        .await?;
+    let owner_mismatch_poster = fixture
+        .insert_confirmed_poster(fixture.member_id, fixture.chatroom_id)
+        .await?;
+    let video = fixture
+        .insert_video_upload(fixture.author_id, fixture.chatroom_id)
+        .await?;
+
+    let target_mismatch = repository
+        .prepare_upload_finalize(&poster_query(
+            fixture.author_id,
+            video.id,
+            target_mismatch_poster,
+        ))
+        .await?;
+    let UploadFinalizePreparation::Pending {
+        poster: Some(candidate),
+        ..
+    } = target_mismatch
+    else {
+        return Err(io::Error::other("target-mismatch poster candidate was not loaded").into());
+    };
+    assert_eq!(candidate.target_id, fixture.topic_id);
+    assert_eq!(
+        validate_poster_link(
+            &expected_video(),
+            fixture.author_id,
+            fixture.chatroom_id,
+            &poster_candidate(candidate),
+        ),
+        Err(PosterPolicyError::PosterTargetMismatch)
+    );
+
+    let owner_mismatch = repository
+        .prepare_upload_finalize(&poster_query(
+            fixture.author_id,
+            video.id,
+            owner_mismatch_poster,
+        ))
+        .await?;
+    let UploadFinalizePreparation::Pending {
+        poster: Some(candidate),
+        ..
+    } = owner_mismatch
+    else {
+        return Err(io::Error::other("owner-mismatch poster candidate was not loaded").into());
+    };
+    assert_eq!(candidate.user_id, fixture.member_id);
+    assert_eq!(
+        validate_poster_link(
+            &expected_video(),
+            fixture.author_id,
+            fixture.chatroom_id,
+            &poster_candidate(candidate),
+        ),
+        Err(PosterPolicyError::PosterOwnerMismatch)
+    );
+
+    fixture.dispose().await
+}
+
+#[tokio::test]
 async fn postgres_chat_finalize_obeys_caller_rollback_and_returns_canonical_retry() -> TestResult {
     let fixture = FinalizeDatabaseFixture::new().await?;
     let repository = PostgresMediaRepository::new(fixture.pool.clone());
@@ -178,6 +353,7 @@ async fn postgres_chat_finalize_obeys_caller_rollback_and_returns_canonical_retr
         actor_id: fixture.author_id,
         upload_id: upload.id,
         finalized: finalized_image(),
+        poster_upload_id: None,
     };
 
     let mut rolled_back_transaction = transactions.begin().await?;
@@ -395,6 +571,21 @@ fn query(
         upload_id,
         width,
         height,
+        poster_upload_id: None,
+    }
+}
+
+fn poster_query(
+    actor_id: Uuid,
+    upload_id: Uuid,
+    poster_upload_id: Uuid,
+) -> PrepareUploadFinalizeQuery {
+    PrepareUploadFinalizeQuery {
+        actor_id,
+        upload_id,
+        width: None,
+        height: None,
+        poster_upload_id: Some(poster_upload_id),
     }
 }
 
@@ -404,6 +595,36 @@ fn finalized_image() -> FinalizedObject {
         content_type: CONTENT_TYPE.to_owned(),
         byte_size: BYTE_SIZE,
         duration_seconds: None,
+    }
+}
+
+fn finalized_video() -> FinalizedObject {
+    FinalizedObject {
+        kind: MediaKind::Video,
+        content_type: "video/mp4".to_owned(),
+        byte_size: VIDEO_BYTE_SIZE,
+        duration_seconds: None,
+    }
+}
+
+fn expected_video() -> jamye_server::domain::media::ValidatedUpload {
+    let Ok(upload) = validate_upload(MediaScope::Chat, "video/mp4", VIDEO_BYTE_SIZE, None) else {
+        panic!("test video upload policy should be valid");
+    };
+    upload
+}
+
+fn poster_candidate(record: PosterCandidateRecord) -> PosterCandidate {
+    PosterCandidate {
+        kind: record.kind,
+        content_type: record.content_type,
+        byte_size: record.byte_size,
+        status_confirmed: record.status_confirmed,
+        scope: record.scope,
+        target_id: record.target_id,
+        user_id: record.user_id,
+        already_linked: record.already_linked,
+        has_own_poster: record.has_own_poster,
     }
 }
 
@@ -523,6 +744,55 @@ impl FinalizeDatabaseFixture {
         .execute(&self.pool)
         .await?;
         Ok(SeededUpload { id, object_key })
+    }
+
+    async fn insert_video_upload(
+        &self,
+        user_id: Uuid,
+        target_id: Uuid,
+    ) -> TestResult<SeededUpload> {
+        let id = Uuid::new_v4();
+        let object_key = object_key(MediaScope::Chat, target_id, id);
+        let now = OffsetDateTime::now_utc();
+        sqlx::query(
+            "INSERT INTO media_uploads \
+                 (id, user_id, object_key, scope, target_id, content_type, byte_size, \
+                  expires_at, created_at) \
+             VALUES ($1, $2, $3, 'chat', $4, 'video/mp4', $5, $6, $7)",
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(&object_key)
+        .bind(target_id)
+        .bind(i64::try_from(VIDEO_BYTE_SIZE)?)
+        .bind(now + TimeDuration::hours(1))
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        Ok(SeededUpload { id, object_key })
+    }
+
+    async fn insert_confirmed_poster(&self, user_id: Uuid, target_id: Uuid) -> TestResult<Uuid> {
+        let id = Uuid::new_v4();
+        let object_key = object_key(MediaScope::Chat, target_id, id);
+        let now = OffsetDateTime::now_utc();
+        sqlx::query(
+            "INSERT INTO media_uploads \
+                 (id, user_id, object_key, scope, target_id, content_type, byte_size, \
+                  status, confirmed_at, expires_at, created_at) \
+             VALUES ($1, $2, $3, 'chat', $4, $5, $6, 'confirmed', $7, $8, $7)",
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(&object_key)
+        .bind(target_id)
+        .bind(CONTENT_TYPE)
+        .bind(i64::try_from(BYTE_SIZE)?)
+        .bind(now)
+        .bind(now + TimeDuration::hours(1))
+        .execute(&self.pool)
+        .await?;
+        Ok(id)
     }
 
     async fn dispose(self) -> TestResult {

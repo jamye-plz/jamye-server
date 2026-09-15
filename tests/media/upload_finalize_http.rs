@@ -18,7 +18,7 @@ use jamye_server::{
     ports::{
         media::{
             ConfirmedUploadRecord, CreateUploadIntentCommand, FinalizeUploadCommand,
-            MediaRepository, MediaRepositoryError, MediaRepositoryFuture,
+            MediaRepository, MediaRepositoryError, MediaRepositoryFuture, PosterCandidateRecord,
             PrepareUploadFinalizeQuery, TopicMediaBindingRecord, UploadFinalizePreparation,
             UploadFinalizeRecord, UploadIntentRecord,
         },
@@ -307,7 +307,8 @@ async fn md2_chat_finalize_returns_the_confirmed_unbound_capability() -> TestRes
                 "byte_size": 1024,
                 "duration": null,
                 "filename": " 여름/기록.jpg ",
-                "confirmed_at": "1970-01-01T00:01:00Z"
+                "confirmed_at": "1970-01-01T00:01:00Z",
+                "poster_upload_id": null
             },
             "topic_media": null,
             "topic_status": null
@@ -347,6 +348,52 @@ async fn md2_topic_finalize_returns_bound_media_and_enriched_status() -> TestRes
     assert_eq!(body["topic_media"]["byte_size"], 1024);
     assert_eq!(body["topic_status"], "enriched");
     assert_eq!(body.as_object().map(|object| object.len()), Some(6));
+    Ok(())
+}
+
+#[tokio::test]
+async fn md2_poster_upload_id_round_trips_and_rejects_an_unknown_poster() -> TestResult {
+    let poster_upload_id = Uuid::from_u128(0xeeeeeeee_eeee_4eee_8eee_eeeeeeeeeeee);
+
+    let accepted = harness(UploadMode::Success, FinalizeMode::ChatSuccessWithPoster)
+        .oneshot(post_request(
+            &format!("/api/v1/media/uploads/{UPLOAD_ID}/finalize"),
+            Some(actor_id()),
+            &json!({ "poster_upload_id": poster_upload_id }),
+        )?)
+        .await?;
+    assert_eq!(accepted.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(accepted).await?["upload"]["poster_upload_id"],
+        poster_upload_id.to_string()
+    );
+
+    let omitted = harness(UploadMode::Success, FinalizeMode::ChatSuccess)
+        .oneshot(post_request(
+            &format!("/api/v1/media/uploads/{UPLOAD_ID}/finalize"),
+            Some(actor_id()),
+            &json!({}),
+        )?)
+        .await?;
+    assert_eq!(omitted.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(omitted).await?["upload"]["poster_upload_id"],
+        Value::Null
+    );
+
+    let unknown = harness(UploadMode::Success, FinalizeMode::ChatSuccess)
+        .oneshot(post_request(
+            &format!("/api/v1/media/uploads/{UPLOAD_ID}/finalize"),
+            Some(actor_id()),
+            &json!({ "poster_upload_id": poster_upload_id }),
+        )?)
+        .await?;
+    assert_error(
+        unknown,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "media_poster_invalid",
+    )
+    .await?;
     Ok(())
 }
 
@@ -479,6 +526,7 @@ enum UploadMode {
 #[derive(Clone, Copy)]
 enum FinalizeMode {
     ChatSuccess,
+    ChatSuccessWithPoster,
     TopicSuccess,
     TargetNotAccessible,
     Conflict,
@@ -577,17 +625,23 @@ impl MediaRepository for FakeRepository {
 
     fn prepare_upload_finalize<'a>(
         &'a self,
-        _query: &'a PrepareUploadFinalizeQuery,
+        query: &'a PrepareUploadFinalizeQuery,
     ) -> MediaRepositoryFuture<'a, UploadFinalizePreparation> {
         let mode = self.finalize_mode;
+        let poster_upload_id = query.poster_upload_id;
         Box::pin(async move {
             match mode {
                 FinalizeMode::TargetNotAccessible => Err(MediaRepositoryError::TargetNotAccessible),
                 FinalizeMode::Conflict => Err(MediaRepositoryError::FinalizeConflict),
                 FinalizeMode::DatabaseUnavailable => Err(MediaRepositoryError::Unavailable),
-                _ => Ok(UploadFinalizePreparation::Pending(pending_upload(
-                    finalize_scope(mode),
-                ))),
+                FinalizeMode::ChatSuccessWithPoster => Ok(UploadFinalizePreparation::Pending {
+                    upload: pending_video_upload(),
+                    poster: poster_upload_id.map(poster_candidate_record),
+                }),
+                _ => Ok(UploadFinalizePreparation::Pending {
+                    upload: pending_upload(finalize_scope(mode)),
+                    poster: None,
+                }),
             }
         })
     }
@@ -601,11 +655,16 @@ impl MediaRepository for FakeRepository {
         let command = command.clone();
         Box::pin(async move {
             match (mode, command) {
-                (FinalizeMode::ChatSuccess, FinalizeUploadCommand::Chat { finalized, .. }) => {
-                    Ok(UploadFinalizeRecord::Chat {
-                        upload: confirmed_upload(MediaScope::Chat, finalized),
-                    })
-                }
+                (
+                    FinalizeMode::ChatSuccess | FinalizeMode::ChatSuccessWithPoster,
+                    FinalizeUploadCommand::Chat {
+                        finalized,
+                        poster_upload_id,
+                        ..
+                    },
+                ) => Ok(UploadFinalizeRecord::Chat {
+                    upload: confirmed_upload(MediaScope::Chat, finalized, poster_upload_id),
+                }),
                 (
                     FinalizeMode::TopicSuccess,
                     FinalizeUploadCommand::Topic {
@@ -616,7 +675,7 @@ impl MediaRepository for FakeRepository {
                         ..
                     },
                 ) => Ok(UploadFinalizeRecord::Topic {
-                    upload: confirmed_upload(MediaScope::Topic, finalized.clone()),
+                    upload: confirmed_upload(MediaScope::Topic, finalized.clone(), None),
                     topic_media: TopicMediaBindingRecord {
                         id: topic_media_id,
                         topic_id: target_id(),
@@ -672,6 +731,11 @@ impl MediaObjectStorage for FakeObjectStorage {
                 FinalizeMode::Validation => Ok(InspectedObject {
                     content_type: Some("image/png".to_owned()),
                     byte_size: Some(1_024),
+                    audio_duration: None,
+                }),
+                FinalizeMode::ChatSuccessWithPoster => Ok(InspectedObject {
+                    content_type: Some("video/mp4".to_owned()),
+                    byte_size: Some(4_096),
                     audio_duration: None,
                 }),
                 _ => Ok(InspectedObject {
@@ -783,7 +847,11 @@ fn pending_upload(scope: MediaScope) -> UploadIntentRecord {
     }
 }
 
-fn confirmed_upload(scope: MediaScope, finalized: FinalizedObject) -> ConfirmedUploadRecord {
+fn confirmed_upload(
+    scope: MediaScope,
+    finalized: FinalizedObject,
+    poster_upload_id: Option<Uuid>,
+) -> ConfirmedUploadRecord {
     ConfirmedUploadRecord {
         id: upload_id(),
         user_id: actor_id(),
@@ -796,6 +864,38 @@ fn confirmed_upload(scope: MediaScope, finalized: FinalizedObject) -> ConfirmedU
         duration_seconds: finalized.duration_seconds,
         filename: Some(" 여름/기록.jpg ".to_owned()),
         confirmed_at: confirmed_at(),
+        poster_upload_id,
+    }
+}
+
+fn pending_video_upload() -> UploadIntentRecord {
+    UploadIntentRecord {
+        id: upload_id(),
+        user_id: actor_id(),
+        scope: MediaScope::Chat,
+        target_id: target_id(),
+        object_key: object_key(MediaScope::Chat),
+        kind: MediaKind::Video,
+        content_type: "video/mp4".to_owned(),
+        byte_size: 4_096,
+        filename: Some(" 여름/영상.mp4 ".to_owned()),
+        expires_at: OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1),
+        created_at: OffsetDateTime::UNIX_EPOCH,
+    }
+}
+
+fn poster_candidate_record(poster_upload_id: Uuid) -> PosterCandidateRecord {
+    PosterCandidateRecord {
+        id: poster_upload_id,
+        user_id: actor_id(),
+        scope: MediaScope::Chat,
+        target_id: target_id(),
+        kind: MediaKind::Image,
+        content_type: "image/jpeg".to_owned(),
+        byte_size: 2_048,
+        status_confirmed: true,
+        already_linked: false,
+        has_own_poster: false,
     }
 }
 

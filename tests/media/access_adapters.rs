@@ -67,6 +67,62 @@ async fn postgres_access_uses_message_or_topic_membership_and_rejects_cross_grou
 }
 
 #[tokio::test]
+async fn postgres_access_authorizes_a_bound_poster_and_denies_it_when_its_video_is_unbound()
+-> TestResult {
+    let fixture = AccessDatabaseFixture::new().await?;
+    let repository = PostgresMediaRepository::new(fixture.pool.clone());
+
+    let (chatroom_id, message_id) =
+        insert_poster_chatroom(&fixture.pool, fixture.member_id).await?;
+    let poster_id = insert_bound_poster(
+        &fixture.pool,
+        fixture.member_id,
+        chatroom_id,
+        message_id,
+        true,
+    )
+    .await?;
+
+    let authorized = repository
+        .authorize_media_access(&query(fixture.member_id, poster_id))
+        .await?;
+    assert_eq!(authorized.id, poster_id);
+    assert_eq!(authorized.media_upload_id, poster_id);
+    assert_eq!(authorized.width, None);
+    assert_eq!(authorized.height, None);
+    assert_eq!(authorized.content_type, "image/jpeg");
+
+    let denied_outsider = repository
+        .authorize_media_access(&query(fixture.outsider_id, poster_id))
+        .await;
+    assert_eq!(
+        denied_outsider,
+        Err(MediaRepositoryError::TargetNotAccessible)
+    );
+
+    let (chatroom_id, message_id) =
+        insert_poster_chatroom(&fixture.pool, fixture.member_id).await?;
+    let orphaned_poster_id = insert_bound_poster(
+        &fixture.pool,
+        fixture.member_id,
+        chatroom_id,
+        message_id,
+        false,
+    )
+    .await?;
+    let denied_unbound_video = repository
+        .authorize_media_access(&query(fixture.member_id, orphaned_poster_id))
+        .await;
+    assert_eq!(
+        denied_unbound_video,
+        Err(MediaRepositoryError::TargetNotAccessible)
+    );
+
+    fixture.dispose().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn sdk_view_get_uses_the_public_path_style_origin_and_exact_short_ttl() -> TestResult {
     let storage = object_storage()?;
     let request = PresignGetRequest {
@@ -381,6 +437,129 @@ async fn insert_topic_media(
         duration_seconds: None,
         filename: Some("주제 사진.png".to_owned()),
     })
+}
+
+/// Create a fresh group/chatroom/message owned by `user_id`, isolated from
+/// any other fixture state, and return `(chatroom_id, message_id)`.
+async fn insert_poster_chatroom(pool: &PgPool, user_id: Uuid) -> TestResult<(Uuid, Uuid)> {
+    let group_id = Uuid::new_v4();
+    sqlx::query("INSERT INTO groups (id, name, owner_id) VALUES ($1, '포스터 그룹', $2)")
+        .bind(group_id)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+    sqlx::query(
+        "INSERT INTO memberships (id, group_id, user_id, role) VALUES ($1, $2, $3, 'owner')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(group_id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    let chatroom_id = Uuid::new_v4();
+    sqlx::query("INSERT INTO chatrooms (id, group_id, type) VALUES ($1, $2, 'main')")
+        .bind(chatroom_id)
+        .bind(group_id)
+        .execute(pool)
+        .await?;
+    let message_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO messages (id, chatroom_id, sender_id, client_msg_id, body, type) \
+         VALUES ($1, $2, $3, $4, '포스터 첨부', 'user')",
+    )
+    .bind(message_id)
+    .bind(chatroom_id)
+    .bind(user_id)
+    .bind(Uuid::new_v4())
+    .execute(pool)
+    .await?;
+    Ok((chatroom_id, message_id))
+}
+
+/// Seed a poster upload bound to `message_id`, plus a video upload whose
+/// `poster_upload_id` links back to it. When `video_bound` is `false` the
+/// video is left `confirmed` (never bound) to exercise the access query's
+/// requirement that the linked video is itself bound. Returns the poster's
+/// own `media_uploads.id`.
+async fn insert_bound_poster(
+    pool: &PgPool,
+    user_id: Uuid,
+    chatroom_id: Uuid,
+    message_id: Uuid,
+    video_bound: bool,
+) -> TestResult<Uuid> {
+    let poster_id = Uuid::new_v4();
+    let video_id = Uuid::new_v4();
+    let now = OffsetDateTime::now_utc();
+    let confirmed_at = now - TimeDuration::minutes(2);
+    let consumed_at = now - TimeDuration::minutes(1);
+    let created_at = now - TimeDuration::minutes(3);
+    let expires_at = now + TimeDuration::hours(1);
+    let poster_object_key = format!("chat/{chatroom_id}/{poster_id}");
+    sqlx::query(
+        "INSERT INTO media_uploads \
+             (id, user_id, object_key, scope, target_id, content_type, byte_size, \
+              status, bound_message_id, confirmed_at, consumed_at, expires_at, created_at) \
+         VALUES ($1, $2, $3, 'chat', $4, 'image/jpeg', 512, \
+                 'bound', $5, $6, $7, $8, $9)",
+    )
+    .bind(poster_id)
+    .bind(user_id)
+    .bind(&poster_object_key)
+    .bind(chatroom_id)
+    .bind(message_id)
+    .bind(confirmed_at)
+    .bind(consumed_at)
+    .bind(expires_at)
+    .bind(created_at)
+    .execute(pool)
+    .await?;
+
+    let video_object_key = format!("chat/{chatroom_id}/{video_id}");
+    let (video_status, video_bound_message_id) = if video_bound {
+        ("bound", Some(message_id))
+    } else {
+        ("confirmed", None)
+    };
+    sqlx::query(
+        "INSERT INTO media_uploads \
+             (id, user_id, object_key, scope, target_id, content_type, byte_size, \
+              status, bound_message_id, consumed_at, confirmed_at, expires_at, created_at, \
+              poster_upload_id) \
+         VALUES ($1, $2, $3, 'chat', $4, 'video/mp4', 4096, \
+                 $5, $6, $7, $8, $9, $10, $11)",
+    )
+    .bind(video_id)
+    .bind(user_id)
+    .bind(&video_object_key)
+    .bind(chatroom_id)
+    .bind(video_status)
+    .bind(video_bound_message_id)
+    .bind(video_bound.then_some(consumed_at))
+    .bind(confirmed_at)
+    .bind(expires_at)
+    .bind(created_at)
+    .bind(poster_id)
+    .execute(pool)
+    .await?;
+
+    if video_bound {
+        sqlx::query(
+            "INSERT INTO message_media \
+                 (id, message_id, media_upload_id, type, object_key, byte_size, position, \
+                  created_at) \
+             VALUES ($1, $2, $3, 'video/mp4', $4, 4096, 0, $5)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(message_id)
+        .bind(video_id)
+        .bind(&video_object_key)
+        .bind(consumed_at)
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(poster_id)
 }
 
 async fn insert_user(pool: &PgPool, nickname: &str) -> TestResult<Uuid> {

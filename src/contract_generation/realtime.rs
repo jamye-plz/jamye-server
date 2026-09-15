@@ -92,7 +92,26 @@ fn schema_document<T: JsonSchema>(schema_id: &str, title: &str) -> Result<Value,
         .ok_or_else(|| invalid_data("JSON Schema root must be an object"))?;
     root.insert("$id".to_owned(), Value::String(schema_id.to_owned()));
     root.insert("title".to_owned(), Value::String(title.to_owned()));
+    mark_message_attachment_poster_required(&mut value);
     Ok(value)
+}
+
+/// `MessageAttachment.poster_media_id` is `Option<Uuid>` so its generated
+/// type stays nullable, but the wire contract always includes the key
+/// (nullable, never merely optional). schemars has no attribute that keeps
+/// a field both nullable and required — `#[schemars(required)]` instead
+/// strips nullability from the generated type — so the required list is
+/// patched here instead.
+fn mark_message_attachment_poster_required(value: &mut Value) {
+    let Some(required) = value
+        .pointer_mut("/$defs/MessageAttachment/required")
+        .and_then(Value::as_array_mut)
+    else {
+        return;
+    };
+    if !required.iter().any(|entry| entry == "poster_media_id") {
+        required.push(Value::String("poster_media_id".to_owned()));
+    }
 }
 
 fn validate_discriminants(discriminants: &[&str], stage: &str) -> Result<(), BoxError> {

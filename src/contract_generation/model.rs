@@ -67,6 +67,7 @@ pub struct MessageAttachment {
     pub duration: Option<u64>,
     pub filename: Option<String>,
     pub position: u8,
+    pub poster_media_id: Option<Uuid>,
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema, Serialize, ToSchema)]

@@ -49,6 +49,7 @@ type MessageMediaRow = (
     Option<i32>,
     Option<String>,
     i32,
+    Option<Uuid>,
 );
 
 type ReadMarkerAccessRow = (
@@ -218,11 +219,13 @@ async fn hydrate_message_media(
         .map(|(position, item)| (item.message.id, position))
         .collect::<HashMap<_, _>>();
     let rows = sqlx::query_as::<_, MessageMediaRow>(
-        "SELECT id, message_id, media_upload_id, type, byte_size, width, height, \
-                duration, filename, position \
-         FROM message_media \
-         WHERE message_id = ANY($1) \
-         ORDER BY message_id, position",
+        "SELECT media.id, media.message_id, media.media_upload_id, media.type, \
+                media.byte_size, media.width, media.height, media.duration, \
+                media.filename, media.position, upload.poster_upload_id \
+         FROM message_media AS media \
+         LEFT JOIN media_uploads AS upload ON upload.id = media.media_upload_id \
+         WHERE media.message_id = ANY($1) \
+         ORDER BY media.message_id, media.position",
     )
     .bind(&message_ids)
     .fetch_all(pool)
@@ -263,6 +266,7 @@ fn message_attachment_from_row(
         duration: positive_optional_u64(row.7)?,
         filename: row.8,
         position: u8::try_from(row.9).map_err(|_| ChatroomsRepositoryError::InvalidData)?,
+        poster_media_id: row.10,
     })
 }
 

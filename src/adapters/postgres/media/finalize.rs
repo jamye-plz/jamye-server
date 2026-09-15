@@ -7,16 +7,25 @@ use uuid::Uuid;
 use crate::{
     domain::media::{FinalizedObject, MediaKind, MediaScope, validate_upload},
     ports::media::{
-        ConfirmedUploadRecord, FinalizeUploadCommand, MediaRepositoryError,
+        ConfirmedUploadRecord, FinalizeUploadCommand, MediaRepositoryError, PosterCandidateRecord,
         PrepareUploadFinalizeQuery, TopicMediaBindingRecord, UploadFinalizePreparation,
         UploadFinalizeRecord, UploadIntentRecord,
     },
 };
 
+fn parse_media_scope(value: &str) -> Result<MediaScope, MediaRepositoryError> {
+    match value {
+        "chat" => Ok(MediaScope::Chat),
+        "topic" => Ok(MediaScope::Topic),
+        _ => Err(MediaRepositoryError::InvalidData),
+    }
+}
+
 const AUTHORIZED_UPLOAD_SQL: &str = "SELECT upload.id, upload.user_id, upload.object_key, upload.scope, upload.target_id, \
             upload.content_type, upload.byte_size, upload.duration, upload.filename, \
             upload.status, upload.bound_message_id, upload.bound_topic_media_id, \
             upload.confirmed_at, upload.consumed_at, upload.expires_at, upload.created_at, \
+            upload.poster_upload_id, \
             upload.expires_at > clock_timestamp() AS is_live \
      FROM media_uploads AS upload \
      WHERE upload.id = $1 \
@@ -56,6 +65,22 @@ const AUTHORIZED_UPLOAD_SQL: &str = "SELECT upload.id, upload.user_id, upload.ob
        ) \
      FOR UPDATE OF upload";
 
+/// Load the poster candidate's own row without restricting by owner: ownership,
+/// scope, and target matching against the video are authorized by the domain
+/// poster policy so a mismatch surfaces as a validation error rather than a
+/// silent not-found.
+// Concurrency for poster linkage is enforced by the partial unique index
+// `uq_media_uploads_poster_upload` at finalize commit time, not by a row lock here.
+const POSTER_CANDIDATE_SQL: &str = "SELECT poster.id, poster.user_id, poster.scope, poster.target_id, \
+            poster.content_type, poster.byte_size, poster.status, \
+            poster.poster_upload_id AS own_poster_upload_id, \
+            EXISTS ( \
+                SELECT 1 FROM media_uploads AS linked \
+                WHERE linked.poster_upload_id = poster.id \
+            ) AS already_linked \
+     FROM media_uploads AS poster \
+     WHERE poster.id = $1";
+
 pub(super) async fn prepare_upload_finalize(
     pool: &PgPool,
     query: &PrepareUploadFinalizeQuery,
@@ -76,9 +101,14 @@ pub(super) async fn prepare_upload_finalize(
         if !upload.is_live {
             return Err(MediaRepositoryError::FinalizeConflict);
         }
-        return upload
-            .intent_record()
-            .map(UploadFinalizePreparation::Pending);
+        let poster = match query.poster_upload_id {
+            Some(poster_upload_id) => load_poster_candidate(pool, poster_upload_id).await?,
+            None => None,
+        };
+        return Ok(UploadFinalizePreparation::Pending {
+            upload: upload.intent_record()?,
+            poster,
+        });
     }
 
     match upload.scope {
@@ -133,6 +163,41 @@ pub(super) async fn prepare_upload_finalize(
     }
 }
 
+async fn load_poster_candidate(
+    pool: &PgPool,
+    poster_upload_id: Uuid,
+) -> Result<Option<PosterCandidateRecord>, MediaRepositoryError> {
+    let Some(row) = sqlx::query(POSTER_CANDIDATE_SQL)
+        .bind(poster_upload_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|error| super::database_error("upload_finalize_prepare_poster", error))?
+    else {
+        return Ok(None);
+    };
+    let stored_scope: String = required(&row, "scope")?;
+    let scope = parse_media_scope(&stored_scope)?;
+    let content_type: String = required(&row, "content_type")?;
+    let byte_size = checked_u64(required(&row, "byte_size")?)?;
+    let kind = validate_upload(scope, &content_type, byte_size, None)
+        .map(|validated| validated.kind)
+        .map_err(|_| MediaRepositoryError::InvalidData)?;
+    let status: String = required(&row, "status")?;
+    let own_poster_upload_id: Option<Uuid> = required(&row, "own_poster_upload_id")?;
+    Ok(Some(PosterCandidateRecord {
+        id: required(&row, "id")?,
+        user_id: required(&row, "user_id")?,
+        scope,
+        target_id: required(&row, "target_id")?,
+        kind,
+        content_type,
+        byte_size,
+        status_confirmed: status == "confirmed",
+        already_linked: required(&row, "already_linked")?,
+        has_own_poster: own_poster_upload_id.is_some(),
+    }))
+}
+
 pub(super) async fn finalize_upload(
     connection: &mut PgConnection,
     command: &FinalizeUploadCommand,
@@ -169,25 +234,31 @@ pub(super) async fn finalize_upload(
     }
 
     match command {
-        FinalizeUploadCommand::Chat { finalized, .. } => {
+        FinalizeUploadCommand::Chat {
+            finalized,
+            poster_upload_id,
+            ..
+        } => {
             let duration = validate_finalized(&upload, MediaScope::Chat, finalized)?;
             let confirmed_at = sqlx::query_scalar::<_, OffsetDateTime>(
                 "WITH stamped AS (SELECT clock_timestamp() AS at) \
                  UPDATE media_uploads AS upload \
-                 SET status = 'confirmed', duration = $2, confirmed_at = stamped.at \
+                 SET status = 'confirmed', duration = $2, confirmed_at = stamped.at, \
+                     poster_upload_id = $3 \
                  FROM stamped \
                  WHERE upload.id = $1 AND upload.status = 'pending' \
                  RETURNING upload.confirmed_at",
             )
             .bind(upload.id)
             .bind(duration)
+            .bind(poster_upload_id)
             .fetch_optional(&mut *connection)
             .await
             .map_err(|error| finalize_database_error("upload_finalize_chat", error))?
             .ok_or(MediaRepositoryError::FinalizeConflict)?;
 
             Ok(UploadFinalizeRecord::Chat {
-                upload: upload.finalized_record(finalized, confirmed_at),
+                upload: upload.finalized_record(finalized, confirmed_at, *poster_upload_id),
             })
         }
         FinalizeUploadCommand::Topic {
@@ -239,7 +310,7 @@ pub(super) async fn finalize_upload(
             .map_err(|error| finalize_database_error("upload_finalize_topic_media", error))?;
 
             Ok(UploadFinalizeRecord::Topic {
-                upload: upload.finalized_record(finalized, confirmed_at),
+                upload: upload.finalized_record(finalized, confirmed_at, None),
                 topic_media: TopicMediaBindingRecord {
                     id: *topic_media_id,
                     topic_id: upload.target_id,
@@ -274,17 +345,14 @@ struct StoredUpload {
     consumed_at: Option<OffsetDateTime>,
     expires_at: OffsetDateTime,
     created_at: OffsetDateTime,
+    poster_upload_id: Option<Uuid>,
     is_live: bool,
 }
 
 impl StoredUpload {
     fn from_row(row: &PgRow) -> Result<Self, MediaRepositoryError> {
         let stored_scope: String = required(row, "scope")?;
-        let scope = match stored_scope.as_str() {
-            "chat" => MediaScope::Chat,
-            "topic" => MediaScope::Topic,
-            _ => return Err(MediaRepositoryError::InvalidData),
-        };
+        let scope = parse_media_scope(&stored_scope)?;
         Ok(Self {
             id: required(row, "id")?,
             user_id: required(row, "user_id")?,
@@ -302,6 +370,7 @@ impl StoredUpload {
             consumed_at: required(row, "consumed_at")?,
             expires_at: required(row, "expires_at")?,
             created_at: required(row, "created_at")?,
+            poster_upload_id: required(row, "poster_upload_id")?,
             is_live: required(row, "is_live")?,
         })
     }
@@ -373,6 +442,7 @@ impl StoredUpload {
             duration_seconds,
             filename: self.filename.clone(),
             confirmed_at: self.confirmed_at.ok_or(MediaRepositoryError::InvalidData)?,
+            poster_upload_id: self.poster_upload_id,
         })
     }
 
@@ -380,6 +450,7 @@ impl StoredUpload {
         &self,
         finalized: &FinalizedObject,
         confirmed_at: OffsetDateTime,
+        poster_upload_id: Option<Uuid>,
     ) -> ConfirmedUploadRecord {
         ConfirmedUploadRecord {
             id: self.id,
@@ -393,6 +464,7 @@ impl StoredUpload {
             duration_seconds: finalized.duration_seconds,
             filename: self.filename.clone(),
             confirmed_at,
+            poster_upload_id,
         }
     }
 }
@@ -518,13 +590,16 @@ fn finalize_database_error(operation: &'static str, error: sqlx::Error) -> Media
                 "uq_media_uploads_bound_topic_media"
                 | "uq_topic_media_upload"
                 | "uq_topic_media_topic_object"
+                | "uq_media_uploads_poster_upload"
                 | "fk_media_uploads_bound_topic_media"
                 | "fk_topic_media_upload"
-                | "fk_topic_media_bound_upload",
+                | "fk_topic_media_bound_upload"
+                | "fk_media_uploads_poster_upload",
             ) => return MediaRepositoryError::FinalizeConflict,
             Some(
                 "media_uploads_duration_check"
                 | "media_uploads_consumer_shape_check"
+                | "media_uploads_poster_self_reference_check"
                 | "topic_media_type_check"
                 | "topic_media_object_key_check"
                 | "topic_media_width_check"

@@ -63,6 +63,24 @@ async fn postgres_message_binding_rejects_provider_metadata_drift() -> TestResul
     result
 }
 
+#[tokio::test]
+async fn postgres_message_binding_links_a_confirmed_poster_to_its_video_in_the_same_transaction()
+-> TestResult {
+    let fixture = MessageBindingFixture::new().await?;
+    let result = linked_poster_case(&fixture).await;
+    fixture.dispose().await?;
+    result
+}
+
+#[tokio::test]
+async fn postgres_message_binding_nulls_an_expired_posters_link_but_still_binds_the_video()
+-> TestResult {
+    let fixture = MessageBindingFixture::new().await?;
+    let result = expired_poster_case(&fixture).await;
+    fixture.dispose().await?;
+    result
+}
+
 async fn ordered_binding_case(fixture: &MessageBindingFixture) -> TestResult {
     let uploads = [
         fixture
@@ -445,6 +463,114 @@ async fn metadata_drift_case(fixture: &MessageBindingFixture) -> TestResult {
     Ok(())
 }
 
+async fn linked_poster_case(fixture: &MessageBindingFixture) -> TestResult {
+    let message_id = fixture.insert_message(None).await?;
+    let poster = fixture
+        .insert_upload(UploadSpec::confirmed(
+            fixture.actor_id,
+            fixture.chatroom_id,
+            "image/jpeg",
+            512,
+            None,
+            Some("poster.jpg"),
+        ))
+        .await?;
+    let video = fixture
+        .insert_upload(
+            UploadSpec::confirmed(
+                fixture.actor_id,
+                fixture.chatroom_id,
+                "video/mp4",
+                4_096,
+                None,
+                Some("clip.mp4"),
+            )
+            .with_poster(poster.id),
+        )
+        .await?;
+    let command = binding_command(fixture, message_id, std::slice::from_ref(&video));
+    let repository = fixture.repository();
+    let transactions = fixture.transactions();
+    let mut transaction = transactions.begin().await?;
+    let attachments = repository
+        .bind_message_media(transaction.as_mut(), &command)
+        .await?;
+    transactions.commit(transaction).await?;
+
+    assert_eq!(attachments.len(), 1);
+    assert_eq!(attachments[0].media_upload_id, video.id);
+    assert_eq!(attachments[0].poster_media_id, Some(poster.id));
+    assert_eq!(
+        upload_state(&fixture.pool, poster.id).await?,
+        ("bound".to_owned(), Some(message_id), true)
+    );
+    assert_eq!(
+        upload_state(&fixture.pool, video.id).await?,
+        ("bound".to_owned(), Some(message_id), true)
+    );
+    // Posters never own a message_media row of their own.
+    assert_eq!(message_media_count(&fixture.pool, message_id).await?, 1);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM message_media WHERE media_upload_id = $1"
+        )
+        .bind(poster.id)
+        .fetch_one(&fixture.pool)
+        .await?,
+        0
+    );
+    Ok(())
+}
+
+async fn expired_poster_case(fixture: &MessageBindingFixture) -> TestResult {
+    let message_id = fixture.insert_message(None).await?;
+    let poster = fixture
+        .insert_upload(UploadSpec::expired(
+            fixture.actor_id,
+            fixture.chatroom_id,
+            "image/jpeg",
+            512,
+        ))
+        .await?;
+    let video = fixture
+        .insert_upload(
+            UploadSpec::confirmed(
+                fixture.actor_id,
+                fixture.chatroom_id,
+                "video/mp4",
+                4_096,
+                None,
+                Some("clip.mp4"),
+            )
+            .with_poster(poster.id),
+        )
+        .await?;
+    let command = binding_command(fixture, message_id, std::slice::from_ref(&video));
+    let repository = fixture.repository();
+    let transactions = fixture.transactions();
+    let mut transaction = transactions.begin().await?;
+    let attachments = repository
+        .bind_message_media(transaction.as_mut(), &command)
+        .await?;
+    transactions.commit(transaction).await?;
+
+    assert_eq!(attachments.len(), 1);
+    assert_eq!(attachments[0].media_upload_id, video.id);
+    assert_eq!(attachments[0].poster_media_id, None);
+    assert_eq!(
+        upload_state(&fixture.pool, video.id).await?,
+        ("bound".to_owned(), Some(message_id), true)
+    );
+    // The expired poster is left untouched: still confirmed, never consumed.
+    assert_eq!(
+        upload_state(&fixture.pool, poster.id).await?,
+        ("confirmed".to_owned(), None, false)
+    );
+    assert_eq!(upload_poster_link(&fixture.pool, video.id).await?, None);
+    assert_eq!(message_media_count(&fixture.pool, message_id).await?, 1);
+    Ok(())
+}
+
 async fn assert_binding_error(
     fixture: &MessageBindingFixture,
     command: &BindMessageMediaCommand,
@@ -510,6 +636,7 @@ struct UploadSpec<'a> {
     duration_seconds: Option<u64>,
     filename: Option<&'a str>,
     status: SeedStatus,
+    poster_upload_id: Option<Uuid>,
 }
 
 impl<'a> UploadSpec<'a> {
@@ -529,6 +656,7 @@ impl<'a> UploadSpec<'a> {
             duration_seconds,
             filename,
             status: SeedStatus::Confirmed,
+            poster_upload_id: None,
         }
     }
 
@@ -541,6 +669,7 @@ impl<'a> UploadSpec<'a> {
             duration_seconds: None,
             filename: None,
             status: SeedStatus::Expired,
+            poster_upload_id: None,
         }
     }
 
@@ -553,7 +682,13 @@ impl<'a> UploadSpec<'a> {
             duration_seconds: None,
             filename: None,
             status: SeedStatus::Pending,
+            poster_upload_id: None,
         }
+    }
+
+    fn with_poster(mut self, poster_upload_id: Uuid) -> Self {
+        self.poster_upload_id = Some(poster_upload_id);
+        self
     }
 }
 
@@ -648,8 +783,8 @@ impl MessageBindingFixture {
         sqlx::query(
             "INSERT INTO media_uploads \
                  (id, user_id, object_key, scope, target_id, content_type, byte_size, duration, \
-                  filename, status, confirmed_at, expires_at, created_at) \
-             VALUES ($1, $2, $3, 'chat', $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+                  filename, status, confirmed_at, expires_at, created_at, poster_upload_id) \
+             VALUES ($1, $2, $3, 'chat', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
         )
         .bind(id)
         .bind(spec.user_id)
@@ -663,6 +798,7 @@ impl MessageBindingFixture {
         .bind(confirmed_at)
         .bind(expires_at)
         .bind(created_at)
+        .bind(spec.poster_upload_id)
         .execute(&self.pool)
         .await?;
 
@@ -733,6 +869,15 @@ async fn upload_state(pool: &PgPool, upload_id: Uuid) -> TestResult<(String, Opt
     .bind(upload_id)
     .fetch_one(pool)
     .await?)
+}
+
+async fn upload_poster_link(pool: &PgPool, upload_id: Uuid) -> TestResult<Option<Uuid>> {
+    Ok(
+        sqlx::query_scalar("SELECT poster_upload_id FROM media_uploads WHERE id = $1")
+            .bind(upload_id)
+            .fetch_one(pool)
+            .await?,
+    )
 }
 
 async fn message_media_count(pool: &PgPool, message_id: Uuid) -> TestResult<i64> {

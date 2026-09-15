@@ -12,7 +12,7 @@ use jamye_server::{
     ports::{
         media::{
             ConfirmedUploadRecord, CreateUploadIntentCommand, FinalizeUploadCommand,
-            MediaRepository, MediaRepositoryError, MediaRepositoryFuture,
+            MediaRepository, MediaRepositoryError, MediaRepositoryFuture, PosterCandidateRecord,
             PrepareUploadFinalizeQuery, TopicMediaBindingRecord, UploadFinalizePreparation,
             UploadFinalizeRecord, UploadIntentRecord,
         },
@@ -138,6 +138,7 @@ async fn chat_finalize_inspects_before_one_transaction_and_returns_unbound() {
             upload_id: upload_id(),
             width: None,
             height: None,
+            poster_upload_id: None,
         }]
     );
     assert_eq!(
@@ -149,7 +150,12 @@ async fn chat_finalize_inspects_before_one_transaction_and_returns_unbound() {
     );
     assert!(matches!(
         harness.repository.finalizations().as_slice(),
-        [FinalizeUploadCommand::Chat { actor_id: actor, upload_id: upload, finalized }]
+        [FinalizeUploadCommand::Chat {
+            actor_id: actor,
+            upload_id: upload,
+            finalized,
+            poster_upload_id: None,
+        }]
             if *actor == actor_id()
                 && *upload == upload_id()
                 && finalized.content_type == "image/jpeg"
@@ -279,6 +285,91 @@ async fn exact_retry_returns_the_canonical_result_without_io_or_new_transaction(
     }
 }
 
+#[tokio::test]
+async fn valid_poster_upload_id_is_accepted_and_carried_into_the_finalize_command() {
+    let poster = valid_poster_candidate();
+    let harness = Harness::new_with_poster(
+        poster.clone(),
+        InspectMode::VideoSuccess,
+        FinalizeMode::Success,
+        PromoteMode::Success,
+    );
+
+    let result = harness
+        .service
+        .finalize_upload(
+            actor_id(),
+            upload_id(),
+            UploadFinalizeInput {
+                width: None,
+                height: None,
+                poster_upload_id: Some(poster.id),
+            },
+        )
+        .await;
+    assert!(
+        result.is_ok(),
+        "valid poster finalize unexpectedly failed: {result:?}"
+    );
+    assert!(matches!(
+        harness.repository.finalizations().as_slice(),
+        [FinalizeUploadCommand::Chat { poster_upload_id: Some(id), .. }] if *id == poster.id
+    ));
+}
+
+#[tokio::test]
+async fn invalid_poster_upload_id_is_rejected_before_any_object_access_or_transaction() {
+    let mut poster = valid_poster_candidate();
+    poster.already_linked = true;
+    let harness = Harness::new_with_poster(
+        poster.clone(),
+        InspectMode::VideoSuccess,
+        FinalizeMode::Success,
+        PromoteMode::Success,
+    );
+
+    let result = harness
+        .service
+        .finalize_upload(
+            actor_id(),
+            upload_id(),
+            UploadFinalizeInput {
+                width: None,
+                height: None,
+                poster_upload_id: Some(poster.id),
+            },
+        )
+        .await;
+    assert_eq!(result, Err(MediaError::PosterValidation));
+    assert_eq!(harness.calls(), vec![Call::Prepare]);
+}
+
+#[tokio::test]
+async fn unknown_poster_upload_id_is_rejected_before_any_object_access_or_transaction() {
+    let harness = Harness::new(
+        MediaScope::Chat,
+        PrepareMode::PendingVideo,
+        InspectMode::VideoSuccess,
+        FinalizeMode::Success,
+        PromoteMode::Success,
+    );
+
+    let result = harness
+        .service
+        .finalize_upload(
+            actor_id(),
+            upload_id(),
+            UploadFinalizeInput {
+                width: None,
+                height: None,
+                poster_upload_id: Some(poster_id()),
+            },
+        )
+        .await;
+    assert_eq!(result, Err(MediaError::PosterValidation));
+    assert_eq!(harness.calls(), vec![Call::Prepare]);
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Call {
     Prepare,
@@ -293,6 +384,7 @@ enum Call {
 #[derive(Clone, Copy)]
 enum PrepareMode {
     Pending,
+    PendingVideo,
     Existing,
     TargetNotAccessible,
     Conflict,
@@ -301,6 +393,7 @@ enum PrepareMode {
 #[derive(Clone, Copy)]
 enum InspectMode {
     Success,
+    VideoSuccess,
     ContentTypeMismatch,
     Unavailable,
 }
@@ -333,6 +426,40 @@ impl Harness {
         finalize_mode: FinalizeMode,
         promote_mode: PromoteMode,
     ) -> Self {
+        Self::build(
+            scope,
+            prepare_mode,
+            None,
+            inspect_mode,
+            finalize_mode,
+            promote_mode,
+        )
+    }
+
+    fn new_with_poster(
+        poster: PosterCandidateRecord,
+        inspect_mode: InspectMode,
+        finalize_mode: FinalizeMode,
+        promote_mode: PromoteMode,
+    ) -> Self {
+        Self::build(
+            MediaScope::Chat,
+            PrepareMode::PendingVideo,
+            Some(poster),
+            inspect_mode,
+            finalize_mode,
+            promote_mode,
+        )
+    }
+
+    fn build(
+        scope: MediaScope,
+        prepare_mode: PrepareMode,
+        poster: Option<PosterCandidateRecord>,
+        inspect_mode: InspectMode,
+        finalize_mode: FinalizeMode,
+        promote_mode: PromoteMode,
+    ) -> Self {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let transactions = Arc::new(RecordingTransactions::new(calls.clone()));
         let repository = Arc::new(RecordingRepository::new(
@@ -340,6 +467,7 @@ impl Harness {
             scope,
             prepare_mode,
             finalize_mode,
+            poster,
         ));
         let object_storage = Arc::new(RecordingObjectStorage::new(calls.clone(), inspect_mode));
         let topics = Arc::new(RecordingTopicsRepository::new(calls.clone(), promote_mode));
@@ -409,6 +537,7 @@ struct RecordingRepository {
     scope: MediaScope,
     prepare_mode: PrepareMode,
     finalize_mode: FinalizeMode,
+    poster: Option<PosterCandidateRecord>,
     preparations: Mutex<Vec<PrepareUploadFinalizeQuery>>,
     finalizations: Mutex<Vec<FinalizeUploadCommand>>,
 }
@@ -419,12 +548,14 @@ impl RecordingRepository {
         scope: MediaScope,
         prepare_mode: PrepareMode,
         finalize_mode: FinalizeMode,
+        poster: Option<PosterCandidateRecord>,
     ) -> Self {
         Self {
             calls,
             scope,
             prepare_mode,
             finalize_mode,
+            poster,
             preparations: Mutex::new(Vec::new()),
             finalizations: Mutex::new(Vec::new()),
         }
@@ -456,11 +587,17 @@ impl MediaRepository for RecordingRepository {
         crate::lock_test_mutex(&self.preparations, "preparation").push(*query);
         let mode = self.prepare_mode;
         let scope = self.scope;
+        let poster = self.poster.clone();
         Box::pin(async move {
             match mode {
-                PrepareMode::Pending => {
-                    Ok(UploadFinalizePreparation::Pending(pending_upload(scope)))
-                }
+                PrepareMode::Pending => Ok(UploadFinalizePreparation::Pending {
+                    upload: pending_upload(scope),
+                    poster: None,
+                }),
+                PrepareMode::PendingVideo => Ok(UploadFinalizePreparation::Pending {
+                    upload: pending_video_upload(),
+                    poster,
+                }),
                 PrepareMode::Existing => Ok(UploadFinalizePreparation::Existing(
                     repository_result(scope),
                 )),
@@ -534,6 +671,11 @@ impl MediaObjectStorage for RecordingObjectStorage {
                 InspectMode::Success => Ok(InspectedObject {
                     content_type: Some("image/jpeg".to_owned()),
                     byte_size: Some(1_024),
+                    audio_duration: None,
+                }),
+                InspectMode::VideoSuccess => Ok(InspectedObject {
+                    content_type: Some("video/mp4".to_owned()),
+                    byte_size: Some(4_096),
                     audio_duration: None,
                 }),
                 InspectMode::ContentTypeMismatch => Ok(InspectedObject {
@@ -671,7 +813,43 @@ fn confirmed_upload(scope: MediaScope) -> ConfirmedUploadRecord {
         duration_seconds: None,
         filename: upload.filename,
         confirmed_at: OffsetDateTime::UNIX_EPOCH + time::Duration::minutes(1),
+        poster_upload_id: None,
     }
+}
+
+fn pending_video_upload() -> UploadIntentRecord {
+    UploadIntentRecord {
+        id: upload_id(),
+        user_id: actor_id(),
+        scope: MediaScope::Chat,
+        target_id: target_id(),
+        object_key: object_key(MediaScope::Chat),
+        kind: MediaKind::Video,
+        content_type: "video/mp4".to_owned(),
+        byte_size: 4_096,
+        filename: Some(" 여름/영상.mp4 ".to_owned()),
+        expires_at: OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1),
+        created_at: OffsetDateTime::UNIX_EPOCH,
+    }
+}
+
+fn valid_poster_candidate() -> PosterCandidateRecord {
+    PosterCandidateRecord {
+        id: poster_id(),
+        user_id: actor_id(),
+        scope: MediaScope::Chat,
+        target_id: target_id(),
+        kind: MediaKind::Image,
+        content_type: "image/jpeg".to_owned(),
+        byte_size: 2_048,
+        status_confirmed: true,
+        already_linked: false,
+        has_own_poster: false,
+    }
+}
+
+fn poster_id() -> Uuid {
+    Uuid::from_u128(0xeeeeeeee_eeee_4eee_8eee_eeeeeeeeeeee)
 }
 
 fn topic_media() -> TopicMediaBindingRecord {
@@ -718,6 +896,7 @@ fn topic_input() -> UploadFinalizeInput {
     UploadFinalizeInput {
         width: Some(800),
         height: Some(600),
+        poster_upload_id: None,
     }
 }
 

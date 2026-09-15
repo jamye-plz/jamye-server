@@ -114,7 +114,8 @@ fn md1_through_md5_contract_contribution_matches_the_selected_inventory() -> Tes
             "height",
             "duration",
             "filename",
-            "position"
+            "position",
+            "poster_media_id"
         ])
     );
     assert!(

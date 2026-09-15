@@ -17,6 +17,9 @@ pub const MAX_FILENAME_CHARS: usize = 255;
 pub const PRESIGNED_PUT_TTL_SECONDS: u64 = 3_600;
 pub const PRESIGNED_GET_TTL_SECONDS: u64 = 600;
 
+pub const POSTER_CONTENT_TYPE: &str = "image/jpeg";
+pub const MAX_POSTER_BYTES: u64 = 1024 * 1024;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MediaScope {
     Chat,
@@ -176,6 +179,76 @@ pub fn validate_finalized_object(
         byte_size,
         duration_seconds,
     })
+}
+
+/// Poster candidate metadata resolved from the poster upload's own row, prior to
+/// linking it to a chat video during that video's finalize.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PosterCandidate {
+    pub kind: MediaKind,
+    pub content_type: String,
+    pub byte_size: u64,
+    pub status_confirmed: bool,
+    pub scope: MediaScope,
+    pub target_id: Uuid,
+    pub user_id: Uuid,
+    pub already_linked: bool,
+    pub has_own_poster: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PosterPolicyError {
+    VideoOnly,
+    ChatScopeOnly,
+    PosterNotImage,
+    PosterContentType,
+    PosterTooLarge,
+    PosterNotConfirmed,
+    PosterOwnerMismatch,
+    PosterTargetMismatch,
+    PosterAlreadyLinked,
+    PosterHasPoster,
+}
+
+/// Validate that `poster` is eligible to be linked as the poster of `video` during
+/// the video's finalize. Only confirmed chat-scope video uploads may carry a poster.
+pub fn validate_poster_link(
+    video: &ValidatedUpload,
+    video_user_id: Uuid,
+    video_target_id: Uuid,
+    poster: &PosterCandidate,
+) -> Result<(), PosterPolicyError> {
+    if video.scope != MediaScope::Chat {
+        return Err(PosterPolicyError::ChatScopeOnly);
+    }
+    if video.kind != MediaKind::Video {
+        return Err(PosterPolicyError::VideoOnly);
+    }
+    if poster.kind != MediaKind::Image {
+        return Err(PosterPolicyError::PosterNotImage);
+    }
+    if poster.content_type != POSTER_CONTENT_TYPE {
+        return Err(PosterPolicyError::PosterContentType);
+    }
+    if poster.byte_size > MAX_POSTER_BYTES {
+        return Err(PosterPolicyError::PosterTooLarge);
+    }
+    if !poster.status_confirmed {
+        return Err(PosterPolicyError::PosterNotConfirmed);
+    }
+    if poster.user_id != video_user_id {
+        return Err(PosterPolicyError::PosterOwnerMismatch);
+    }
+    if poster.scope != video.scope || poster.target_id != video_target_id {
+        return Err(PosterPolicyError::PosterTargetMismatch);
+    }
+    if poster.already_linked {
+        return Err(PosterPolicyError::PosterAlreadyLinked);
+    }
+    if poster.has_own_poster {
+        return Err(PosterPolicyError::PosterHasPoster);
+    }
+    Ok(())
 }
 
 /// Mint a server-owned key whose namespace binds it to the authorized target scope.

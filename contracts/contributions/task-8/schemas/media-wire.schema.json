@@ -24,12 +24,13 @@
         "id": { "format": "uuid", "type": "string" },
         "kind": { "$ref": "#/$defs/MediaKind" },
         "object_key": { "maxLength": 512, "minLength": 1, "type": "string" },
+        "poster_upload_id": { "format": "uuid", "type": ["string", "null"] },
         "scope": { "$ref": "#/$defs/MediaScope" },
         "target_id": { "format": "uuid", "type": "string" }
       },
       "required": [
         "id", "scope", "target_id", "object_key", "kind", "content_type",
-        "byte_size", "duration", "filename", "confirmed_at"
+        "byte_size", "duration", "filename", "confirmed_at", "poster_upload_id"
       ],
       "type": "object"
     },
@@ -79,6 +80,7 @@
         "id": { "format": "uuid", "type": "string" },
         "media_upload_id": { "format": "uuid", "type": "string" },
         "position": { "maximum": 3, "minimum": 0, "type": "integer" },
+        "poster_media_id": { "format": "uuid", "type": ["string", "null"] },
         "type": {
           "enum": [
             "image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4",
@@ -90,7 +92,7 @@
       },
       "required": [
         "id", "media_upload_id", "type", "byte_size", "width", "height",
-        "duration", "filename", "position"
+        "duration", "filename", "position", "poster_media_id"
       ],
       "type": "object"
     },
@@ -148,6 +150,7 @@
       "additionalProperties": false,
       "properties": {
         "height": { "minimum": 1, "type": ["integer", "null"] },
+        "poster_upload_id": { "format": "uuid", "type": ["string", "null"] },
         "width": { "minimum": 1, "type": ["integer", "null"] }
       },
       "type": "object"

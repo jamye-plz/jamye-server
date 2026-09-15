@@ -6,15 +6,16 @@ use uuid::Uuid;
 
 use crate::{
     domain::media::{
-        MediaScope, PRESIGNED_GET_TTL_SECONDS, PRESIGNED_PUT_TTL_SECONDS,
-        download_content_disposition, mint_object_key, validate_finalized_object, validate_upload,
+        MediaScope, PRESIGNED_GET_TTL_SECONDS, PRESIGNED_PUT_TTL_SECONDS, PosterCandidate,
+        download_content_disposition, mint_object_key, validate_finalized_object,
+        validate_poster_link, validate_upload,
     },
     ports::{
         media::{
             AuthorizeMediaAccessQuery, ConfirmedUploadRecord, CreateUploadIntentCommand,
             FinalizeUploadCommand, MediaAccessRecord, MediaRepository, MediaRepositoryError,
-            PrepareUploadFinalizeQuery, TopicMediaBindingRecord, UploadFinalizePreparation,
-            UploadFinalizeRecord, UploadIntentRecord,
+            PosterCandidateRecord, PrepareUploadFinalizeQuery, TopicMediaBindingRecord,
+            UploadFinalizePreparation, UploadFinalizeRecord, UploadIntentRecord,
         },
         object_storage::{
             InspectObjectRequest, MediaObjectStorage, PresignGetRequest, PresignPutRequest,
@@ -222,12 +223,13 @@ impl MediaFinalizeService {
                 upload_id,
                 width: input.width,
                 height: input.height,
+                poster_upload_id: input.poster_upload_id,
             })
             .await
             .map_err(MediaError::from)?;
-        let upload = match preparation {
+        let (upload, poster) = match preparation {
             UploadFinalizePreparation::Existing(record) => return finalize_result(record),
-            UploadFinalizePreparation::Pending(upload) => upload,
+            UploadFinalizePreparation::Pending { upload, poster } => (upload, poster),
         };
 
         let expected = validate_upload(
@@ -240,6 +242,20 @@ impl MediaFinalizeService {
         if expected.kind != upload.kind {
             return Err(MediaError::FinalizeValidation);
         }
+        let poster_upload_id = match input.poster_upload_id {
+            Some(poster_upload_id) => {
+                let poster = poster.ok_or(MediaError::PosterValidation)?;
+                validate_poster_link(
+                    &expected,
+                    upload.user_id,
+                    upload.target_id,
+                    &poster_candidate(poster),
+                )
+                .map_err(|_| MediaError::PosterValidation)?;
+                Some(poster_upload_id)
+            }
+            None => None,
+        };
         let inspected = self
             .dependencies
             .object_storage
@@ -256,6 +272,7 @@ impl MediaFinalizeService {
                 actor_id,
                 upload_id,
                 finalized,
+                poster_upload_id,
             },
             MediaScope::Topic => FinalizeUploadCommand::Topic {
                 actor_id,
@@ -446,6 +463,20 @@ fn scope_name(scope: MediaScope) -> &'static str {
     }
 }
 
+fn poster_candidate(record: PosterCandidateRecord) -> PosterCandidate {
+    PosterCandidate {
+        kind: record.kind,
+        content_type: record.content_type,
+        byte_size: record.byte_size,
+        status_confirmed: record.status_confirmed,
+        scope: record.scope,
+        target_id: record.target_id,
+        user_id: record.user_id,
+        already_linked: record.already_linked,
+        has_own_poster: record.has_own_poster,
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UploadIntentCreateInput {
     pub scope: crate::domain::media::MediaScope,
@@ -465,6 +496,7 @@ pub struct UploadIntentWithPresignedPut {
 pub struct UploadFinalizeInput {
     pub width: Option<u32>,
     pub height: Option<u32>,
+    pub poster_upload_id: Option<Uuid>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -502,6 +534,7 @@ pub enum MediaError {
     TargetNotAccessible,
     FinalizeConflict,
     FinalizeValidation,
+    PosterValidation,
     DatabaseUnavailable,
     ObjectStorageDegraded,
     InvalidConfiguration,

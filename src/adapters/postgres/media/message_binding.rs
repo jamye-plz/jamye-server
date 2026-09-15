@@ -189,7 +189,7 @@ async fn lock_uploads_in_request_order(
         "SELECT upload.id, upload.user_id, upload.object_key, upload.scope, upload.target_id, \
                 upload.content_type, upload.byte_size, upload.duration, upload.filename, \
                 upload.status, upload.bound_message_id, upload.bound_topic_media_id, \
-                upload.confirmed_at, upload.consumed_at, \
+                upload.confirmed_at, upload.consumed_at, upload.poster_upload_id, \
                 upload.expires_at > clock_timestamp() AS is_live \
          FROM media_uploads AS upload \
          WHERE upload.id = ANY($1) \
@@ -268,6 +268,13 @@ async fn bind_confirmed_uploads(
             return Err(MediaRepositoryError::FinalizeConflict);
         }
 
+        let poster_media_id = match upload.poster_upload_id {
+            Some(poster_id) => {
+                bind_linked_poster(connection, command, upload.id, poster_id, consumed_at).await?
+            }
+            None => None,
+        };
+
         let row = sqlx::query(
             "INSERT INTO message_media \
                  (id, message_id, media_upload_id, type, object_key, byte_size, duration, \
@@ -289,10 +296,69 @@ async fn bind_confirmed_uploads(
         .fetch_one(&mut *connection)
         .await
         .map_err(|error| message_binding_database_error("message_media_insert", error))?;
-        attachments.push(StoredMessageMedia::from_row(&row)?.into_attachment()?);
+        attachments.push(StoredMessageMedia::from_row(&row)?.into_attachment(poster_media_id)?);
     }
 
     Ok(attachments)
+}
+
+/// Bind the poster upload linked to a video that is being consumed into
+/// `bound_message_id`. Posters keep the existing `media_uploads` status
+/// machine (confirmed -> bound) and never own a `message_media` row of
+/// their own. If the poster no longer satisfies the bind predicate (it
+/// expired, was already consumed, or otherwise vanished), the video's own
+/// `poster_upload_id` link is cleared instead of failing the video bind.
+async fn bind_linked_poster(
+    connection: &mut PgConnection,
+    command: &BindMessageMediaCommand,
+    video_upload_id: Uuid,
+    poster_upload_id: Uuid,
+    consumed_at: OffsetDateTime,
+) -> Result<Option<Uuid>, MediaRepositoryError> {
+    let updated = sqlx::query_scalar::<_, Uuid>(
+        "UPDATE media_uploads AS upload \
+         SET status = 'bound', bound_message_id = $2, consumed_at = $3 \
+         WHERE upload.id = $1 \
+           AND upload.user_id = $4 \
+           AND upload.scope = 'chat' \
+           AND upload.target_id = $5 \
+           AND upload.status = 'confirmed' \
+           AND upload.bound_message_id IS NULL \
+           AND upload.bound_topic_media_id IS NULL \
+           AND upload.consumed_at IS NULL \
+           AND upload.expires_at > $3 \
+         RETURNING upload.id",
+    )
+    .bind(poster_upload_id)
+    .bind(command.message_id)
+    .bind(consumed_at)
+    .bind(command.actor_id)
+    .bind(command.chatroom_id)
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(|error| message_binding_database_error("message_media_poster_consume", error))?;
+
+    if let Some(poster_id) = updated {
+        return Ok(Some(poster_id));
+    }
+
+    tracing::warn!(
+        dependency = "postgres",
+        failure_kind = "poster_unbindable",
+        video_upload_id = %video_upload_id,
+        poster_upload_id = %poster_upload_id,
+        "linked poster upload could not be bound; clearing the video's poster link"
+    );
+    sqlx::query(
+        "UPDATE media_uploads SET poster_upload_id = NULL \
+         WHERE id = $1 AND poster_upload_id = $2",
+    )
+    .bind(video_upload_id)
+    .bind(poster_upload_id)
+    .execute(&mut *connection)
+    .await
+    .map_err(|error| message_binding_database_error("message_media_poster_unlink", error))?;
+    Ok(None)
 }
 
 async fn exact_retry(
@@ -320,7 +386,7 @@ async fn exact_retry(
         {
             return Err(MediaRepositoryError::FinalizeConflict);
         }
-        attachments.push(stored.clone().into_attachment()?);
+        attachments.push(stored.clone().into_attachment(upload.poster_upload_id)?);
     }
     Ok(attachments)
 }
@@ -360,6 +426,7 @@ struct StoredUpload {
     bound_topic_media_id: Option<Uuid>,
     confirmed_at: Option<OffsetDateTime>,
     consumed_at: Option<OffsetDateTime>,
+    poster_upload_id: Option<Uuid>,
     is_live: bool,
 }
 
@@ -381,6 +448,7 @@ impl StoredUpload {
             bound_topic_media_id: required(row, "bound_topic_media_id")?,
             confirmed_at: required(row, "confirmed_at")?,
             consumed_at: required(row, "consumed_at")?,
+            poster_upload_id: required(row, "poster_upload_id")?,
             is_live: required(row, "is_live")?,
         };
         if scope != "chat"
@@ -470,7 +538,10 @@ impl StoredMessageMedia {
         })
     }
 
-    fn into_attachment(self) -> Result<MessageAttachment, MediaRepositoryError> {
+    fn into_attachment(
+        self,
+        poster_media_id: Option<Uuid>,
+    ) -> Result<MessageAttachment, MediaRepositoryError> {
         Ok(MessageAttachment {
             id: self.id,
             media_upload_id: self.media_upload_id,
@@ -481,6 +552,7 @@ impl StoredMessageMedia {
             duration: checked_optional_u64(self.duration)?,
             filename: self.filename,
             position: u8::try_from(self.position).map_err(|_| MediaRepositoryError::InvalidData)?,
+            poster_media_id,
         })
     }
 }
