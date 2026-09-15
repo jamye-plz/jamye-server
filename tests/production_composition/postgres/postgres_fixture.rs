@@ -195,9 +195,16 @@ impl PostgresFixture {
             )
             .await;
         match result {
-            Ok(outcome) => {
+            Ok(jamye_server::ports::messaging::PersistMessageOutcome::Created(message)) => {
+                let persisted = repository
+                    .record_created_event(transaction.as_mut(), &message)
+                    .await?;
                 transactions.commit(transaction).await?;
-                Ok(outcome.into_persisted())
+                Ok(persisted)
+            }
+            Ok(jamye_server::ports::messaging::PersistMessageOutcome::Existing(persisted)) => {
+                transactions.commit(transaction).await?;
+                Ok(persisted)
             }
             Err(error) => {
                 transactions.rollback(transaction).await?;
@@ -249,6 +256,13 @@ impl MessagingRepository for FaultingPostgresRepositories {
         query: DeltaQuery,
     ) -> MessagingFuture<'_, jamye_server::domain::messaging::EventPage> {
         self.messaging.events(query)
+    }
+    fn record_created_event<'a>(
+        &'a self,
+        handle: &'a mut dyn jamye_server::ports::transactions::TransactionHandle,
+        message: &'a jamye_server::domain::messaging::CanonicalMessage,
+    ) -> MessagingFuture<'a, jamye_server::ports::messaging::PersistedMessage> {
+        self.messaging.record_created_event(handle, message)
     }
 }
 impl MediaRepository for FaultingPostgresRepositories {

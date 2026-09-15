@@ -2,6 +2,7 @@ pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Step {
+    MessageInsert,
     MessageEventOutbox,
     MessageMediaBinding,
     MessageNotificationPush,
@@ -71,26 +72,39 @@ impl MessagingRepository for RecordingRepositories {
         handle: &'a mut dyn TransactionHandle,
         command: &'a SendMessageCommand,
     ) -> MessagingFuture<'a, PersistMessageOutcome> {
-        let failed = self.record(handle, Step::MessageEventOutbox);
+        let failed = self.record(handle, Step::MessageInsert);
         let message = canonical_message(command);
-        // This is part of the simulated messaging operation result, not a
-        // second caller-supplied notification input. It is intentionally not
-        // the canonical message id so UoW tests detect the wrong identity.
-        let source_event_id = Uuid::from_u128(2);
         Box::pin(async move {
             if failed {
                 Err(MessagingRepositoryError::DatabaseUnavailable)
             } else {
-                Ok(PersistMessageOutcome::Created(PersistedMessage::new(
-                    message,
-                    source_event_id,
-                )))
+                Ok(PersistMessageOutcome::Created(message))
             }
         })
     }
 
     fn events(&self, _query: DeltaQuery) -> MessagingFuture<'_, EventPage> {
         Box::pin(async { Err(MessagingRepositoryError::DatabaseUnavailable) })
+    }
+
+    fn record_created_event<'a>(
+        &'a self,
+        handle: &'a mut dyn TransactionHandle,
+        message: &'a CanonicalMessage,
+    ) -> MessagingFuture<'a, PersistedMessage> {
+        let failed = self.record(handle, Step::MessageEventOutbox);
+        // This is part of the simulated messaging operation result, not a
+        // second caller-supplied notification input. It is intentionally not
+        // the canonical message id so UoW tests detect the wrong identity.
+        let source_event_id = Uuid::from_u128(2);
+        let message = message.clone();
+        Box::pin(async move {
+            if failed {
+                Err(MessagingRepositoryError::DatabaseUnavailable)
+            } else {
+                Ok(PersistedMessage::new(message, source_event_id))
+            }
+        })
     }
 }
 
@@ -427,6 +441,8 @@ fn canonical_message(command: &SendMessageCommand) -> CanonicalMessage {
         id: id(),
         chatroom_id: command.chatroom_id,
         sender_id: Some(command.sender_id),
+        sender_nickname: None,
+        sender_avatar_url: None,
         client_msg_id: Some(command.client_msg_id),
         body: command.body.clone(),
         message_type: MessageKind::User,

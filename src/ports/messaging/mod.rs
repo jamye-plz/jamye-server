@@ -26,24 +26,36 @@ pub trait MessagingRepository: Send + Sync {
     fn delivery_context<'a>(
         &'a self,
         _handle: &'a mut dyn TransactionHandle,
-        _message: &'a PersistedMessage,
+        _message: &'a CanonicalMessage,
     ) -> MessagingFuture<'a, MessageDeliveryContext> {
+        Box::pin(async { Err(MessagingRepositoryError::DatabaseUnavailable) })
+    }
+
+    /// Records the conversation-event/outbox row for a message that `send`
+    /// already inserted but deliberately left event-less, so the caller can
+    /// bind media (and thus finalize `message.media`) before the event's
+    /// payload is written. Callers must invoke this exactly once per newly
+    /// `Created` message, after media binding and before recording any
+    /// notification for it.
+    fn record_created_event<'a>(
+        &'a self,
+        _handle: &'a mut dyn TransactionHandle,
+        _message: &'a CanonicalMessage,
+    ) -> MessagingFuture<'a, PersistedMessage> {
         Box::pin(async { Err(MessagingRepositoryError::DatabaseUnavailable) })
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PersistMessageOutcome {
-    Created(PersistedMessage),
+    /// The message row was just inserted. No conversation-event/outbox row
+    /// exists for it yet -- the caller must bind media and then call
+    /// `MessagingRepository::record_created_event` before this message is
+    /// visible to any delta/realtime consumer.
+    Created(CanonicalMessage),
+    /// An idempotent retry matched an existing message row; its
+    /// conversation-event was already recorded at original send time.
     Existing(PersistedMessage),
-}
-
-impl PersistMessageOutcome {
-    pub fn into_persisted(self) -> PersistedMessage {
-        match self {
-            Self::Created(message) | Self::Existing(message) => message,
-        }
-    }
 }
 
 /// Repository-internal send result. It is deliberately distinct from the

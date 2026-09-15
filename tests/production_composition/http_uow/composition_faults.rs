@@ -86,7 +86,7 @@ async fn http_prebridge_golden_error_envelopes_remain_exact_for_all_three_bridge
             &message,
             "messaging created",
             StatusCode::CREATED,
-            r#"{"id":"<resource_uuid>","chatroom_id":"<resource_uuid>","sender_id":"<resource_uuid>","client_msg_id":"<resource_uuid>","body":"Task-12 golden message","type":"user","created_at":"<timestamp>","media":[]}"#,
+            r#"{"id":"<resource_uuid>","chatroom_id":"<resource_uuid>","sender_id":"<resource_uuid>","sender_nickname":"Task-12 author","sender_avatar_url":null,"client_msg_id":"<resource_uuid>","body":"Task-12 golden message","type":"user","created_at":"<timestamp>","media":[]}"#,
         )?;
 
         let topic_key = Uuid::new_v4();

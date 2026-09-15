@@ -19,7 +19,7 @@ use crate::{
             AuthoritativeMessageMediaCommand, BindMessageMediaCommand, BindMessageMediaItem,
             MediaRepository, MediaRepositoryError,
         },
-        messaging::{MessageDeliveryContext, PersistedMessage},
+        messaging::{MessageDeliveryContext, PersistMessageOutcome, PersistedMessage},
         push::{
             ClearTopicNotificationsCommand, NotificationEventsRepository,
             RecordMessageNotificationCommand, RecordTopicNotificationCommand,
@@ -55,25 +55,45 @@ impl TransactionCompositions {
     ) -> Result<(), TransactionCompositionError> {
         let mut transaction = self.begin().await?;
         let result = async {
-            let persisted = self
+            let outcome = self
                 .dependencies
                 .messaging
                 .send_command_in_transaction(transaction.as_mut(), &input.message)
                 .await
-                .map_err(|_| TransactionCompositionError::FeatureOperationFailed)?
-                .into_persisted();
-            let notification = input.notification_for(&persisted)?;
+                .map_err(|_| TransactionCompositionError::FeatureOperationFailed)?;
+            let (mut message, existing_event_id) = match outcome {
+                PersistMessageOutcome::Created(message) => (message, None),
+                PersistMessageOutcome::Existing(persisted) => (
+                    persisted.message().clone(),
+                    Some(persisted.source_event_id()),
+                ),
+            };
             let media = BindMessageMediaCommand {
                 actor_id: input.message.sender_id,
-                chatroom_id: persisted.message().chatroom_id,
-                message_id: persisted.message().id,
-                media: input.media,
+                chatroom_id: message.chatroom_id,
+                message_id: message.id,
+                media: input.media.clone(),
             };
-            self.dependencies
+            let attachments = self
+                .dependencies
                 .media
                 .bind_message_media(transaction.as_mut(), &media)
                 .await
                 .map_err(|_| TransactionCompositionError::FeatureOperationFailed)?;
+            message.media = attachments;
+            // Media is bound (and `message.media` finalized) before the
+            // event/outbox row is ever written, so every realtime/delta
+            // consumer sees the final attachment list, not an empty one.
+            let persisted = match existing_event_id {
+                Some(source_event_id) => PersistedMessage::new(message, source_event_id),
+                None => self
+                    .dependencies
+                    .messaging
+                    .record_created_event_in_transaction(transaction.as_mut(), &message)
+                    .await
+                    .map_err(|_| TransactionCompositionError::FeatureOperationFailed)?,
+            };
+            let notification = input.notification_for(&persisted)?;
             self.dependencies
                 .notifications
                 .record_message_created(transaction.as_mut(), &notification)
@@ -150,12 +170,11 @@ impl TransactionCompositions {
                 .messaging
                 .send_http_command_in_transaction(transaction.as_mut(), &command)
                 .await?;
-            let outcome = composed.outcome;
-            let created = matches!(
-                &outcome,
-                crate::ports::messaging::PersistMessageOutcome::Created(_)
-            );
-            let persisted = outcome.into_persisted();
+            let created = matches!(&composed.outcome, PersistMessageOutcome::Created(_));
+            let message_id = match &composed.outcome {
+                PersistMessageOutcome::Created(message) => message.id,
+                PersistMessageOutcome::Existing(persisted) => persisted.message().id,
+            };
             let attachments = self
                 .dependencies
                 .media
@@ -164,12 +183,26 @@ impl TransactionCompositions {
                     &AuthoritativeMessageMediaCommand {
                         actor_id,
                         chatroom_id: command.chatroom_id,
-                        message_id: persisted.message().id,
+                        message_id,
                         upload_ids: input.media_upload_ids,
                     },
                 )
                 .await
                 .map_err(map_media_error)?;
+            // Media is bound (and the message's final attachment list known)
+            // before a `Created` message's event/outbox row is written, so
+            // the stored payload -- and every realtime/delta consumer that
+            // reads it back -- carries the real media, not an empty list.
+            let persisted = match composed.outcome {
+                PersistMessageOutcome::Created(mut message) => {
+                    message.media = attachments.clone();
+                    self.dependencies
+                        .messaging
+                        .record_created_event_in_transaction(transaction.as_mut(), &message)
+                        .await?
+                }
+                PersistMessageOutcome::Existing(persisted) => persisted,
+            };
             match composed.delivery_context {
                 MessageDeliveryContext::Main => {}
                 MessageDeliveryContext::Topic {

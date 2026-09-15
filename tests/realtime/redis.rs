@@ -134,6 +134,8 @@ fn message_event() -> MessageCreatedEvent {
             id: Uuid::new_v4(),
             chatroom_id: conversation_id,
             sender_id: Some(Uuid::new_v4()),
+            sender_nickname: None,
+            sender_avatar_url: None,
             client_msg_id: Some(Uuid::new_v4()),
             body: Some("task-4b redis".to_owned()),
             message_type: MessageKind::User,

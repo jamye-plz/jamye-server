@@ -23,6 +23,8 @@ type MessageRow = (
     Option<Uuid>,
     Option<String>,
     OffsetDateTime,
+    Option<String>,
+    Option<String>,
 );
 
 pub(super) async fn persist(
@@ -39,19 +41,22 @@ pub(super) async fn persist(
     let Some(row) = inserted else {
         return existing_message(connection, command).await;
     };
-    let message = canonical_message(row);
-    let canonical_event_id = persist_event_and_outbox(connection, &message).await?;
-    Ok(PersistMessageOutcome::Created(PersistedMessage::new(
-        message,
-        canonical_event_id,
-    )))
+    Ok(PersistMessageOutcome::Created(canonical_message(row)))
+}
+
+pub(super) async fn record_created_event(
+    handle: &mut dyn TransactionHandle,
+    message: &CanonicalMessage,
+) -> Result<PersistedMessage, MessagingRepositoryError> {
+    let connection = connection(handle).map_err(|_| database_error("transaction_handle"))?;
+    let canonical_event_id = persist_event_and_outbox(connection, message).await?;
+    Ok(PersistedMessage::new(message.clone(), canonical_event_id))
 }
 
 pub(super) async fn delivery_context(
     connection: &mut PgConnection,
-    persisted: &PersistedMessage,
+    message: &CanonicalMessage,
 ) -> Result<MessageDeliveryContext, MessagingRepositoryError> {
-    let message = persisted.message();
     let row = sqlx::query_as::<_, (Uuid, String, Option<Uuid>, String)>(
         "SELECT chatroom.group_id, chatroom.type, chatroom.topic_id, sender.nickname \
          FROM messages AS message \
@@ -126,11 +131,18 @@ async fn insert_message(
     created_at: OffsetDateTime,
 ) -> Result<Option<MessageRow>, MessagingRepositoryError> {
     sqlx::query_as::<_, MessageRow>(
-        "INSERT INTO messages (id, chatroom_id, sender_id, client_msg_id, body, type, created_at) \
-         VALUES ($1, $2, $3, $4, $5, 'user', $6) \
-         ON CONFLICT (sender_id, client_msg_id) WHERE client_msg_id IS NOT NULL \
-         DO NOTHING \
-         RETURNING id, chatroom_id, sender_id, client_msg_id, body, created_at",
+        "WITH inserted_message AS ( \
+             INSERT INTO messages (id, chatroom_id, sender_id, client_msg_id, body, type, created_at) \
+             VALUES ($1, $2, $3, $4, $5, 'user', $6) \
+             ON CONFLICT (sender_id, client_msg_id) WHERE client_msg_id IS NOT NULL \
+             DO NOTHING \
+             RETURNING id, chatroom_id, sender_id, client_msg_id, body, created_at \
+         ) \
+         SELECT inserted_message.id, inserted_message.chatroom_id, inserted_message.sender_id, \
+                inserted_message.client_msg_id, inserted_message.body, inserted_message.created_at, \
+                sender.nickname, sender.avatar_url \
+         FROM inserted_message \
+         LEFT JOIN users AS sender ON sender.id = inserted_message.sender_id",
     )
     .bind(id)
     .bind(command.chatroom_id)
@@ -148,9 +160,11 @@ async fn existing_message(
     command: &SendMessageCommand,
 ) -> Result<PersistMessageOutcome, MessagingRepositoryError> {
     let row = sqlx::query_as::<_, MessageRow>(
-        "SELECT id, chatroom_id, sender_id, client_msg_id, body, created_at \
+        "SELECT messages.id, messages.chatroom_id, messages.sender_id, messages.client_msg_id, \
+                messages.body, messages.created_at, sender.nickname, sender.avatar_url \
          FROM messages \
-         WHERE sender_id = $1 AND client_msg_id = $2",
+         LEFT JOIN users AS sender ON sender.id = messages.sender_id \
+         WHERE messages.sender_id = $1 AND messages.client_msg_id = $2",
     )
     .bind(command.sender_id)
     .bind(command.client_msg_id)
@@ -240,6 +254,8 @@ fn canonical_message(row: MessageRow) -> CanonicalMessage {
         id: row.0,
         chatroom_id: row.1,
         sender_id: row.2,
+        sender_nickname: row.6,
+        sender_avatar_url: row.7,
         client_msg_id: row.3,
         body: row.4,
         message_type: MessageKind::User,
