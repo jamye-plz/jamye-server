@@ -146,7 +146,7 @@ task-4b 전까지 이 feature-local router는 중앙 API composition이나 binar
 
 ## 7. 미디어와 음성
 
-MinIO bucket은 private이고 app에는 MinIO credential을 전달하지 않는다. upload intent를 DB에 기록한 뒤 short-lived presigned PUT을 발급하고, finalize에서 사용자·대상·MIME·크기·만료와 object HEAD 결과를 검증한다. 조회는 membership 검증 후 short-lived presigned GET을 재발급한다.
+MinIO bucket은 private이고 app에는 MinIO credential을 전달하지 않는다. upload intent를 DB에 기록한 뒤 short-lived presigned PUT을 발급하고, finalize에서 사용자·대상·MIME·크기·만료와 object HEAD 결과를 검증한다. 조회는 membership 검증 후 short-lived presigned GET을 재발급한다. 채팅 영상 업로드는 finalize 시 발신 단말이 만든 JPEG 포스터(`poster_upload_id`, `image/jpeg` ≤1 MiB, ≤640px)를 연결할 수 있으며, 포스터는 메시지 바인딩 때 영상과 함께 bound 상태로 전이해 `MessageAttachment.poster_media_id`(nullable)로 노출되고 접근 시 영상과 같은 membership 검사를 받는다([ADR 0009](adr/0009-media-posters.md)).
 
 음성 메시지는 body 없이 정확히 audio media 한 개를 가진 일반 message다. 동일한 message transaction, history, delta sync, `message.created`, authorized presigned GET 경로를 사용한다. STT field, job, event, worker, Python runtime은 이번 작업과 C2에 없다.
 
