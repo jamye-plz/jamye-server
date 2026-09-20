@@ -111,10 +111,15 @@ async fn request_maps_identifier_only_handoff_and_optional_preview_to_one_expo_m
         "conversation_id": CONVERSATION_ID,
         "message_id": MESSAGE_ID
     });
+    // Every message is user-visible: a data-only Expo message (no title or
+    // body) is delivered silently on iOS. Without a preview the body is a
+    // generic sentence; the preview replaces only the body, never the title.
     assert_eq!(
         requests[0].body,
         json!({
             "to": EXPO_TOKEN,
+            "title": "새 메시지",
+            "body": "새 메시지가 도착했습니다.",
             "data": route
         })
     );
@@ -122,8 +127,9 @@ async fn request_maps_identifier_only_handoff_and_optional_preview_to_one_expo_m
         requests[1].body,
         json!({
             "to": EXPO_TOKEN,
-            "data": route,
-            "body": PREVIEW
+            "title": "새 메시지",
+            "body": PREVIEW,
+            "data": route
         })
     );
     Ok(())
