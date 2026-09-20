@@ -6,7 +6,8 @@ use reqwest::{Client, redirect::Policy};
 use url::Url;
 
 use crate::ports::push::{
-    PushProvider, PushProviderError, PushProviderFuture, PushProviderOutcome, PushProviderRequest,
+    NotificationType, PushProvider, PushProviderError, PushProviderFuture, PushProviderOutcome,
+    PushProviderRequest,
 };
 
 pub const EXPO_PUSH_SEND_URL: &str = "https://exp.host/--/api/v2/push/send";
@@ -55,16 +56,7 @@ impl ExpoPushProvider {
         &self,
         request: &PushProviderRequest,
     ) -> Result<PushProviderOutcome, PushProviderError> {
-        let message = ExpoMessage {
-            to: request.destination.token(),
-            data: ExpoRoute {
-                notification_type: request.route.notification_type.as_str(),
-                notification_id: request.route.notification_id,
-                conversation_id: request.route.conversation_id,
-                message_id: request.route.message_id,
-            },
-            body: request.preview.as_deref(),
-        };
+        let message = expo_message(request);
         let mut builder = self
             .client
             .post(self.endpoint.clone())
@@ -168,12 +160,50 @@ pub(crate) fn valid_access_token_configuration(access_token: &str) -> bool {
         && access_token.bytes().all(|byte| byte.is_ascii_graphic())
 }
 
+/// Builds a user-visible message. Expo delivers a message without `title`
+/// and `body` as data-only, which iOS never shows as a banner, so every push
+/// carries a generic title and body; the message preview replaces only the
+/// body and only when the installation allows it (`request.preview`).
+fn expo_message(request: &PushProviderRequest) -> ExpoMessage<'_> {
+    let notification_type = request.route.notification_type;
+    ExpoMessage {
+        to: request.destination.token(),
+        title: visible_title(notification_type),
+        body: request
+            .preview
+            .as_deref()
+            .unwrap_or_else(|| generic_body(notification_type)),
+        data: ExpoRoute {
+            notification_type: notification_type.as_str(),
+            notification_id: request.route.notification_id,
+            conversation_id: request.route.conversation_id,
+            message_id: request.route.message_id,
+        },
+    }
+}
+
+fn visible_title(notification_type: NotificationType) -> &'static str {
+    match notification_type {
+        NotificationType::NewTopic => "새 주제",
+        NotificationType::ChatUnread => "새 메시지",
+        NotificationType::Other => "알림",
+    }
+}
+
+fn generic_body(notification_type: NotificationType) -> &'static str {
+    match notification_type {
+        NotificationType::NewTopic => "새 주제가 올라왔습니다.",
+        NotificationType::ChatUnread => "새 메시지가 도착했습니다.",
+        NotificationType::Other => "새 알림이 있습니다.",
+    }
+}
+
 #[derive(serde::Serialize)]
 struct ExpoMessage<'a> {
     to: &'a str,
+    title: &'static str,
+    body: &'a str,
     data: ExpoRoute,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    body: Option<&'a str>,
 }
 
 #[derive(serde::Serialize)]
