@@ -117,7 +117,7 @@ impl PostgresFixture {
                     body: None,
                 },
                 group_id,
-                topic_id,
+                topic_id: Some(topic_id),
                 sender_display_name: "Task-12 author".to_owned(),
                 media: vec![BindMessageMediaItem {
                     upload_id: audio_upload_id,

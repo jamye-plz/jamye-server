@@ -75,7 +75,10 @@ pub(super) async fn delivery_context(
     .map_err(|_| database_error("delivery_context"))?
     .ok_or_else(|| database_error("delivery_context_missing"))?;
     match (row.1.as_str(), row.2) {
-        ("main", None) => Ok(MessageDeliveryContext::Main),
+        ("main", None) => Ok(MessageDeliveryContext::Main {
+            group_id: row.0,
+            sender_display_name: row.3,
+        }),
         ("topic", Some(topic_id)) => {
             let authoritative_topic_id = sqlx::query_scalar::<_, Uuid>(
                 "SELECT topic.id FROM topics AS topic \

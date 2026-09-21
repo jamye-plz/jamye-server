@@ -319,7 +319,7 @@ async fn http_create_topic_push_uses_topic_created_not_announcement_message_crea
 }
 
 #[tokio::test]
-async fn http_main_chat_message_succeeds_without_a_topic_notification_or_push() -> TestResult {
+async fn http_main_chat_message_records_one_notification_and_push_even_when_retried() -> TestResult {
     let database = TestDatabase::migrated().await?;
     let pool = database.pool()?;
     let result: TestResult = async {
@@ -353,18 +353,26 @@ async fn http_main_chat_message_succeeds_without_a_topic_notification_or_push() 
             "main-chat retry did not return Existing",
         )?;
         let message_id = response_id(&created.body, "message")?;
-        let (notifications, pushes): (i64, i64) = sqlx::query_as(
+        // The main chatroom notifies its one live recipient exactly once per
+        // message (no topic): one chat_unread row keyed per conversation and
+        // one occurrence for the recipient's installation, with the
+        // idempotent retry adding neither.
+        let (notifications, topicless, pushes): (i64, i64, i64) = sqlx::query_as(
             "SELECT \
                  (SELECT count(*) FROM notifications WHERE conversation_id = $1), \
+                 (SELECT count(*) FROM notifications \
+                    WHERE conversation_id = $1 AND topic_id IS NULL \
+                      AND type = 'chat_unread' AND user_id = $3), \
                  (SELECT count(*) FROM push_delivery_intents WHERE source_message_id = $2)",
         )
         .bind(fixture.main_chatroom_id)
         .bind(message_id)
+        .bind(fixture.recipient_id)
         .fetch_one(&pool)
         .await?;
         require(
-            notifications == 0 && pushes == 0,
-            "main-chat message fabricated a topic notification or push occurrence",
+            notifications == 1 && topicless == 1 && pushes == 1,
+            "main-chat message did not record exactly one recipient notification and push occurrence",
         )
     }
     .await;

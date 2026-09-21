@@ -75,7 +75,8 @@ pub struct RecordTopicNotificationCommand {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RecordMessageNotificationCommand {
     pub group_id: Uuid,
-    pub topic_id: Uuid,
+    /// `None` for a group's main chatroom; `Some` for a topic conversation.
+    pub topic_id: Option<Uuid>,
     pub conversation_id: Uuid,
     pub source_event_id: Uuid,
     pub source_message_id: Uuid,

@@ -14,7 +14,8 @@ use super::database_error;
 type InstallationRow = (Uuid, Uuid, i64, bool);
 
 struct Fanout<'a> {
-    topic_id: Uuid,
+    /// `None` for a main chatroom; `Some` for a topic conversation.
+    topic_id: Option<Uuid>,
     conversation_id: Uuid,
     source_event_id: Uuid,
     source_message_id: Option<Uuid>,
@@ -35,7 +36,7 @@ pub(super) async fn record_topic_created(
         connection,
         &recipients,
         &Fanout {
-            topic_id: command.topic_id,
+            topic_id: Some(command.topic_id),
             conversation_id: command.conversation_id,
             source_event_id: command.source_event_id,
             source_message_id: None,
@@ -99,21 +100,19 @@ pub(super) async fn clear_topic_notifications(
     .map_err(|error| database_error("notification_clear_marker", error))?
     .ok_or(NotificationsRepositoryError::InvalidData)?;
 
-    // Main chatrooms have no topic notifications. Keep the live membership and
-    // persisted marker checks above, but do not reject their successful C3 read.
-    let Some(topic_id) = target.1 else {
-        return Ok(NotificationClearReport { cleared_count: 0 });
-    };
-
+    // A main chatroom (topic_id NULL) clears its chat_unread rows through the
+    // same read marker; a topic conversation clears both its new_topic and
+    // chat_unread rows.
     let result = sqlx::query(
         "UPDATE notifications \
          SET read_at = clock_timestamp() \
-         WHERE user_id = $1 AND topic_id = $2 AND conversation_id = $3 \
+         WHERE user_id = $1 AND topic_id IS NOT DISTINCT FROM $2 \
+           AND conversation_id = $3 \
            AND type IN ('new_topic', 'chat_unread') \
            AND source_cursor <= $4 AND read_at IS NULL",
     )
     .bind(command.user_id)
-    .bind(topic_id)
+    .bind(target.1)
     .bind(command.conversation_id)
     .bind(read_cursor)
     .execute(connection)
@@ -222,36 +221,59 @@ async fn message_source_cursor(
     connection: &mut PgConnection,
     command: &RecordMessageNotificationCommand,
 ) -> Result<i64, NotificationsRepositoryError> {
-    sqlx::query_scalar::<_, i64>(
-        "SELECT event.cursor \
-         FROM topics topic \
-         JOIN chatrooms conversation \
-           ON conversation.group_id = topic.group_id \
-          AND conversation.topic_id = topic.id \
-          AND conversation.type = 'topic' \
-         JOIN messages message \
-           ON message.id = $5 \
-          AND message.chatroom_id = conversation.id \
-          AND message.sender_id = $6 \
-          AND message.type = 'user' \
-         JOIN conversation_events event \
-           ON event.id = $4 \
-          AND event.conversation_id = conversation.id \
-          AND event.event_type = 'message.created' \
-          AND event.event_version = 1 \
-         WHERE topic.group_id = $1 AND topic.id = $2 AND conversation.id = $3 \
-           AND event.payload ->> 'id' = $5::uuid::text",
-    )
-    .bind(command.group_id)
-    .bind(command.topic_id)
-    .bind(command.conversation_id)
-    .bind(command.source_event_id)
-    .bind(command.source_message_id)
-    .bind(command.sender_id)
-    .fetch_optional(connection)
-    .await
-    .map_err(|error| database_error("notification_message_source", error))?
-    .ok_or(NotificationsRepositoryError::InvalidData)
+    let query = match command.topic_id {
+        Some(_) => {
+            "SELECT event.cursor \
+             FROM topics topic \
+             JOIN chatrooms conversation \
+               ON conversation.group_id = topic.group_id \
+              AND conversation.topic_id = topic.id \
+              AND conversation.type = 'topic' \
+             JOIN messages message \
+               ON message.id = $5 \
+              AND message.chatroom_id = conversation.id \
+              AND message.sender_id = $6 \
+              AND message.type = 'user' \
+             JOIN conversation_events event \
+               ON event.id = $4 \
+              AND event.conversation_id = conversation.id \
+              AND event.event_type = 'message.created' \
+              AND event.event_version = 1 \
+             WHERE topic.group_id = $1 AND topic.id = $2 AND conversation.id = $3 \
+               AND event.payload ->> 'id' = $5::uuid::text"
+        }
+        // Main chatroom: the conversation belongs to the group directly and
+        // carries no topic; $2 stays bound (as NULL) to keep one bind order.
+        None => {
+            "SELECT event.cursor \
+             FROM chatrooms conversation \
+             JOIN messages message \
+               ON message.id = $5 \
+              AND message.chatroom_id = conversation.id \
+              AND message.sender_id = $6 \
+              AND message.type = 'user' \
+             JOIN conversation_events event \
+               ON event.id = $4 \
+              AND event.conversation_id = conversation.id \
+              AND event.event_type = 'message.created' \
+              AND event.event_version = 1 \
+             WHERE conversation.group_id = $1 AND conversation.id = $3 \
+               AND conversation.type = 'main' AND conversation.topic_id IS NULL \
+               AND $2::uuid IS NULL \
+               AND event.payload ->> 'id' = $5::uuid::text"
+        }
+    };
+    sqlx::query_scalar::<_, i64>(query)
+        .bind(command.group_id)
+        .bind(command.topic_id)
+        .bind(command.conversation_id)
+        .bind(command.source_event_id)
+        .bind(command.source_message_id)
+        .bind(command.sender_id)
+        .fetch_optional(connection)
+        .await
+        .map_err(|error| database_error("notification_message_source", error))?
+        .ok_or(NotificationsRepositoryError::InvalidData)
 }
 
 async fn fan_out(
@@ -294,7 +316,15 @@ async fn upsert_notifications(
     fanout: &Fanout<'_>,
 ) -> Result<BTreeMap<Uuid, Uuid>, NotificationsRepositoryError> {
     let payload = notification_args(fanout);
-    let dedup_key = format!("{}:{}", fanout.notification_type, fanout.topic_id);
+    // One unread notification per (type, topic) or, for a main chatroom,
+    // per (type, conversation); topic keys keep their pre-existing shape.
+    let dedup_key = match fanout.topic_id {
+        Some(topic_id) => format!("{}:{}", fanout.notification_type, topic_id),
+        None => format!(
+            "{}:conversation:{}",
+            fanout.notification_type, fanout.conversation_id
+        ),
+    };
     let mut notification_ids = BTreeMap::new();
     for user_id in recipient_user_ids {
         let notification_id =
@@ -389,7 +419,7 @@ async fn upsert_notification(
                  THEN clock_timestamp() ELSE notifications.created_at \
              END \
          WHERE notifications.type = EXCLUDED.type \
-           AND notifications.topic_id = EXCLUDED.topic_id \
+           AND notifications.topic_id IS NOT DISTINCT FROM EXCLUDED.topic_id \
            AND notifications.conversation_id = EXCLUDED.conversation_id \
          RETURNING id",
     )

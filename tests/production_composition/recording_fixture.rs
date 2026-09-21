@@ -26,7 +26,7 @@ fn send_message_input() -> SendMessageCompositionInput {
             body: Some("Task-12 composition".to_owned()),
         },
         group_id: id(),
-        topic_id: id(),
+        topic_id: Some(id()),
         sender_display_name: "sender".to_owned(),
         media: Vec::new(),
     }
