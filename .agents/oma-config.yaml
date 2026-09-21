@@ -515,5 +515,22 @@ scm:
 #   enabled: false
 #   max_lines: 500
 vendors:
-  - codex
   - claude
+  - codex
+  - copilot
+
+# Added by oma migration 022 — moved from .agents/skills/*/config/*.yaml, which `oma update` overwrites. Edit freely.
+video:
+  providers:
+    capture:
+      order:
+        - cap
+
+# Added by oma update — new config keys (template defaults; edit freely)
+providers:
+  code_intelligence: serena
+  web: native
+  semantic_memory: agentmemory
+mcp:
+  devtools_browsers:
+    - aside
