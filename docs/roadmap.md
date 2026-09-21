@@ -241,6 +241,8 @@ D1=A, D4=A current server/C2 deferred, D8=A, D12=A, D13=A는 2026-08-25 사용�
 
 현재 push 범위는 Expo installations, notification history, canonical source-event별 durable occurrence, installation preview policy다. Web Push 관련 파일/table/Nix surface는 만들지 않는다.
 
+`chat_unread`는 topic 대화와 group의 main chatroom 양쪽에서 만든다(2026-09-21, migration 0011). topic 메시지는 topic 단위로, main 메시지는 conversation 단위로 하나의 미읽음 notification에 coalesce하고, C3 read marker는 두 경우 모두 같은 conversation의 row를 `source_cursor` 기준으로 읽음 처리한다. `new_topic`은 topic에서만 만든다. Expo 페이로드는 항상 title/body를 담고, message preview는 installation이 허용할 때만 body를 대체한다.
+
 D3=C에 따라 이번 작업과 C2에는 STT contract, field, job, migration, event, inference adapter/worker/provider, package, config, fixture, QA gate가 없다. 미래 STT는 새 사용자 승인과 contract/migration/worker/security/Nix/QA를 모두 소유하는 새 reviewed plan이 있어야 시작할 수 있다. 일반 voice media transport/playback은 task-8과 task-12가 보존한다.
 
 ## 11. 마일스톤과 태스크

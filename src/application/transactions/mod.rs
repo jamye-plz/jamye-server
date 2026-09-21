@@ -203,31 +203,36 @@ impl TransactionCompositions {
                 }
                 PersistMessageOutcome::Existing(persisted) => persisted,
             };
-            match composed.delivery_context {
-                MessageDeliveryContext::Main => {}
+            // Every user message notifies the other live members: a main
+            // chatroom message coalesces per conversation, a topic message per
+            // topic (see the notifications adapter's dedup key).
+            let (group_id, topic_id, sender_display_name) = match composed.delivery_context {
+                MessageDeliveryContext::Main {
+                    group_id,
+                    sender_display_name,
+                } => (group_id, None, sender_display_name),
                 MessageDeliveryContext::Topic {
                     group_id,
                     topic_id,
                     sender_display_name,
-                } => {
-                    self.dependencies
-                        .notifications
-                        .record_message_created(
-                            transaction.as_mut(),
-                            &RecordMessageNotificationCommand {
-                                group_id,
-                                topic_id,
-                                conversation_id: command.chatroom_id,
-                                source_event_id: persisted.source_event_id(),
-                                source_message_id: persisted.message().id,
-                                sender_id: actor_id,
-                                sender_display_name,
-                            },
-                        )
-                        .await
-                        .map_err(|_| MessagingError::DatabaseUnavailable)?;
-                }
-            }
+                } => (group_id, Some(topic_id), sender_display_name),
+            };
+            self.dependencies
+                .notifications
+                .record_message_created(
+                    transaction.as_mut(),
+                    &RecordMessageNotificationCommand {
+                        group_id,
+                        topic_id,
+                        conversation_id: command.chatroom_id,
+                        source_event_id: persisted.source_event_id(),
+                        source_message_id: persisted.message().id,
+                        sender_id: actor_id,
+                        sender_display_name,
+                    },
+                )
+                .await
+                .map_err(|_| MessagingError::DatabaseUnavailable)?;
             let mut message = persisted.into_message();
             message.media = attachments;
             Ok::<_, MessagingError>(if created {
@@ -381,7 +386,8 @@ impl From<TransactionCompositionError> for ChatroomsError {
 pub struct SendMessageCompositionInput {
     pub message: SendMessageCommand,
     pub group_id: uuid::Uuid,
-    pub topic_id: uuid::Uuid,
+    /// `None` for a group's main chatroom; `Some` for a topic conversation.
+    pub topic_id: Option<uuid::Uuid>,
     pub sender_display_name: String,
     pub media: Vec<BindMessageMediaItem>,
 }

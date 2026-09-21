@@ -90,7 +90,10 @@ impl PersistedMessage {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MessageDeliveryContext {
-    Main,
+    Main {
+        group_id: Uuid,
+        sender_display_name: String,
+    },
     Topic {
         group_id: Uuid,
         topic_id: Uuid,

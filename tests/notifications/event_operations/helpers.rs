@@ -76,8 +76,24 @@ pub(super) fn message_command(
 ) -> RecordMessageNotificationCommand {
     RecordMessageNotificationCommand {
         group_id: topology.group_id,
-        topic_id: topology.topic_id,
+        topic_id: Some(topology.topic_id),
         conversation_id: topology.conversation_id,
+        source_event_id: source.event_id,
+        source_message_id: source.message_id,
+        sender_id: topology.owner_id,
+        sender_display_name: "메시지 작성자".to_owned(),
+    }
+}
+
+/// A message in the group's main chatroom: no topic, keyed per conversation.
+pub(super) fn main_message_command(
+    topology: &Topology,
+    source: SourceEvent,
+) -> RecordMessageNotificationCommand {
+    RecordMessageNotificationCommand {
+        group_id: topology.group_id,
+        topic_id: None,
+        conversation_id: topology.main_conversation_id,
         source_event_id: source.event_id,
         source_message_id: source.message_id,
         sender_id: topology.owner_id,
@@ -90,6 +106,15 @@ pub(super) async fn insert_message_event(
     topology: &Topology,
     body: &str,
 ) -> TestResult<SourceEvent> {
+    insert_message_event_in(pool, topology, topology.conversation_id, body).await
+}
+
+pub(super) async fn insert_message_event_in(
+    pool: &PgPool,
+    topology: &Topology,
+    conversation_id: Uuid,
+    body: &str,
+) -> TestResult<SourceEvent> {
     let message_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO messages \
@@ -97,7 +122,7 @@ pub(super) async fn insert_message_event(
          VALUES ($1, $2, $3, $4, $5, 'user')",
     )
     .bind(message_id)
-    .bind(topology.conversation_id)
+    .bind(conversation_id)
     .bind(topology.owner_id)
     .bind(Uuid::new_v4())
     .bind(body)
@@ -111,10 +136,10 @@ pub(super) async fn insert_message_event(
          RETURNING cursor",
     )
     .bind(event_id)
-    .bind(topology.conversation_id)
+    .bind(conversation_id)
     .bind(json!({
         "id": message_id,
-        "chatroom_id": topology.conversation_id,
+        "chatroom_id": conversation_id,
         "sender_id": topology.owner_id,
         "body": body,
     }))
@@ -125,6 +150,22 @@ pub(super) async fn insert_message_event(
         message_id,
         cursor,
     })
+}
+
+/// The recipient's chat_unread row for one conversation (main or topic).
+pub(super) async fn conversation_chat_notification(
+    pool: &PgPool,
+    user_id: Uuid,
+    conversation_id: Uuid,
+) -> TestResult<(Uuid, Option<Uuid>, i64, Option<OffsetDateTime>)> {
+    Ok(sqlx::query_as(
+        "SELECT id, topic_id, source_cursor, read_at FROM notifications \
+         WHERE user_id = $1 AND conversation_id = $2 AND type = 'chat_unread'",
+    )
+    .bind(user_id)
+    .bind(conversation_id)
+    .fetch_one(pool)
+    .await?)
 }
 
 pub(super) async fn insert_topic_event(
@@ -237,6 +278,7 @@ pub(super) struct Topology {
     pub(super) no_install_id: Uuid,
     pub(super) outsider_id: Uuid,
     pub(super) group_id: Uuid,
+    pub(super) main_conversation_id: Uuid,
     pub(super) topic_id: Uuid,
     pub(super) conversation_id: Uuid,
     pub(super) other_topic_id: Uuid,
@@ -271,11 +313,12 @@ impl Topology {
             .execute(pool)
             .await?;
         }
+        let main_conversation_id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO chatrooms (id, group_id, type, topic_id) \
              VALUES ($1, $2, 'main', NULL)",
         )
-        .bind(Uuid::new_v4())
+        .bind(main_conversation_id)
         .bind(group_id)
         .execute(pool)
         .await?;
@@ -325,6 +368,7 @@ impl Topology {
             no_install_id,
             outsider_id,
             group_id,
+            main_conversation_id,
             topic_id,
             conversation_id,
             other_topic_id,

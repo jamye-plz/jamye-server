@@ -17,7 +17,8 @@ mod helpers;
 
 use helpers::{
     Topology, chat_notification, committed_clear, committed_message, committed_topic,
-    insert_direct_notification, insert_message_event, insert_topic_event, is_read, message_command,
+    conversation_chat_notification, insert_direct_notification, insert_message_event,
+    insert_message_event_in, insert_topic_event, is_read, main_message_command, message_command,
     notification_count, notification_id, occurrence_count, operations,
 };
 
@@ -267,4 +268,116 @@ async fn topic_read_clears_only_owner_topic_rows_through_the_canonical_marker() 
 
     pool.close().await;
     database.dispose().await
+}
+
+#[tokio::test]
+async fn main_chatroom_messages_notify_per_conversation_and_clear_through_the_marker() -> TestResult
+{
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let topology = Topology::new(&pool).await?;
+    let operations = operations(pool.clone());
+    let transactions = SqlxTransactionManager::new(pool.clone());
+    let main_id = topology.main_conversation_id;
+
+    // First main-chatroom message: one chat_unread row per live member
+    // (owner excluded), one occurrence for the member with an installation.
+    let first = insert_message_event_in(&pool, &topology, main_id, "main-first-body").await?;
+    assert_eq!(
+        committed_message(
+            &operations,
+            &transactions,
+            main_message_command(&topology, first),
+        )
+        .await?,
+        NotificationFanoutReport {
+            notification_count: 2,
+            occurrence_count: 1,
+        }
+    );
+    let (main_notification_id, main_topic_id, main_cursor, main_read_at) =
+        conversation_chat_notification(&pool, topology.recipient_id, main_id).await?;
+    assert_eq!(main_topic_id, None);
+    assert_eq!(main_cursor, first.cursor);
+    assert_eq!(main_read_at, None);
+
+    // A second main message coalesces into the same row and advances it.
+    let second = insert_message_event_in(&pool, &topology, main_id, "main-second-body").await?;
+    assert_eq!(
+        committed_message(
+            &operations,
+            &transactions,
+            main_message_command(&topology, second),
+        )
+        .await?,
+        NotificationFanoutReport {
+            notification_count: 2,
+            occurrence_count: 1,
+        }
+    );
+    let (coalesced_id, _, coalesced_cursor, _) =
+        conversation_chat_notification(&pool, topology.recipient_id, main_id).await?;
+    assert_eq!(coalesced_id, main_notification_id);
+    assert_eq!(coalesced_cursor, second.cursor);
+    assert_eq!(notification_count(&pool, topology.recipient_id).await?, 1);
+    assert_eq!(occurrence_count(&pool, topology.recipient_id).await?, 2);
+
+    // A topic message keeps its own row: main and topic keys never collide.
+    let topic_message = insert_message_event(&pool, &topology, "topic-body").await?;
+    committed_message(
+        &operations,
+        &transactions,
+        message_command(&topology, topic_message),
+    )
+    .await?;
+    let topic_notification_id = notification_id(
+        &pool,
+        topology.recipient_id,
+        topology.topic_id,
+        "chat_unread",
+    )
+    .await?;
+    assert_ne!(topic_notification_id, main_notification_id);
+    assert_eq!(notification_count(&pool, topology.recipient_id).await?, 2);
+
+    // Reading the main chatroom up to the second cursor clears only its row.
+    sqlx::query(
+        "INSERT INTO chatroom_reads (id, user_id, chatroom_id, last_read_cursor) \
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(topology.recipient_id)
+    .bind(main_id)
+    .bind(second.cursor)
+    .execute(&pool)
+    .await?;
+    assert_eq!(
+        committed_clear(
+            &operations,
+            &transactions,
+            ClearTopicNotificationsCommand {
+                user_id: topology.recipient_id,
+                conversation_id: main_id,
+            },
+        )
+        .await?,
+        NotificationClearReport { cleared_count: 1 }
+    );
+    assert!(is_read(&pool, main_notification_id).await?);
+    assert!(!is_read(&pool, topic_notification_id).await?);
+
+    // A later main message reopens the same row as unread.
+    let third = insert_message_event_in(&pool, &topology, main_id, "main-third-body").await?;
+    committed_message(
+        &operations,
+        &transactions,
+        main_message_command(&topology, third),
+    )
+    .await?;
+    let (reopened_id, _, reopened_cursor, reopened_read_at) =
+        conversation_chat_notification(&pool, topology.recipient_id, main_id).await?;
+    assert_eq!(reopened_id, main_notification_id);
+    assert_eq!(reopened_cursor, third.cursor);
+    assert_eq!(reopened_read_at, None);
+    Ok(())
 }
