@@ -1,10 +1,10 @@
 # jamye-server 로드맵 — FastAPI 전체 이관, 신뢰성 고도화, 모바일 계약
 
-> 세션: ultrawork/20260822-200110
-> 현재 단계: Task 12까지 백엔드 기능과 C2 계약 완료; Task 13 검증 체계 간소화 진행
-> 상태: 기존 task별 command card와 R13~R26 immutable-evidence 체계를 Git 기준선으로 보존한 뒤, 루트 `Justfile` 단일 검증 체계로 교체한다. 이 체계가 통과한 후 실제 NixOS module과 대상 Linux 패키지 검증을 진행한다.
-> 진행률: 제품 구현 완료, 검증 체계 정리 진행, NixOS 배포 준비 대기
-> 기계 SSOT: .agents/results/plan-20260822-200110.json
+> 세션: ultrawork/20260822-200110 · 후속 로드맵 등록: ultrawork/20260922-100557
+> 현재 단계: Task 13 완료(루트 Justfile 검증 체계, NixOS module, homelab midgard 배포) — 후속 task-14-16 등록(planned_unapproved)
+> 상태: Task 13(루트 `Justfile` 검증 체계, NixOS module, homelab midgard 배포)이 완료됐다(근거는 §9). task-14(soft delete)·task-15(Apple exchange)·task-16(서버측 잔여 백로그)는 2026-09-22 로드맵에 등록만 됐으며 각 task 착수는 별도 승인이 필요하다.
+> 진행률: Task 1-13 구현·배포 완료, task-14-16은 등록(planned_unapproved) 단계
+> 기계 SSOT: .agents/results/plan-20260822-200110.json (task-1-13) · task-14 이후는 착수 시 새 plan JSON 생성
 
 ## 1. 목표와 범위
 
@@ -29,6 +29,7 @@
 - pending 제품 결정은 가장 이른 materializer가 한 번만 사용자 선택을 받아 evidence를 고정한다. 후속 task와 VERIFY/SHIP는 dependency를 통해 그 evidence를 소비하며 같은 결정을 다시 승인받지 않는다.
 - production/release/SCM 변경은 별도 승인이 있어야 한다.
 - legacy jamye-plz, homelab, 운영 PostgreSQL/Redis/MinIO는 읽기 전용 또는 범위 밖이다.
+- task-14 이후는 2026-09-22 로드맵 등록만 됐고 각 task 구현·migration·contract publication·배포는 별도 승인이 필요하다.
 
 ## 3. 목표 아키텍처
 
@@ -66,6 +67,9 @@ flowchart LR
 | C0 | 모바일 채팅을 시작할 수 있는 최소 runtime-adjacent 계약 | 공통 wire/error, H1/H2, C4, S1, R1, WebSocket protocol/close, message.created, outbox/delta와 ordinary-401 보존 marker | task-3b |
 | C1 | 실제 메시지 수직 경로 | REST message → PostgreSQL outbox → worker → Redis → authorized WS → paginated delta recovery | task-4a/task-4b |
 | C2 | 선택된 전체 서버 계약 release candidate | 모든 runtime owner의 DTO/schema/fixture contribution, selected REST inventory, 최종 2 realtime variants, manifest provenance | task-12 |
+| C3 | 후속 soft delete/Apple 계약 확장(2026-09-22 등록, planned_unapproved) | 메시지 삭제(가칭 C5)·주제 삭제(가칭 T8) REST, `deleted_at`/`updated_at` 필드, realtime `message.deleted`/`topic.deleted`, Apple exchange endpoint(가칭 A6) | task-14/task-15 |
+
+계약 단계 C3는 operation ID `C3`(read marker; `contracts/openapi.json`)와 이름만 같고 무관하다. contract version 정책(현재 버전 1 유지 vs 버전 2로 증가, realtime event version 협상 포함)은 task-14 PLAN에서 결정한다.
 
 C0는 정확히 5개 REST operation(H1, H2, C4, S1, R1)과 message.created 하나만 생성한다. D1, D8, D13만 C0를 막을 수 있다. 인증, 그룹, 주제, 미디어, 알림, 푸시, 계정 삭제 계약은 각 runtime feature owner가 나중에 추가한다.
 
@@ -205,7 +209,7 @@ M1은 /Users/poby/Developer/jamye-plz의 정확한 PF1 source set을 determinist
 - 루트 `Justfile`이 유일한 공개 명령 목록이며 실행 전 pinned devShell이 활성화돼 있어야 한다.
 - credential 생성, bounded wait, guarded deletion, service recovery처럼 안전 경계가 있는 동작만 `scripts/dev/`와 `scripts/recovery/`에 둔다.
 - 현재 후속 Cargo 공유 파일 owner는 의존 순서가 보장된 task-3c(dev-only JWT), task-5(auth), task-8(S3/media)다. task-3c는 optional JWT로 dev surface를 열었고, task-5는 같은 `jsonwebtoken` verifier를 production 기본 graph로 승격하면서 PKCE Base64URL과 OAuth form/JSON feature만 추가한다. 각 owner 뒤 사용자가 lock/no-drift와 dependency/license card를 다시 실행한다.
-- 교체된 Task-13 1단계는 루트 검증 체계 정리와 통과 확인만 소유한다. 2단계에서 실제 NixOS module, package realization, runtime smoke를 별도로 구현한다.
+- Task-13은 루트 `Justfile` 검증 체계 정리·통과 확인(1단계)과 실제 NixOS module(`nix/module.nix`)·package realization·runtime health smoke(2단계, `nix/smoke-test.nix`)를 모두 완료했다. homelab이 `services.jamye-server`로 이 module을 midgard에 배포했다(homelab PR #75, 2026-09-08; `homelab/services/jamye-server.nix`; 공개 URL `https://jamye-api.ridewithmin.com`, `https://jamye-media.ridewithmin.com`). 이후의 host 이전은 homelab이 독립적으로 진행하며 이 로드맵과 무관하다.
 - rootless Podman compose.yaml은 local disposable PostgreSQL/Redis/MinIO 전용이다. macOS podman machine과 lifecycle/reset은 사용자가 실행한다.
 - production은 native Nix package와 NixOS systemd module이다. Podman compose는 production SSOT가 아니다.
 - flake는 supported system마다 api/worker package, checks, devShell, nixosModules.default를 export한다.
@@ -222,20 +226,26 @@ M1은 /Users/poby/Developer/jamye-plz의 정확한 PF1 source set을 determinist
 | D1 | conversation event retention | **A no-pruning v1 (사용자 승인, locked)** | M2 schema/C0에 materialize |
 | D2 | PWA Web Push coexistence | A Expo-only | 후속 RN 교체 지시로 locked; Web Push는 non-goal |
 | D3 | STT/전사 범위 | C 전체 제외, voice media 보존 | 사용자 승인으로 locked non-goal |
-| D4 | Apple login/Guideline 4.8 | **A current server/C2에서는 deferred (사용자 재확인, locked)** | task-5는 Kakao/Google만 구현; Apple은 store-release gate |
+| D4 | Apple login/Guideline 4.8 | **A: 2026-08-25에는 current server/C2 deferred였으나 2026-09-22 사용자 결정으로 구현 확정 — 상세는 D16 (locked)** | task-15가 D16을 materialize |
 | D5 | account deletion sole-owner policy | **A transfer required (사용자 승인, locked)** | task-11은 이양 전 409+zero mutation을 materialize |
 | D6 | rate-limit algorithm | A configurable fixed window | locked technical default |
 | D7 | modular monolith | A | locked from initial prompt |
 | D8 | message duplicate response shape | **A same payload 200 canonical, different payload 409 (사용자 승인, locked)** | C0에 materialize |
 | D9 | notification localization representation | **A structured type+args + client localization (사용자 승인, locked)** | task-9/M8에 materialize |
-| D10 | account deletion data disposition | **A tombstone/anonymize (사용자 승인, locked)** | task-11은 private state 삭제+durable object cleanup을 materialize |
+| D10 | account deletion data disposition | **A tombstone/anonymize (사용자 승인, locked)** | task-11은 private state 삭제+durable object cleanup을 materialize. (2026-09-22 D15로 재개봉·확정: 계정 삭제는 30일 유예형 soft delete가 되고, tombstone/anonymize 전이는 유예 만료 후 purge 시점에 실행) |
 | D11 | private bucket lifecycle owner | **B API `ensure_bucket` (사용자 승인, locked)** | task-8이 HEAD/no-op·404/create·기타 typed error를 materialize; task-13은 optional native MinIO만 제공 |
 | D12 | mobile OAuth exchange flow | **A Authorization Code + PKCE S256 (사용자 승인, locked)** | M4에 materialize |
 | D13 | logout/access/ticket/socket expiry | **A short token valid to exp, ticket capped by exp, socket 4401 at exp (사용자 승인, locked)** | C0에 materialize |
+| D14 | soft delete 범위 | **A 전 테이블 `created_at`/`updated_at`/`deleted_at` + hard→soft 전환 + 메시지/주제 삭제 API (사용자 승인 2026-09-22, locked; 단계 분할 허용)** | task-14가 §14 단계 A-D로 materialize |
+| D15 | 계정 삭제 유예·복구 | **A 30일 유예 후 기존 D10 tombstone 전이; 유예 중 삭제된 계정의 provider로 재로그인하면 계정 부활 (사용자 승인 2026-09-22, locked)** | task-14 §14 D단계가 materialize; D10의 전이 시점을 유예 만료 후로 옮김 |
+| D16 | Apple login (Sign in with Apple) | **A iOS native identity token 검증, provider별 별도 계정, Android 미지원 (사용자 승인 2026-09-22, locked; D4 갱신과 동일 결정의 단일 owner)** | task-15가 Apple exchange endpoint·JWKS 검증·`auth_identities` provider 확장으로 materialize |
+| D17 | Apple token revoke on account deletion (Guideline 5.1.1(v)) | 권고 A 필수 구현; task-15 착수 시 확인 | task-15가 계정 삭제 흐름과 결합해 materialize |
+| D18 | 삭제 이벤트 표현 | **A 새 realtime/delta 이벤트 `message.deleted`/`topic.deleted` (사용자 승인 2026-09-22, locked)**; unknown-event 복구 규칙과 version 협상은 task-14 PLAN에서 검토 | task-14 §4 C3 계약에 materialize |
+| D19 | `updated_at` 갱신 방식 | **A PostgreSQL `BEFORE UPDATE` 트리거 (사용자 승인 2026-09-22, locked)** — sqlx는 ORM이 아니라 entity lifecycle/auditing hook(JPA `@LastModifiedDate` 류)이 없으므로 한 migration의 트리거로 일괄 적용 | task-14 §14 A단계가 materialize |
 
-현재 `pending_user` 결정은 0개다. D5=A는 sole-owner 그룹의 소유권 이양 전 계정 삭제를 stable 409 `group_ownership_transfer_required`와 zero mutation으로 차단한다. D10=A는 공유 그룹 content/media를 author tombstone으로 익명 보존하고 credential/profile/push/notification/read/membership을 삭제하며 invite를 폐기하고 unbound upload/object를 durable cleanup으로 넘긴다. 두 결정은 2026-08-27 task-11/M10 RED 전에 사용자 승인으로 locked됐다.
+현재 `pending_user` 결정은 0개다. D14-D19는 2026-09-22 사용자 승인으로 locked됐다. D5=A는 sole-owner 그룹의 소유권 이양 전 계정 삭제를 stable 409 `group_ownership_transfer_required`와 zero mutation으로 차단한다. D10=A는 공유 그룹 content/media를 author tombstone으로 익명 보존하고 credential/profile/push/notification/read/membership을 삭제하며 invite를 폐기하고 unbound upload/object를 durable cleanup으로 넘긴다. 두 결정은 2026-08-27 task-11/M10 RED 전에 사용자 승인으로 locked됐다.
 
-D1=A, D4=A current server/C2 deferred, D8=A, D12=A, D13=A는 2026-08-25 사용자 승인으로, D11=B는 2026-08-26 사용자 승인으로, D5=A, D9=A, D10=A는 2026-08-27 사용자 승인으로 locked됐고, D2는 Expo-only, D3=C는 STT 제외로 locked다. Apple 실제 구현 또는 Guideline 4.8 예외 판정은 별도 store-release gate로 남는다.
+D1=A, D4=A current server/C2 deferred, D8=A, D12=A, D13=A는 2026-08-25 사용자 승인으로, D11=B는 2026-08-26 사용자 승인으로, D5=A, D9=A, D10=A는 2026-08-27 사용자 승인으로 locked됐고, D2는 Expo-only, D3=C는 STT 제외로 locked다. Apple 실제 구현 또는 Guideline 4.8 예외 판정은 별도 store-release gate로 남아 있었고, 2026-09-22 사용자 결정(D4 갱신·D16)으로 task-15에서 구현하기로 확정했다.
 
 결정 materializer는 `D1=task-3a/task-3b`, `D8/D13=task-3b`, `D12=task-5`, `D11=task-8`, `D9=task-9`, `D5/D10=task-11`로 고정한다. task-11은 locked D5=A/D10=A를 account-deletion contract/fixture/runtime evidence로 한 번 materialize하고, task-12/task-13과 VERIFY/SHIP는 그 evidence를 소비할 뿐 같은 결정을 다시 gate로 열지 않는다.
 
@@ -266,10 +276,15 @@ D3=C에 따라 이번 작업과 C2에는 STT contract, field, job, migration, ev
 | 10 | M10 | task-11 | account deletion + durable object cleanup + `0008` | task-9 + locked D5=A,D10=A (충족) |
 | 11 | M11a | task-12 | backend static api/worker + three UoW compositions + selected C2 | task-11; frozen decision evidence 소비 |
 | 12 | M11b | task-13 | 검증 체계 정리 및 간소화, Nix flake 배포 준비 | task-12 |
+| 13 | M12 | task-14 | soft delete: 전 테이블 audit 컬럼, hard→soft 전환·조회 필터, 메시지/주제 삭제 API + `*.deleted` 이벤트, 계정 삭제 유예·복구 + purge worker, C3 계약 | task-13 + D14/D15/D18/D19 |
+| 14 | M13 | task-15 | Apple exchange endpoint, JWKS 검증, `auth_identities` provider 확장, 계정 삭제 시 revoke, C3 계약 | task-5, task-14(계정 삭제 결합) + D16/D17 |
+| 14 | M14 | task-16 | 서버측 잔여 백로그: 메시지 편집 계약(옵션), README/roadmap drift, homelab 백업 연동, 모니터링 | task-14 |
 
 우선순위는 dependency가 없는 task는 1, 나머지는 1 + max(dependency priority)다. 같은 tier에는 dependency나 directory-prefix scope collision이 없어야 한다.
 
 task-10은 사용자 승인 STT non-goal로 삭제했다. 기존 참조 안정성을 위해 task-11 이후 ID는 renumber하지 않아 task ID가 의도적으로 비연속이다.
+
+서버 마일스톤 번호 M12-M14(task-14-16, 2026-09-22 등록)는 jamye-app 로드맵의 M14-M18 번호 체계와 완전히 독립이다. 두 번호 체계를 혼동해 표기하지 않는다.
 
 ## 12. 테스트와 완료 판정
 
@@ -284,10 +299,33 @@ task-10은 사용자 승인 STT non-goal로 삭제했다. 기존 참조 안정�
 
 ## 13. 다음 단계
 
-다음 순서로 Task 13을 완료한다.
+Task 13은 완료됐다. 검증 체계·NixOS module·homelab midgard 배포의 증거 경로와 공개 URL은 §9에 한 번만 기록한다.
 
-1. 루트 `Justfile` 단일 검증 체계와 일반 목적 안전 스크립트로 전환한다.
-2. `just check`와 별도 recovery gate를 통과시켜 제품 구현 완료를 확정한다.
-3. 실제 `nixosModules.default` 옵션과 API/worker systemd 구성을 구현한다.
-4. production 대상 Linux에서 package/module 평가와 runtime health smoke를 통과한다.
-5. homelab input 연결과 실제 배포는 별도 사용자 승인 범위로 유지한다.
+2026-09-22 로드맵 등록으로 §11에 task-14-16이 추가됐다. 이 등록은 구현 승인이 아니다. R3(사용자 결정)에 따라 앱(jamye-app) M14(UI/UX 라운드)가 진행되는 동안 서버 task-14(soft delete)·task-15(Apple exchange)·task-16(잔여 백로그)을 병행 착수할 수 있다. 다음 액션은 task-14 PLAN 착수(사용자 승인 필요)이며, 단계 분할과 시작 조건은 §14를 따른다.
+
+## 14. 후속 과제 상세 (2026-09-22 등록)
+
+이 절은 §11 표의 task-14-16을 위한 상세 명세다. 모든 항목의 상태는 `planned_unapproved`이며, 이 등록 자체는 구현·migration 적용·contract publication·homelab 배포의 승인이 아니다.
+
+### task-14 — soft delete (M12)
+
+D14·D15·D18·D19(모두 2026-09-22 locked)를 materialize한다(앱 M15 소프트 삭제 수용과 연동). 작업 범위가 방대하므로(사용자 추가 지시: "모든 데이터에 대해 created_at, updated_at, deleted_at을 적용하고 싶은데, 작업 범위가 너무 방대하다면 쪼개도 괜찮아") 다음 네 단계로 분할할 수 있다.
+
+- **A. audit 컬럼 migration + `updated_at` 규칙**: 대상 테이블에 `created_at`/`updated_at`/`deleted_at`을 추가하는 forward-only migration(ADR 0003, 새 번호)과 D19의 PostgreSQL `BEFORE UPDATE` 트리거를 적용한다. `refresh_sessions`, oauth attempt, `media_uploads`처럼 이미 `revoked_at`/`consumed_at`/`expires_at` 같은 의미별 컬럼을 쓰는 일회성/보안 row는 그 의미를 유지하고 `deleted_at`만 추가한다.
+- **B. hard→soft 전환**: 현재 hard delete인 memberships, users, push_delivery_intents/installations, notifications·chatroom_reads·invites·refresh_sessions·auth_identities·media_uploads, topic_tags를 soft delete로 전환하고 모든 조회 경로에 `deleted_at IS NULL` 필터를 추가한다.
+- **C. 삭제 API + 이벤트**: 메시지 삭제(가칭 C5)·주제 삭제(가칭 T8) REST endpoint, D18에 따른 realtime `message.deleted`/`topic.deleted` 이벤트, 삭제된 메시지/주제에 결합된 미디어 object 정리 규칙을 구현한다.
+- **D. 계정 삭제 유예·복구**: D15(30일 유예, 유예 중 같은 provider 재로그인 시 부활)를 endpoint/worker로 구현하고, 유예 만료 시 기존 D10 tombstone 전이 로직을 재사용하는 purge worker를 추가한다.
+
+시작 조건: task-13 완료(충족) + D14/D15/D18/D19 확정(충족). 별도 승인: 각 forward-only migration 적용, C3 계약 publication, homelab 배포.
+
+### task-15 — Sign in with Apple (M13)
+
+D16(locked)·D17(권고 필수)을 materialize한다(앱 M16 Sign in with Apple과 연동). Apple exchange endpoint(가칭 A6), Apple identity token 서명·`iss`·`aud`(bundle id allowlist)·`exp`·nonce 검증, `auth_identities` provider 확장(`apple` 추가), config `JAMYE_APPLE_*`(Team ID, Key ID, `.p8` 경로, bundle id allowlist), 계정 삭제 시 Apple token revoke 호출(D17, Guideline 5.1.1(v))을 구현하고 C3 계약에 반영한다.
+
+시작 조건: task-5(OAuth 기반, 충족) + task-14(계정 삭제 흐름과 결합, D17) + D16 확정(충족)·D17은 task-15 착수 시 확인. 별도 승인: Apple Developer 설정(App ID Sign in with Apple capability, key(.p8)/Team ID/Key ID)은 사용자가 직접 수행, migration 적용, C3 계약 publication, homelab 배포.
+
+### task-16 — 서버측 잔여 백로그 (M14)
+
+요구사항 R8(서버·운영 묶음)에 대응한다. 항목: 메시지 편집 계약(옵션, 앱 M17(C)와 연동), README/roadmap drift 정리, homelab 자동 백업 연동, 모니터링·알림 점검(앱 M17(D) 서버·운영 묶음과 연동).
+
+시작 조건: task-14 완료. 별도 승인: 각 항목은 개별 승인으로 착수하며, homelab 변경이 필요한 항목(백업 연동)은 homelab 로드맵과 별도로 조율한다.
