@@ -303,6 +303,12 @@ fn selected_surfaces() -> Vec<Surface> {
             protected,
         ),
         (
+            "chatrooms.media",
+            Method::GET,
+            format!("/api/v1/chatrooms/{ID}/media"),
+            protected,
+        ),
+        (
             "topics.list",
             Method::GET,
             format!("/api/v1/groups/{ID}/topics"),
@@ -342,12 +348,6 @@ fn selected_surfaces() -> Vec<Surface> {
             "topics.tags.replace",
             Method::PUT,
             format!("/api/v1/groups/{ID}/topics/{ID}/tags"),
-            protected,
-        ),
-        (
-            "topics.media",
-            Method::GET,
-            format!("/api/v1/topics/{ID}/media"),
             protected,
         ),
         (

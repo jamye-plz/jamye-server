@@ -183,16 +183,6 @@ fn poster_link_requires_a_chat_scope_video_upload() {
         ),
         Err(PosterPolicyError::VideoOnly)
     );
-
-    let Ok(topic_video_like) =
-        validate_upload(MediaScope::Topic, "image/jpeg", 1_024, Some("원본 파일"))
-    else {
-        panic!("test topic upload policy should be valid");
-    };
-    assert_eq!(
-        validate_poster_link(&topic_video_like, user_id(), target_id(), &valid_poster()),
-        Err(PosterPolicyError::ChatScopeOnly)
-    );
 }
 
 #[test]
@@ -281,18 +271,6 @@ fn poster_link_requires_confirmation_matching_ownership_and_exclusive_use() {
             target_id(),
             &PosterCandidate {
                 target_id: other_target_id(),
-                ..valid_poster()
-            }
-        ),
-        Err(PosterPolicyError::PosterTargetMismatch)
-    );
-    assert_eq!(
-        validate_poster_link(
-            &valid_video(),
-            user_id(),
-            target_id(),
-            &PosterCandidate {
-                scope: MediaScope::Topic,
                 ..valid_poster()
             }
         ),

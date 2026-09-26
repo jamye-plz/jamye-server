@@ -1,4 +1,4 @@
-//! Authenticated Axum boundary for topic lifecycle, timeline, unread, tags, and media.
+//! Authenticated Axum boundary for topic lifecycle, timeline, unread, and tags.
 
 use std::sync::Arc;
 
@@ -19,16 +19,12 @@ use crate::{
     application::{
         auth::AccessTokenVerifier,
         topics::{
-            TopicCreateInput, TopicDatePageInput, TopicMediaPageInput, TopicPageInput,
-            TopicPatchInput, TopicTagInput, TopicTagPageInput, TopicTagsInput, TopicsError,
-            TopicsService,
+            TopicCreateInput, TopicDatePageInput, TopicPageInput, TopicPatchInput, TopicTagInput,
+            TopicTagPageInput, TopicTagsInput, TopicsError, TopicsService,
         },
         transactions::TransactionCompositions,
     },
-    ports::topics::{
-        TopicDatePage, TopicMediaPage, TopicMediaRecord, TopicPage, TopicRecord, TopicTagPage,
-        TopicTagRecord,
-    },
+    ports::topics::{TopicDatePage, TopicPage, TopicRecord, TopicTagPage, TopicTagRecord},
     transport::http::auth::{AuthVerifierState, AuthenticatedAccess, error_response, request_id},
 };
 
@@ -80,7 +76,6 @@ pub fn router(state: TopicsHttpState) -> Router {
             "/api/v1/groups/{group_id}/topics/{topic_id}/tags",
             get(list_tags).put(replace_tags),
         )
-        .route("/api/v1/topics/{topic_id}/media", get(list_media))
         .with_state(state)
 }
 
@@ -339,41 +334,6 @@ async fn list_tags(
     }
 }
 
-async fn list_media(
-    State(state): State<TopicsHttpState>,
-    AuthenticatedAccess(identity): AuthenticatedAccess,
-    Path(topic_id): Path<String>,
-    RawQuery(raw_query): RawQuery,
-    request: Request,
-) -> Response {
-    let (parts, _) = request.into_parts();
-    let request_id = request_id(&parts);
-    let input = parse_uuid(&topic_id).and_then(|topic_id| {
-        parse_cursor_page(raw_query.as_deref()).map(|page| {
-            (
-                topic_id,
-                TopicMediaPageInput {
-                    after: page.after,
-                    limit: page.limit,
-                },
-            )
-        })
-    });
-    let result = match input {
-        Ok((topic_id, input)) => {
-            state
-                .service
-                .list_media(identity.user_id, topic_id, input)
-                .await
-        }
-        Err(error) => Err(error),
-    };
-    match result {
-        Ok(page) => (StatusCode::OK, Json(TopicMediaPageResponse::from(page))).into_response(),
-        Err(error) => TopicsHttpError { error, request_id }.into_response(),
-    }
-}
-
 async fn parse_json<T>(body: Body) -> Result<T, TopicsError>
 where
     T: for<'de> Deserialize<'de>,
@@ -547,7 +507,6 @@ struct TopicResponse {
     body: Option<String>,
     status: &'static str,
     tags: Vec<TopicTagResponse>,
-    media: Vec<TopicMediaResponse>,
     chatroom_id: Uuid,
     unread: bool,
     #[serde(with = "time::serde::rfc3339")]
@@ -568,11 +527,6 @@ impl From<TopicRecord> for TopicResponse {
             body: topic.body,
             status: topic.status.as_str(),
             tags: topic.tags.into_iter().map(TopicTagResponse::from).collect(),
-            media: topic
-                .media
-                .into_iter()
-                .map(TopicMediaResponse::from)
-                .collect(),
             chatroom_id: topic.chatroom_id,
             unread: topic.unread,
             created_at: topic.created_at,
@@ -645,55 +599,6 @@ impl From<TopicTagPage> for TopicTagPageResponse {
         Self {
             items: page.items.into_iter().map(TopicTagResponse::from).collect(),
             next_cursor: page.next_cursor,
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct TopicMediaPageResponse {
-    items: Vec<TopicMediaResponse>,
-    next_cursor: Option<String>,
-}
-
-impl From<TopicMediaPage> for TopicMediaPageResponse {
-    fn from(page: TopicMediaPage) -> Self {
-        Self {
-            items: page
-                .items
-                .into_iter()
-                .map(TopicMediaResponse::from)
-                .collect(),
-            next_cursor: page.next_cursor,
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct TopicMediaResponse {
-    id: Uuid,
-    topic_id: Uuid,
-    media_upload_id: Uuid,
-    content_type: String,
-    object_key: String,
-    width: Option<i32>,
-    height: Option<i32>,
-    byte_size: Option<i64>,
-    #[serde(with = "time::serde::rfc3339")]
-    created_at: OffsetDateTime,
-}
-
-impl From<TopicMediaRecord> for TopicMediaResponse {
-    fn from(media: TopicMediaRecord) -> Self {
-        Self {
-            id: media.id,
-            topic_id: media.topic_id,
-            media_upload_id: media.media_upload_id,
-            content_type: media.content_type,
-            object_key: media.object_key,
-            width: media.width,
-            height: media.height,
-            byte_size: media.byte_size,
-            created_at: media.created_at,
         }
     }
 }

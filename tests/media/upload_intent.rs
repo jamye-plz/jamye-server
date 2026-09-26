@@ -79,7 +79,7 @@ async fn rate_limit_denial_and_outage_fail_closed_before_transaction_or_presign(
     assert_eq!(
         unavailable
             .service
-            .create_upload_intent(actor_id(), input(MediaScope::Topic))
+            .create_upload_intent(actor_id(), input(MediaScope::Chat))
             .await,
         Err(MediaError::RateLimitUnavailable)
     );
@@ -193,7 +193,7 @@ async fn authorization_or_presign_failure_rolls_back_without_a_commit() {
     assert_eq!(
         degraded
             .service
-            .create_upload_intent(actor_id(), input(MediaScope::Topic))
+            .create_upload_intent(actor_id(), input(MediaScope::Chat))
             .await,
         Err(MediaError::ObjectStorageDegraded)
     );

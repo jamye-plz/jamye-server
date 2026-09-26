@@ -180,14 +180,6 @@ impl TopicsRepository for RecordingRepositories {
         Box::pin(async { Err(TopicsRepositoryError::Unavailable) })
     }
 
-    fn promote_enriched<'a>(
-        &'a self,
-        _transaction: &'a mut dyn TransactionHandle,
-        _topic_id: Uuid,
-    ) -> TopicsRepositoryFuture<'a, TopicStatus> {
-        Box::pin(async { Err(TopicsRepositoryError::Unavailable) })
-    }
-
     fn replace_tags<'a>(
         &'a self,
         _transaction: &'a mut dyn TransactionHandle,
@@ -214,13 +206,6 @@ impl TopicsRepository for RecordingRepositories {
     fn list_tags(&self, _query: ListTopicTagsQuery) -> TopicsRepositoryFuture<'_, TopicTagPage> {
         Box::pin(async { Err(TopicsRepositoryError::Unavailable) })
     }
-
-    fn list_media(
-        &self,
-        _query: ListTopicMediaQuery,
-    ) -> TopicsRepositoryFuture<'_, TopicMediaPage> {
-        Box::pin(async { Err(TopicsRepositoryError::Unavailable) })
-    }
 }
 
 impl ChatroomsRepository for RecordingRepositories {
@@ -235,6 +220,13 @@ impl ChatroomsRepository for RecordingRepositories {
         &self,
         _query: MessageHistoryQuery,
     ) -> ChatroomsRepositoryFuture<'_, MessageHistoryPage> {
+        Box::pin(async { Err(ChatroomsRepositoryError::Unavailable) })
+    }
+
+    fn chatroom_media(
+        &self,
+        _query: ChatroomMediaQuery,
+    ) -> ChatroomsRepositoryFuture<'_, ChatroomMediaPage> {
         Box::pin(async { Err(ChatroomsRepositoryError::Unavailable) })
     }
 

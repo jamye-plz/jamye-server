@@ -1,6 +1,6 @@
 ---
 name: oma-architecture
-description: Architecture specialist for software/system design, module and service boundaries, tradeoff analysis, and stakeholder synthesis. Uses context-aware methods such as diagnostic routing, design-twice comparison, ATAM-style risk analysis, CBAM-style prioritization, and ADR-style decision records.
+description: "Evaluate system boundaries and architectural tradeoffs. Use for architecture decisions, design reviews, and ADRs."
 ---
 
 # Architecture Agent - Software Architecture Specialist
@@ -42,6 +42,7 @@ Analyze, compare, and document software architecture decisions with explicit tra
 - Architecture diagnosis, recommendation, comparison, prioritization, or ADR
 - Assumptions, tradeoffs, risks, and validation steps
 - A Mermaid context/container diagram when the decision changes structure (boundaries, dependencies, data flow)
+- When `oma diagram resolve` reports `engine: archify` (the normal case — oma auto-fetches the latest archify release), an interactive sibling `<artifact-stem>.archify.json` + `.archify.html` derived from that Mermaid (see `_shared/conditional/diagram-engine.md`)
 - Saved architecture artifacts under `.agents/results/architecture/` when producing durable outputs
 
 ```yaml
@@ -49,6 +50,10 @@ outputs:
   - name: architecture-artifact
     description: ADR, comparison, or recommendation written to durable storage when the run is meant to persist
     artifact: ".agents/results/architecture/*.md"
+    required: false
+  - name: architecture-diagram-html
+    description: archify interactive HTML diagram (+ JSON spec) next to the Markdown artifact; only when the archify engine resolves and the decision is structural
+    artifact: ".agents/results/architecture/*.archify.html"
     required: false
 ```
 
@@ -59,6 +64,7 @@ outputs:
 - `resources/output-templates.md` for final artifact shapes
 - `resources/api-evolution.md` for published-contract versioning/deprecation decisions (MAP evolution patterns)
 - `resources/migration-patterns.md` for transition plans when the chosen architecture requires restructuring a live system
+- `_shared/conditional/diagram-engine.md` (+ `oma diagram resolve`) when a structural diagram is emitted — chooses archify vs Mermaid and owns the validate/deliver loop
 
 ### Control-flow features
 - Branches by request clarity, decision materiality, risk level, and need for stakeholder consultation
@@ -115,7 +121,7 @@ outputs:
 - Optional stakeholder-agent consultation only when cross-cutting enough to justify cost
 
 ### Canonical workflow path
-Prefer symbol-aware tools (serena MCP) when available: `get_symbols_overview` for structure, `find_symbol` / `find_referencing_symbols` for ownership and coupling, `search_for_pattern` for integration points. Fall back to plain search only when serena is unavailable:
+Use the configured code-intelligence provider for structure, symbols, references, and integration points. If unavailable, use native search and scoped reads:
 
 ```bash
 ls .agents/results/architecture/   # prior decisions — read before deciding
@@ -163,19 +169,16 @@ Then choose Diagnostic, Recommendation, Design-Twice, ATAM-style, CBAM-style, or
 - **ADR Mode**: concise final decision record after analysis
 
 ## References
-Follow `resources/execution-protocol.md` step by step.
-Use `resources/methodology-selection.md` to select the right method.
-Use `resources/stakeholder-synthesis.md` when stakeholder consultation is needed.
-Use `resources/output-templates.md` to format the final artifact.
-Before submitting, run `resources/checklist.md`.
-- Execution steps: `resources/execution-protocol.md`
-- Checklist: `resources/checklist.md`
+- Local code tools: `../_shared/core/code-intelligence.md` (code search/navigation)
+
+- Execution steps (follow for the selected task): `resources/execution-protocol.md`
+- Checklist (run before handoff): `resources/checklist.md`
 - Method selection: `resources/methodology-selection.md`
 - Stakeholder protocol: `resources/stakeholder-synthesis.md`
 - Output templates: `resources/output-templates.md`
 - API evolution patterns (versioning, deprecation, lifecycle guarantees): `resources/api-evolution.md`
 - Migration/transition patterns (strangler fig, branch by abstraction, expand-contract): `resources/migration-patterns.md`
 - Context loading: `../_shared/core/context-loading.md`
-- Difficulty guide: `../_shared/core/difficulty-guide.md`
+- Task decomposition: `../_shared/core/difficulty-guide.md` (unresolved scope or dependencies)
 - Clarification protocol: `../_shared/core/clarification-protocol.md`
 - Quality principles: `../_shared/core/quality-principles.md`

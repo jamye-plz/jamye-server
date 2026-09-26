@@ -8,20 +8,28 @@ use std::{
 use axum::{
     Router,
     body::{Body, to_bytes},
-    http::{Request, StatusCode},
+    http::{Request, StatusCode, header},
     routing::get,
 };
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use jamye_server::{
-    config::{AppConfig, ConfigInput},
+    config::{
+        AppConfig, ConfigInput,
+        app_links::{AppLinksConfig, AppLinksConfigInput},
+    },
     platform::{
         logging::{build_json_subscriber, validate_filter},
         readiness::{DependencyProbe, ProbeFuture, ProbeOutcome, ReadinessService},
         request_id::REQUEST_ID_HEADER,
         shutdown::serve_with_graceful_shutdown,
     },
-    transport::http::composition::router_with_readiness,
+    transport::http::{
+        app_links::{AppLinksHttpState, router as app_links_router},
+        composition::router_with_readiness,
+    },
 };
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use tokio::{net::TcpListener, sync::Notify};
 use tower::ServiceExt;
 use tracing_subscriber::fmt::MakeWriter;
@@ -41,6 +49,150 @@ fn readiness(postgres: ProbeOutcome, redis: ProbeOutcome, minio: ProbeOutcome) -
         Arc::new(FixedProbe(redis)),
         Arc::new(FixedProbe(minio)),
     )
+}
+
+#[tokio::test]
+async fn app_link_association_routes_are_public_json_without_redirects()
+-> Result<(), Box<dyn Error>> {
+    let config = app_links_config()?;
+    let app = app_links_router(AppLinksHttpState::new(config));
+
+    let aasa = app
+        .clone()
+        .oneshot(Request::get("/.well-known/apple-app-site-association").body(Body::empty())?)
+        .await?;
+    assert_eq!(aasa.status(), StatusCode::OK);
+    assert_eq!(
+        aasa.headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+        Some("application/json")
+    );
+    assert_eq!(
+        aasa.headers()
+            .get("x-content-type-options")
+            .and_then(|v| v.to_str().ok()),
+        Some("nosniff")
+    );
+    assert!(aasa.headers().get(header::LOCATION).is_none());
+    let body: Value = serde_json::from_slice(&to_bytes(aasa.into_body(), 64 * 1024).await?)?;
+    assert_eq!(
+        body["applinks"]["details"][0]["appIDs"][0],
+        "6ZH8V43A7D.dev.local.jamyeapp"
+    );
+
+    let assetlinks = app
+        .oneshot(Request::get("/.well-known/assetlinks.json").body(Body::empty())?)
+        .await?;
+    assert_eq!(assetlinks.status(), StatusCode::OK);
+    assert_eq!(
+        assetlinks
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+        Some("application/json")
+    );
+    assert!(assetlinks.headers().get(header::LOCATION).is_none());
+    let body: Value = serde_json::from_slice(&to_bytes(assetlinks.into_body(), 64 * 1024).await?)?;
+    assert_eq!(body[0]["target"]["package_name"], "dev.local.jamyeapp");
+    Ok(())
+}
+
+#[tokio::test]
+async fn invite_landing_is_static_no_store_and_csp_hash_matches_inline_script()
+-> Result<(), Box<dyn Error>> {
+    let config = app_links_config()?;
+    let app = app_links_router(AppLinksHttpState::new(config));
+    let code = "Abcdefghijklmnop_123";
+
+    let invalid = app
+        .clone()
+        .oneshot(Request::get("/invite/too-short").body(Body::empty())?)
+        .await?;
+    assert_eq!(invalid.status(), StatusCode::NOT_FOUND);
+
+    let response = app
+        .oneshot(Request::get(format!("/invite/{code}")).body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let headers = response.headers();
+    assert_eq!(
+        headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+        Some("text/html; charset=utf-8")
+    );
+    assert_eq!(
+        headers
+            .get(header::CACHE_CONTROL)
+            .and_then(|v| v.to_str().ok()),
+        Some("no-store")
+    );
+    assert_eq!(
+        headers.get("referrer-policy").and_then(|v| v.to_str().ok()),
+        Some("no-referrer")
+    );
+    assert_eq!(
+        headers.get("x-robots-tag").and_then(|v| v.to_str().ok()),
+        Some("noindex")
+    );
+    let csp = headers
+        .get(header::CONTENT_SECURITY_POLICY)
+        .and_then(|v| v.to_str().ok())
+        .ok_or("invite response omitted CSP")?
+        .to_owned();
+    assert!(csp.contains("default-src 'none'"));
+    let script_src = csp
+        .split(';')
+        .map(str::trim)
+        .find(|directive| directive.starts_with("script-src "))
+        .ok_or("invite response omitted script-src")?;
+    assert!(!script_src.contains("'unsafe-inline'"));
+    let html = String::from_utf8(to_bytes(response.into_body(), 128 * 1024).await?.to_vec())?;
+    assert!(html.contains(code));
+    assert!(html.contains(&format!("jamye://invite/{code}")));
+    assert!(html.contains("앱이 설치되어 있으면"));
+    assert!(html.contains("App Store"));
+    assert!(html.contains("Google Play"));
+    let script = html
+        .split("<script>")
+        .nth(1)
+        .and_then(|tail| tail.split("</script>").next())
+        .ok_or("invite HTML omitted inline script")?;
+    let expected_hash = BASE64.encode(Sha256::digest(script.as_bytes()));
+    assert!(
+        csp.contains(&format!("script-src 'sha256-{expected_hash}'")),
+        "CSP hash did not match static script"
+    );
+    Ok(())
+}
+
+#[test]
+fn app_links_config_rejects_malformed_ids_and_non_https_store_urls() {
+    assert!(
+        AppLinksConfig::try_from(AppLinksConfigInput {
+            app_store_url: Some("http://apps.example.test/jamye".to_owned()),
+            ..AppLinksConfigInput::default()
+        })
+        .is_err()
+    );
+    assert!(
+        AppLinksConfig::try_from(AppLinksConfigInput {
+            aasa_app_ids: Some("not-a-team.dev.local.jamyeapp".to_owned()),
+            ..AppLinksConfigInput::default()
+        })
+        .is_err()
+    );
+}
+
+fn app_links_config() -> Result<AppLinksConfig, Box<dyn Error>> {
+    Ok(AppLinksConfig::try_from(AppLinksConfigInput {
+        app_store_url: Some("https://apps.apple.com/app/jamye".to_owned()),
+        play_store_url: Some(
+            "https://play.google.com/store/apps/details?id=dev.local.jamyeapp".to_owned(),
+        ),
+        ..AppLinksConfigInput::default()
+    })?)
 }
 
 #[tokio::test]

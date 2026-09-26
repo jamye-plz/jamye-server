@@ -25,7 +25,8 @@ use crate::{
     },
     domain::messaging::{MessageAttachment, MessageKind},
     ports::chatrooms::{
-        ChatroomPage, ChatroomRecord, MessageHistoryPage, MessageHistoryRecord, ReadMarker,
+        ChatroomMediaItem, ChatroomMediaPage, ChatroomPage, ChatroomRecord, MessageHistoryPage,
+        MessageHistoryRecord, ReadMarker,
     },
     transport::http::auth::{AuthVerifierState, AuthenticatedAccess, error_response, request_id},
 };
@@ -67,6 +68,7 @@ pub fn router(state: ChatroomsHttpState) -> Router {
             "/api/v1/chatrooms/{chatroom_id}/messages",
             get(message_history),
         )
+        .route("/api/v1/chatrooms/{chatroom_id}/media", get(chatroom_media))
         .route("/api/v1/chatrooms/{chatroom_id}/read", post(mark_read))
         .with_state(state)
 }
@@ -135,6 +137,40 @@ async fn message_history(
     };
     match result {
         Ok(page) => (StatusCode::OK, Json(MessagePageResponse::from(page))).into_response(),
+        Err(error) => ChatroomsHttpError { error, request_id }.into_response(),
+    }
+}
+
+async fn chatroom_media(
+    State(state): State<ChatroomsHttpState>,
+    AuthenticatedAccess(identity): AuthenticatedAccess,
+    Path(chatroom_id): Path<String>,
+    RawQuery(raw_query): RawQuery,
+    request: Request,
+) -> Response {
+    let (parts, _) = request.into_parts();
+    let request_id = request_id(&parts);
+    let input = parse_uuid(&chatroom_id).and_then(|chatroom_id| {
+        parse_page(raw_query.as_deref(), "before").map(|page| (chatroom_id, page))
+    });
+    let result = match input {
+        Ok((chatroom_id, page)) => {
+            state
+                .service
+                .chatroom_media(
+                    identity.user_id,
+                    chatroom_id,
+                    HistoryPageInput {
+                        before: page.cursor,
+                        limit: page.limit,
+                    },
+                )
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    match result {
+        Ok(page) => (StatusCode::OK, Json(ChatroomMediaPageResponse::from(page))).into_response(),
         Err(error) => ChatroomsHttpError { error, request_id }.into_response(),
     }
 }
@@ -360,6 +396,62 @@ impl From<MessageHistoryPage> for MessagePageResponse {
     fn from(page: MessageHistoryPage) -> Self {
         Self {
             items: page.items.into_iter().map(MessageResponse::from).collect(),
+            next_cursor: page.next_cursor,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct ChatroomMediaItemResponse {
+    id: Uuid,
+    media_upload_id: Uuid,
+    #[serde(rename = "type")]
+    content_type: String,
+    byte_size: u64,
+    width: Option<u32>,
+    height: Option<u32>,
+    duration: Option<u64>,
+    filename: Option<String>,
+    position: u8,
+    poster_media_id: Option<Uuid>,
+    message_id: Uuid,
+    #[serde(with = "time::serde::rfc3339")]
+    message_created_at: OffsetDateTime,
+}
+
+impl From<ChatroomMediaItem> for ChatroomMediaItemResponse {
+    fn from(item: ChatroomMediaItem) -> Self {
+        Self {
+            id: item.attachment.id,
+            media_upload_id: item.attachment.media_upload_id,
+            content_type: item.attachment.content_type,
+            byte_size: item.attachment.byte_size,
+            width: item.attachment.width,
+            height: item.attachment.height,
+            duration: item.attachment.duration,
+            filename: item.attachment.filename,
+            position: item.attachment.position,
+            poster_media_id: item.attachment.poster_media_id,
+            message_id: item.message_id,
+            message_created_at: item.message_created_at,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct ChatroomMediaPageResponse {
+    items: Vec<ChatroomMediaItemResponse>,
+    next_cursor: Option<String>,
+}
+
+impl From<ChatroomMediaPage> for ChatroomMediaPageResponse {
+    fn from(page: ChatroomMediaPage) -> Self {
+        Self {
+            items: page
+                .items
+                .into_iter()
+                .map(ChatroomMediaItemResponse::from)
+                .collect(),
             next_cursor: page.next_cursor,
         }
     }

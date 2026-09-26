@@ -18,8 +18,8 @@ use super::{BoxError, invalid_data, selected};
 pub const C0_OPERATION_IDS: &[&str] = &["H1", "H2", "C4", "S1", "R1"];
 pub const OPERATION_IDS: &[&str] = &[
     "H1", "H2", "A1", "A2", "A3", "A4", "A5", "U1", "U2", "U3", "G1", "G2", "G3", "G4", "G5", "G6",
-    "G7", "G8", "I1", "I2", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "MD1", "MD2", "MD3", "C1",
-    "C2", "C3", "C4", "MD4", "MD5", "S1", "R1", "P2", "P3", "P4", "N1", "N2",
+    "G7", "G8", "I1", "I2", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "MD1", "MD2", "C1", "C2",
+    "C3", "C4", "C5", "MD4", "MD5", "S1", "R1", "P2", "P3", "P4", "N1", "N2",
 ];
 
 struct OwnerOperationContribution {
@@ -486,7 +486,7 @@ fn merge_owner_schemas(openapi: &mut Value) -> Result<(), BoxError> {
 }
 
 fn owner_schema_can_replace(name: &str) -> bool {
-    matches!(name, "MediaRef" | "MessageAttachment" | "TopicMedia")
+    matches!(name, "MediaRef" | "MessageAttachment")
 }
 
 fn normalize_owner_schema_refs(value: &mut Value) {
@@ -537,9 +537,9 @@ fn add_release_metadata(openapi: &mut Value) -> Result<(), BoxError> {
             {"name": "users", "description": "Current user profile and account lifecycle"},
             {"name": "groups", "description": "Groups and memberships"},
             {"name": "invites", "description": "Group invitations"},
-            {"name": "chatrooms", "description": "Chatroom discovery, history, and read markers"},
+            {"name": "chatrooms", "description": "Chatroom discovery, history, media, and read markers"},
             {"name": "messages", "description": "Idempotent chat message commands"},
-            {"name": "topics", "description": "Topics, dates, tags, and topic media"},
+            {"name": "topics", "description": "Topics, dates, and tags"},
             {"name": "media", "description": "Private media upload, finalize, and access"},
             {"name": "sync", "description": "Cursor-based event recovery"},
             {"name": "realtime", "description": "One-time tickets for WebSocket sessions"},
@@ -604,10 +604,10 @@ fn response_component(operation_id: &str) -> Option<&'static str> {
         "T6" | "T7" => Some("TagPage"),
         "MD1" => Some("UploadIntentWithPresignedPut"),
         "MD2" => Some("UploadFinalizeResult"),
-        "MD3" => Some("TopicMediaPage"),
         "C1" => Some("ChatroomPage"),
         "C2" => Some("DenormalizedMessagePage"),
         "C3" => Some("ReadMarker"),
+        "C5" => Some("ChatroomMediaPage"),
         "MD4" => Some("MediaAccessUrl"),
         "P2" | "P3" => Some("PushInstallation"),
         "N1" => Some("NotificationPage"),
@@ -628,8 +628,8 @@ fn operation_parameters(surface: &selected::RestSurface) -> Vec<Value> {
         .collect::<Vec<_>>();
 
     let cursor = match surface.operation_id {
-        "G2" | "G4" | "C1" | "T2" | "T3" | "T7" | "MD3" | "N1" => Some("after"),
-        "C2" => Some("before"),
+        "G2" | "G4" | "C1" | "T2" | "T3" | "T7" | "N1" => Some("after"),
+        "C2" | "C5" => Some("before"),
         _ => None,
     };
     if let Some(cursor) = cursor {
@@ -720,7 +720,7 @@ fn path_parameter(name: &str) -> Value {
 fn page_limit(operation_id: &str) -> (u32, u32) {
     match operation_id {
         "T2" => (31, 366),
-        "T3" | "MD3" => (20, 100),
+        "T3" => (20, 100),
         _ => (50, 100),
     }
 }
@@ -799,7 +799,7 @@ fn callback_safety_headers() -> Value {
 fn success_statuses(operation_id: &str) -> Result<&'static [&'static str], BoxError> {
     match operation_id {
         "A1" | "A2" | "A3" | "U1" | "U2" | "G2" | "G3" | "G4" | "G5" | "I2" | "T2" | "T3"
-        | "T4" | "T5" | "T6" | "T7" | "MD2" | "MD3" | "C1" | "C2" | "C3" | "MD4" | "P3" | "N1" => {
+        | "T4" | "T5" | "T6" | "T7" | "MD2" | "C1" | "C2" | "C3" | "C5" | "MD4" | "P3" | "N1" => {
             Ok(&["200"])
         }
         "G1" | "I1" | "MD1" => Ok(&["201"]),
@@ -832,10 +832,10 @@ fn operation_tag(operation_id: &str) -> Result<&'static str, BoxError> {
         "U1" | "U2" | "U3" => Ok("users"),
         "G1" | "G2" | "G3" | "G4" | "G5" | "G6" | "G7" | "G8" => Ok("groups"),
         "I1" | "I2" => Ok("invites"),
-        "C1" | "C2" | "C3" => Ok("chatrooms"),
+        "C1" | "C2" | "C3" | "C5" => Ok("chatrooms"),
         "C4" => Ok("messages"),
         "T1" | "T2" | "T3" | "T4" | "T5" | "T6" | "T7" => Ok("topics"),
-        "MD1" | "MD2" | "MD3" | "MD4" | "MD5" => Ok("media"),
+        "MD1" | "MD2" | "MD4" | "MD5" => Ok("media"),
         "S1" => Ok("sync"),
         "R1" => Ok("realtime"),
         "P2" | "P3" | "P4" => Ok("push"),
@@ -878,11 +878,11 @@ fn operation_summary(operation_id: &str) -> Result<&'static str, BoxError> {
         "T7" => Ok("List topic tags"),
         "MD1" => Ok("Create a media upload intent"),
         "MD2" => Ok("Finalize a media upload"),
-        "MD3" => Ok("List topic media"),
         "C1" => Ok("List group chatrooms"),
         "C2" => Ok("List chatroom message history"),
         "C3" => Ok("Advance a chatroom read marker"),
         "C4" => Ok("Send an idempotent chat message"),
+        "C5" => Ok("List chatroom image and video attachments"),
         "MD4" => Ok("Issue a short-lived media view URL"),
         "MD5" => Ok("Redirect to a media download URL"),
         "S1" => Ok("Recover conversation events after a cursor"),

@@ -9,11 +9,17 @@
       "args": [
         "bridge",
         "--context",
-        "claude-code"
+        "oma"
       ],
       "env": {
         "SERENA_LOG_LEVEL": "info"
       }
+    },
+    "aside": {
+      "command": "aside",
+      "args": [
+        "mcp"
+      ]
     }
   }
 }

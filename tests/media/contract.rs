@@ -7,7 +7,7 @@ use crate::TestResult;
 const CONTRIBUTION_ROOT: &str = "contracts/contributions/task-8";
 
 #[test]
-fn md1_through_md5_contract_contribution_matches_the_selected_inventory() -> TestResult {
+fn md1_md2_md4_md5_contract_contribution_matches_the_selected_inventory() -> TestResult {
     let operations = read_json(&format!("{CONTRIBUTION_ROOT}/dto/operations.json"))?;
     let rows = operations["operations"]
         .as_array()
@@ -42,13 +42,6 @@ fn md1_through_md5_contract_contribution_matches_the_selected_inventory() -> Tes
                 None,
             ),
             (
-                Some("MD3"),
-                Some("GET"),
-                Some("/api/v1/topics/{topic_id}/media"),
-                Some(200),
-                Some("after+limit"),
-            ),
-            (
                 Some("MD4"),
                 Some("GET"),
                 Some("/api/v1/media/{media_id}/url"),
@@ -66,7 +59,7 @@ fn md1_through_md5_contract_contribution_matches_the_selected_inventory() -> Tes
     );
     assert_eq!(rows[0]["response"], "UploadIntent+PresignedPut");
     assert_eq!(rows[1]["response"], "UploadFinalizeResult");
-    assert_eq!(rows[2]["response"], "TopicMediaPage");
+    assert_eq!(rows[2]["response"], "MediaAccessUrl");
 
     let schema = read_json(&format!(
         "{CONTRIBUTION_ROOT}/schemas/media-wire.schema.json"
@@ -81,10 +74,7 @@ fn md1_through_md5_contract_contribution_matches_the_selected_inventory() -> Tes
         "UploadFinalize",
         "ConfirmedUpload",
         "ChatUploadFinalizeResult",
-        "TopicUploadFinalizeResult",
         "UploadFinalizeResult",
-        "TopicMedia",
-        "TopicMediaPage",
         "MediaAccessUrl",
         "MessageAttachment",
     ] {
@@ -94,14 +84,8 @@ fn md1_through_md5_contract_contribution_matches_the_selected_inventory() -> Tes
         );
     }
     assert_eq!(
-        definitions["UploadFinalizeResult"]["discriminator"]["propertyName"],
-        "scope"
-    );
-    assert_eq!(
-        definitions["UploadFinalizeResult"]["oneOf"]
-            .as_array()
-            .map(Vec::len),
-        Some(2)
+        definitions["UploadFinalizeResult"]["$ref"],
+        "#/$defs/ChatUploadFinalizeResult"
     );
     assert_eq!(
         definitions["MessageAttachment"]["required"],
@@ -132,7 +116,7 @@ fn md1_through_md5_contract_contribution_matches_the_selected_inventory() -> Tes
 }
 
 #[test]
-fn history_and_topic_contracts_expose_canonical_media_without_private_chat_keys() -> TestResult {
+fn history_contract_exposes_canonical_media_without_private_chat_keys() -> TestResult {
     let history_schema =
         read_json("contracts/contributions/task-6b/schemas/chatrooms-wire.schema.json")?;
     let history_media = &history_schema["$defs"]["DenormalizedMessage"]["properties"]["media"];
@@ -143,15 +127,11 @@ fn history_and_topic_contracts_expose_canonical_media_without_private_chat_keys(
     );
 
     let topic_schema = read_json("contracts/contributions/task-7/schemas/topics-wire.schema.json")?;
-    let topic_media = &topic_schema["$defs"]["TopicMedia"];
-    assert_eq!(
-        topic_media["properties"]["media_upload_id"]["format"],
-        "uuid"
-    );
+    assert!(topic_schema["$defs"]["TopicMedia"].is_null());
     assert!(
-        topic_media["required"]
-            .as_array()
-            .is_some_and(|required| required.iter().any(|field| field == "media_upload_id"))
+        topic_schema["$defs"]["CanonicalTopic"]["properties"]
+            .get("media")
+            .is_none()
     );
 
     let history_fixture =

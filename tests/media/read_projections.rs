@@ -7,18 +7,13 @@ use axum::{
 };
 use jamye_server::{
     adapters::postgres::{
-        chatrooms::PostgresChatroomsRepository, topics::PostgresTopicsRepository,
-        transactions::SqlxTransactionManager,
+        chatrooms::PostgresChatroomsRepository, transactions::SqlxTransactionManager,
     },
     application::{
         auth::{AccessIdentity, AccessTokenVerifier, AuthenticationError},
         chatrooms::ChatroomsService,
-        topics::{TopicsDependencies, TopicsService},
     },
-    transport::http::{
-        chatrooms::{ChatroomsHttpState, router as chatrooms_router},
-        topics::{TopicsHttpState, router as topics_router},
-    },
+    transport::http::chatrooms::{ChatroomsHttpState, router as chatrooms_router},
 };
 use serde_json::Value;
 use sqlx::PgPool;
@@ -88,51 +83,11 @@ async fn history_projects_persisted_media_in_position_order_without_object_keys(
     fixture.dispose().await
 }
 
-#[tokio::test]
-async fn md3_projects_the_canonical_topic_media_upload_identity() -> TestResult {
-    let fixture = ProjectionFixture::new().await?;
-    let media = fixture.insert_topic_media().await?;
-    let response = topic_router(fixture.pool.clone())
-        .oneshot(get_request(
-            &format!(
-                "/api/v1/groups/{}/topics/{}",
-                fixture.group_id, fixture.topic_id
-            ),
-            fixture.actor_id,
-        )?)
-        .await?;
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = response_json(response).await?;
-    let projected = &body["media"][0];
-    assert_eq!(projected["id"], media.media_id.to_string());
-    assert_eq!(projected["topic_id"], fixture.topic_id.to_string());
-    assert_eq!(projected["media_upload_id"], media.upload_id.to_string());
-    assert_eq!(projected["content_type"], "image/jpeg");
-    assert_eq!(projected["width"], 800);
-    assert_eq!(projected["height"], 600);
-    assert_eq!(projected["byte_size"], 1_024);
-
-    fixture.dispose().await
-}
-
 fn history_router(pool: PgPool) -> Router {
     let repository = Arc::new(PostgresChatroomsRepository::new(pool.clone()));
     let transactions = Arc::new(SqlxTransactionManager::new(pool));
     chatrooms_router(ChatroomsHttpState::new(
         Arc::new(ChatroomsService::new(transactions, repository)),
-        Arc::new(TestAccessVerifier),
-    ))
-}
-
-fn topic_router(pool: PgPool) -> Router {
-    let repository = Arc::new(PostgresTopicsRepository::new(pool.clone()));
-    let transactions = Arc::new(SqlxTransactionManager::new(pool));
-    topics_router(TopicsHttpState::new(
-        Arc::new(TopicsService::new(TopicsDependencies {
-            transactions,
-            repository,
-        })),
         Arc::new(TestAccessVerifier),
     ))
 }
@@ -169,10 +124,8 @@ struct ProjectionFixture {
     database: TestDatabase,
     pool: PgPool,
     actor_id: Uuid,
-    group_id: Uuid,
     chatroom_id: Uuid,
     message_id: Uuid,
-    topic_id: Uuid,
 }
 
 impl ProjectionFixture {
@@ -223,37 +176,12 @@ impl ProjectionFixture {
         .execute(&pool)
         .await?;
 
-        let topic_id = Uuid::new_v4();
-        sqlx::query(
-            "INSERT INTO topics \
-                 (id, group_id, author_id, idempotency_key, request_fingerprint, title, status) \
-             VALUES ($1, $2, $3, $4, $5, '미디어 주제', 'enriched')",
-        )
-        .bind(topic_id)
-        .bind(group_id)
-        .bind(actor_id)
-        .bind(Uuid::new_v4())
-        .bind("0".repeat(64))
-        .execute(&pool)
-        .await?;
-        sqlx::query(
-            "INSERT INTO chatrooms (id, group_id, type, topic_id) \
-             VALUES ($1, $2, 'topic', $3)",
-        )
-        .bind(Uuid::new_v4())
-        .bind(group_id)
-        .bind(topic_id)
-        .execute(&pool)
-        .await?;
-
         Ok(Self {
             database,
             pool,
             actor_id,
-            group_id,
             chatroom_id,
             message_id,
-            topic_id,
         })
     }
 
@@ -301,49 +229,6 @@ impl ProjectionFixture {
         .bind(spec.filename)
         .execute(&self.pool)
         .await?;
-        Ok(SeededMedia {
-            media_id,
-            upload_id,
-        })
-    }
-
-    async fn insert_topic_media(&self) -> TestResult<SeededMedia> {
-        let media_id = Uuid::new_v4();
-        let upload_id = Uuid::new_v4();
-        let object_key = format!("topics/{}/{upload_id}", self.topic_id);
-        let now = OffsetDateTime::now_utc();
-        let mut transaction = self.pool.begin().await?;
-        sqlx::query(
-            "INSERT INTO media_uploads \
-                 (id, user_id, object_key, scope, target_id, content_type, byte_size, \
-                  filename, status, bound_topic_media_id, confirmed_at, consumed_at, \
-                  expires_at, created_at) \
-             VALUES ($1, $2, $3, 'topic', $4, 'image/jpeg', 1024, 'topic.jpg', \
-                     'bound', $5, $6, $7, $8, $9)",
-        )
-        .bind(upload_id)
-        .bind(self.actor_id)
-        .bind(&object_key)
-        .bind(self.topic_id)
-        .bind(media_id)
-        .bind(now - time::Duration::minutes(2))
-        .bind(now - time::Duration::minutes(1))
-        .bind(now + time::Duration::hours(1))
-        .bind(now - time::Duration::hours(1))
-        .execute(&mut *transaction)
-        .await?;
-        sqlx::query(
-            "INSERT INTO topic_media \
-                 (id, topic_id, media_upload_id, type, object_key, width, height, byte_size) \
-             VALUES ($1, $2, $3, 'image/jpeg', $4, 800, 600, 1024)",
-        )
-        .bind(media_id)
-        .bind(self.topic_id)
-        .bind(upload_id)
-        .bind(object_key)
-        .execute(&mut *transaction)
-        .await?;
-        transaction.commit().await?;
         Ok(SeededMedia {
             media_id,
             upload_id,

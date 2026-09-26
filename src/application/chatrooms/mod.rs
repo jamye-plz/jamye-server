@@ -68,6 +68,24 @@ impl ChatroomsService {
             .map_err(ChatroomsError::from)
     }
 
+    pub async fn chatroom_media(
+        &self,
+        user_id: Uuid,
+        chatroom_id: Uuid,
+        input: HistoryPageInput,
+    ) -> Result<crate::ports::chatrooms::ChatroomMediaPage, ChatroomsError> {
+        let (before, limit) = validate_page(input.before, input.limit)?;
+        self.repository
+            .chatroom_media(crate::ports::chatrooms::ChatroomMediaQuery {
+                chatroom_id,
+                user_id,
+                before,
+                limit,
+            })
+            .await
+            .map_err(ChatroomsError::from)
+    }
+
     pub async fn mark_read(
         &self,
         user_id: Uuid,

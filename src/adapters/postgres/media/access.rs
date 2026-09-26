@@ -31,30 +31,6 @@ const AUTHORIZED_MEDIA_SQL: &str = "WITH authorized_media AS ( \
           AND actor_membership.user_id = $2 \
          WHERE attachment.id = $1 \
          UNION ALL \
-         SELECT attachment.id, upload.id AS media_upload_id, \
-                attachment.object_key, attachment.type AS content_type, \
-                attachment.byte_size, attachment.width, attachment.height, \
-                upload.duration, upload.filename \
-         FROM topic_media AS attachment \
-         JOIN media_uploads AS upload \
-           ON upload.id = attachment.media_upload_id \
-          AND upload.scope = 'topic' \
-          AND upload.status = 'bound' \
-          AND upload.bound_topic_media_id = attachment.id \
-          AND upload.target_id = attachment.topic_id \
-          AND upload.object_key = attachment.object_key \
-          AND upload.content_type = attachment.type \
-          AND upload.byte_size = attachment.byte_size \
-         JOIN topics AS topic \
-           ON topic.id = attachment.topic_id \
-         JOIN groups AS live_group \
-           ON live_group.id = topic.group_id \
-          AND live_group.deleted_at IS NULL \
-         JOIN memberships AS actor_membership \
-           ON actor_membership.group_id = live_group.id \
-          AND actor_membership.user_id = $2 \
-         WHERE attachment.id = $1 \
-         UNION ALL \
          SELECT upload.id, upload.id AS media_upload_id, \
                 upload.object_key, upload.content_type, \
                 upload.byte_size, NULL::integer AS width, NULL::integer AS height, \

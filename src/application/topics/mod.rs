@@ -9,10 +9,9 @@ use uuid::Uuid;
 use crate::ports::{
     topics::{
         CreateTopicCommand, CreateTopicOutcome, GetTopicQuery, ListTopicDatesQuery,
-        ListTopicMediaQuery, ListTopicTagsQuery, ListTopicsQuery, NewTopicTag, PatchTopicCommand,
-        ReplaceTopicTagsCommand, TopicDatePage, TopicMediaPage, TopicNotificationContext,
-        TopicPage, TopicRecord, TopicStatus, TopicTagPage, TopicTagSource, TopicsRepository,
-        TopicsRepositoryError,
+        ListTopicTagsQuery, ListTopicsQuery, NewTopicTag, PatchTopicCommand,
+        ReplaceTopicTagsCommand, TopicDatePage, TopicNotificationContext, TopicPage, TopicRecord,
+        TopicTagPage, TopicTagSource, TopicsRepository, TopicsRepositoryError,
     },
     transactions::{BoxTransactionHandle, TransactionHandle, TransactionManager},
 };
@@ -20,7 +19,6 @@ use crate::ports::{
 pub const DEFAULT_TOPIC_PAGE_LIMIT: u32 = 20;
 pub const DEFAULT_DATE_PAGE_LIMIT: u32 = 31;
 pub const DEFAULT_TAG_PAGE_LIMIT: u32 = 50;
-pub const DEFAULT_MEDIA_PAGE_LIMIT: u32 = 20;
 pub const MAX_PAGE_LIMIT: u32 = 100;
 pub const MAX_DATE_PAGE_LIMIT: u32 = 366;
 
@@ -227,39 +225,6 @@ impl TopicsService {
                 after,
                 limit,
             })
-            .await
-            .map_err(TopicsError::from)
-    }
-
-    pub async fn list_media(
-        &self,
-        actor_id: Uuid,
-        topic_id: Uuid,
-        input: TopicMediaPageInput,
-    ) -> Result<TopicMediaPage, TopicsError> {
-        let limit = validate_limit(input.limit, DEFAULT_MEDIA_PAGE_LIMIT, MAX_PAGE_LIMIT)?;
-        let after = parse_uuid_cursor(input.after)?;
-        self.dependencies
-            .repository
-            .list_media(ListTopicMediaQuery {
-                topic_id,
-                actor_id,
-                after,
-                limit,
-            })
-            .await
-            .map_err(TopicsError::from)
-    }
-
-    /// Idempotently promotes a seed topic inside a caller-owned transaction.
-    pub async fn promote_enriched(
-        &self,
-        transaction: &mut dyn TransactionHandle,
-        topic_id: Uuid,
-    ) -> Result<TopicStatus, TopicsError> {
-        self.dependencies
-            .repository
-            .promote_enriched(transaction, topic_id)
             .await
             .map_err(TopicsError::from)
     }
@@ -487,12 +452,6 @@ pub struct TopicTagInput {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TopicTagPageInput {
-    pub after: Option<String>,
-    pub limit: Option<u32>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TopicMediaPageInput {
     pub after: Option<String>,
     pub limit: Option<u32>,
 }

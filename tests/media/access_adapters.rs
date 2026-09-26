@@ -33,35 +33,25 @@ const DOWNLOAD_DISPOSITION: &str = concat!(
 );
 
 #[tokio::test]
-async fn postgres_access_uses_message_or_topic_membership_and_rejects_cross_group_ids() -> TestResult
-{
+async fn postgres_access_uses_message_membership_and_rejects_cross_group_ids() -> TestResult {
     let fixture = AccessDatabaseFixture::new().await?;
     let repository = PostgresMediaRepository::new(fixture.pool.clone());
 
     let chat = repository
         .authorize_media_access(&query(fixture.member_id, fixture.chat.id))
         .await;
-    let topic = repository
-        .authorize_media_access(&query(fixture.member_id, fixture.topic.id))
-        .await;
     let denied_chat = repository
         .authorize_media_access(&query(fixture.outsider_id, fixture.chat.id))
-        .await;
-    let denied_topic = repository
-        .authorize_media_access(&query(fixture.outsider_id, fixture.topic.id))
         .await;
     let missing = repository
         .authorize_media_access(&query(fixture.member_id, Uuid::new_v4()))
         .await;
 
     let expected_chat = fixture.chat.clone();
-    let expected_topic = fixture.topic.clone();
     fixture.dispose().await?;
 
     assert_eq!(chat, Ok(expected_chat));
-    assert_eq!(topic, Ok(expected_topic));
     assert_eq!(denied_chat, Err(MediaRepositoryError::TargetNotAccessible));
-    assert_eq!(denied_topic, Err(MediaRepositoryError::TargetNotAccessible));
     assert_eq!(missing, Err(MediaRepositoryError::TargetNotAccessible));
     Ok(())
 }
@@ -225,7 +215,6 @@ struct AccessDatabaseFixture {
     member_id: Uuid,
     outsider_id: Uuid,
     chat: MediaAccessRecord,
-    topic: MediaAccessRecord,
 }
 
 impl AccessDatabaseFixture {
@@ -287,28 +276,12 @@ impl AccessDatabaseFixture {
         .await?;
         let chat = insert_chat_media(&pool, member_id, chatroom_id, message_id).await?;
 
-        let topic_id = Uuid::new_v4();
-        sqlx::query(
-            "INSERT INTO topics \
-                 (id, group_id, author_id, idempotency_key, request_fingerprint, title, status) \
-             VALUES ($1, $2, $3, $4, $5, '접근 주제', 'enriched')",
-        )
-        .bind(topic_id)
-        .bind(group_id)
-        .bind(member_id)
-        .bind(Uuid::new_v4())
-        .bind("c".repeat(64))
-        .execute(&pool)
-        .await?;
-        let topic = insert_topic_media(&pool, member_id, topic_id).await?;
-
         Ok(Self {
             database,
             pool,
             member_id,
             outsider_id,
             chat,
-            topic,
         })
     }
 
@@ -376,66 +349,6 @@ async fn insert_chat_media(
         height: Some(600),
         duration_seconds: None,
         filename: Some(" 여름/기록.jpg ".to_owned()),
-    })
-}
-
-async fn insert_topic_media(
-    pool: &PgPool,
-    user_id: Uuid,
-    topic_id: Uuid,
-) -> TestResult<MediaAccessRecord> {
-    let upload_id = Uuid::new_v4();
-    let media_id = Uuid::new_v4();
-    let object_key = format!("topics/{topic_id}/{upload_id}");
-    let now = OffsetDateTime::now_utc();
-    let confirmed_at = now - TimeDuration::minutes(2);
-    let consumed_at = now - TimeDuration::minutes(1);
-    let created_at = now - TimeDuration::minutes(3);
-    let mut transaction = pool.begin().await?;
-    sqlx::query(
-        "INSERT INTO media_uploads \
-             (id, user_id, object_key, scope, target_id, content_type, byte_size, filename, \
-              status, bound_topic_media_id, confirmed_at, consumed_at, expires_at, created_at) \
-         VALUES ($1, $2, $3, 'topic', $4, 'image/png', 2048, $5, \
-                 'bound', $6, $7, $8, $9, $10)",
-    )
-    .bind(upload_id)
-    .bind(user_id)
-    .bind(&object_key)
-    .bind(topic_id)
-    .bind("주제 사진.png")
-    .bind(media_id)
-    .bind(confirmed_at)
-    .bind(consumed_at)
-    .bind(now + TimeDuration::hours(1))
-    .bind(created_at)
-    .execute(&mut *transaction)
-    .await?;
-    sqlx::query(
-        "INSERT INTO topic_media \
-             (id, topic_id, media_upload_id, type, object_key, width, height, byte_size, \
-              created_at) \
-         VALUES ($1, $2, $3, 'image/png', $4, 640, 480, 2048, $5)",
-    )
-    .bind(media_id)
-    .bind(topic_id)
-    .bind(upload_id)
-    .bind(&object_key)
-    .bind(consumed_at)
-    .execute(&mut *transaction)
-    .await?;
-    transaction.commit().await?;
-
-    Ok(MediaAccessRecord {
-        id: media_id,
-        media_upload_id: upload_id,
-        object_key,
-        content_type: "image/png".to_owned(),
-        byte_size: 2_048,
-        width: Some(640),
-        height: Some(480),
-        duration_seconds: None,
-        filename: Some("주제 사진.png".to_owned()),
     })
 }
 

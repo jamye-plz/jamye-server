@@ -24,3 +24,6 @@ docs/plans/
 
 # oma docs generated artifacts
 docs/generated/
+
+.agents/oma-config.local.cue
+.agents/oma-config.local.yaml

@@ -1,11 +1,6 @@
 ---
 name: oma-scholar
-description: >
-  Scholarly research companion using Knows sidecar spec (.knows.yaml). Generates,
-  validates, reviews, queries, and compares structured research-paper sidecars,
-  and fetches them from knows.academy. Use for academic literature search, survey
-  synthesis, paper authoring assistance, and peer review with token-efficient
-  claim/evidence/relation access.
+description: "Search academic literature and generate, validate, or compare Knows paper sidecars. Use for claim/evidence analysis and literature synthesis."
 ---
 
 # Scholar - Research Paper Sidecar Companion
@@ -32,7 +27,7 @@ Search, fetch, generate, validate, analyze, review, and compare scholarly paper 
 ### When NOT to use
 
 - General web search or non-academic content -> use `oma-search`
-- Translating papers -> use `oma-translator`
+- Translating papers -> use `oma-translation`
 - PDF parsing only (no sidecar) -> use `oma-pdf`
 - Submitting sidecars back to knows.academy -> out of scope (host LLM only consumes/produces locally)
 - Full peer-review workflow with editor system -> out of scope
@@ -185,10 +180,6 @@ oma scholar get "10.48550/arXiv.1706.03762"
 When OpenAlex returns the answer (knows.academy lacks the paper), use the
 returned abstract as input to **Mode 1 Generate** to produce a local sidecar.
 
-### How to Execute
-
-Follow `resources/execution-protocol.md` step by step for the selected mode.
-
 ### Quick Reference
 
 #### Search (knows + auto OpenAlex fallback)
@@ -272,7 +263,7 @@ Project-specific settings: `config/scholar-config.yaml`. One key is user-tunable
 
 ## References
 
-- Execution steps: `resources/execution-protocol.md`
+- Execution steps (follow for the selected task): `resources/execution-protocol.md`
 - Sidecar spec rules: `resources/sidecar-spec.md`
 - API endpoints: `resources/api-endpoints.md`
 - OpenAlex setup: `resources/setup-openalex.md`

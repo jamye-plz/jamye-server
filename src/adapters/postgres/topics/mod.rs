@@ -10,10 +10,9 @@ use crate::{
     ports::{
         topics::{
             CreateTopicCommand, CreateTopicOutcome, GetTopicQuery, ListTopicDatesQuery,
-            ListTopicMediaQuery, ListTopicTagsQuery, ListTopicsQuery, PatchTopicCommand,
-            ReplaceTopicTagsCommand, TopicDatePage, TopicMediaPage, TopicNotificationContext,
-            TopicPage, TopicRecord, TopicStatus, TopicTagPage, TopicsRepository,
-            TopicsRepositoryError, TopicsRepositoryFuture,
+            ListTopicTagsQuery, ListTopicsQuery, PatchTopicCommand, ReplaceTopicTagsCommand,
+            TopicDatePage, TopicNotificationContext, TopicPage, TopicRecord, TopicTagPage,
+            TopicsRepository, TopicsRepositoryError, TopicsRepositoryFuture,
         },
         transactions::TransactionHandle,
     },
@@ -55,18 +54,6 @@ impl TopicsRepository for PostgresTopicsRepository {
         })
     }
 
-    fn promote_enriched<'a>(
-        &'a self,
-        transaction: &'a mut dyn TransactionHandle,
-        topic_id: uuid::Uuid,
-    ) -> TopicsRepositoryFuture<'a, TopicStatus> {
-        Box::pin(async move {
-            let connection =
-                connection(transaction).map_err(|_| TopicsRepositoryError::InvalidData)?;
-            mutation::promote_enriched(connection, topic_id).await
-        })
-    }
-
     fn replace_tags<'a>(
         &'a self,
         transaction: &'a mut dyn TransactionHandle,
@@ -98,10 +85,6 @@ impl TopicsRepository for PostgresTopicsRepository {
         Box::pin(query::list_tags(&self.pool, query))
     }
 
-    fn list_media(&self, query: ListTopicMediaQuery) -> TopicsRepositoryFuture<'_, TopicMediaPage> {
-        Box::pin(query::list_media(&self.pool, query))
-    }
-
     fn notification_context<'a>(
         &'a self,
         transaction: &'a mut dyn TransactionHandle,
@@ -124,16 +107,10 @@ pub(super) fn database_error(operation: &'static str, error: sqlx::Error) -> Top
                 | "topics_body_check"
                 | "topics_status_check"
                 | "topics_timestamp_check"
-                | "topic_media_type_check"
-                | "topic_media_object_key_check"
-                | "topic_media_width_check"
-                | "topic_media_height_check"
-                | "topic_media_byte_size_check"
                 | "topic_tags_tag_check"
                 | "topic_tags_source_check"
                 | "topic_tags_confidence_check"
-                | "uq_topic_tags_topic_tag"
-                | "uq_topic_media_topic_object",
+                | "uq_topic_tags_topic_tag",
             ) => return TopicsRepositoryError::InvalidData,
             Some("uq_topics_author_idempotency") => {
                 return TopicsRepositoryError::IdempotencyConflict;

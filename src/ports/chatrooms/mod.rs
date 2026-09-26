@@ -21,6 +21,11 @@ pub trait ChatroomsRepository: Send + Sync {
         query: MessageHistoryQuery,
     ) -> ChatroomsRepositoryFuture<'_, MessageHistoryPage>;
 
+    fn chatroom_media(
+        &self,
+        query: ChatroomMediaQuery,
+    ) -> ChatroomsRepositoryFuture<'_, ChatroomMediaPage>;
+
     fn mark_read<'a>(
         &'a self,
         transaction: &'a mut dyn TransactionHandle,
@@ -43,6 +48,14 @@ pub struct ListChatroomsQuery {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MessageHistoryQuery {
+    pub chatroom_id: Uuid,
+    pub user_id: Uuid,
+    pub before: Option<Uuid>,
+    pub limit: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ChatroomMediaQuery {
     pub chatroom_id: Uuid,
     pub user_id: Uuid,
     pub before: Option<Uuid>,
@@ -117,6 +130,19 @@ pub struct MessageHistoryRecord {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MessageHistoryPage {
     pub items: Vec<MessageHistoryRecord>,
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChatroomMediaItem {
+    pub attachment: crate::domain::messaging::MessageAttachment,
+    pub message_id: Uuid,
+    pub message_created_at: OffsetDateTime,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChatroomMediaPage {
+    pub items: Vec<ChatroomMediaItem>,
     pub next_cursor: Option<String>,
 }
 

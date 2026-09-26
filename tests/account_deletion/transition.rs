@@ -1754,7 +1754,6 @@ async fn database_snapshot(pool: &PgPool) -> TestResult<DatabaseSnapshot> {
             'invites', COALESCE((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id) FROM invites r), '[]'), \
             'chatroom_reads', COALESCE((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id) FROM chatroom_reads r), '[]'), \
             'topics', COALESCE((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id) FROM topics r), '[]'), \
-            'topic_media', COALESCE((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id) FROM topic_media r), '[]'), \
             'media_uploads', COALESCE((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id) FROM media_uploads r), '[]'), \
             'message_media', COALESCE((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id) FROM message_media r), '[]'), \
             'notifications', COALESCE((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id) FROM notifications r), '[]'), \

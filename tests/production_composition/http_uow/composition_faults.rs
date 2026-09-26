@@ -102,7 +102,7 @@ async fn http_prebridge_golden_error_envelopes_remain_exact_for_all_three_bridge
             &topic,
             "topic created",
             StatusCode::CREATED,
-            r#"{"id":"<resource_uuid>","group_id":"<resource_uuid>","author_id":"<resource_uuid>","author_nickname":"Task-12 author","author_avatar_url":null,"title":"Task-12 golden topic","body":null,"status":"seed","tags":[],"media":[],"chatroom_id":"<resource_uuid>","unread":false,"created_at":"<timestamp>","updated_at":"<timestamp>"}"#,
+            r#"{"id":"<resource_uuid>","group_id":"<resource_uuid>","author_id":"<resource_uuid>","author_nickname":"Task-12 author","author_avatar_url":null,"title":"Task-12 golden topic","body":null,"status":"seed","tags":[],"chatroom_id":"<resource_uuid>","unread":false,"created_at":"<timestamp>","updated_at":"<timestamp>"}"#,
         )?;
 
         let read = post_json(

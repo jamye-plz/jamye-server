@@ -14,9 +14,7 @@ use crate::{
 
 use super::{
     database_error,
-    query::{
-        TopicBaseRow, TopicMediaRow, TopicTagRow, media_from_row, tag_from_row, topic_from_row,
-    },
+    query::{TopicBaseRow, TopicTagRow, tag_from_row, topic_from_row},
 };
 
 type MembershipRow = (String, String, Option<String>);
@@ -215,7 +213,6 @@ pub(super) async fn create_topic(
         body: None,
         status: TopicStatus::Seed,
         tags: Vec::new(),
-        media: Vec::new(),
         chatroom_id: command.topic_chatroom_id,
         unread: false,
         created_at,
@@ -293,27 +290,6 @@ pub(super) async fn patch_topic(
     .await
     .map_err(|error| database_error("topic_patch", error))?;
     load_topic(connection, command.topic_id, command.actor_id).await
-}
-
-pub(super) async fn promote_enriched(
-    connection: &mut PgConnection,
-    topic_id: Uuid,
-) -> Result<TopicStatus, TopicsRepositoryError> {
-    let status = sqlx::query_scalar::<_, String>(
-        "UPDATE topics SET \
-             status = 'enriched', \
-             updated_at = CASE \
-                 WHEN status = 'seed' THEN clock_timestamp() ELSE updated_at \
-             END \
-         WHERE id = $1 \
-         RETURNING status",
-    )
-    .bind(topic_id)
-    .fetch_optional(connection)
-    .await
-    .map_err(|error| database_error("topic_promote_enriched", error))?
-    .ok_or(TopicsRepositoryError::TopicNotFound)?;
-    TopicStatus::parse(&status).ok_or(TopicsRepositoryError::InvalidData)
 }
 
 pub(super) async fn replace_tags(
@@ -462,15 +438,6 @@ async fn load_topic(
         .into_iter()
         .map(tag_from_row)
         .collect::<Result<Vec<_>, _>>()?;
-    let media = sqlx::query_as::<_, TopicMediaRow>(
-        "SELECT id, topic_id, media_upload_id, type, object_key, width, height, byte_size, created_at \
-         FROM topic_media WHERE topic_id = $1 ORDER BY created_at, id",
-    )
-    .bind(topic_id)
-    .fetch_all(connection)
-    .await
-    .map_err(|error| database_error("topic_transaction_media", error))?;
-    topic.media = media.into_iter().map(media_from_row).collect();
     Ok(topic)
 }
 

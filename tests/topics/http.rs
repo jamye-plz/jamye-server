@@ -78,7 +78,7 @@ async fn t1_through_t7_http_use_the_locked_authenticated_mobile_shapes() -> Test
     assert_eq!(created["status"], "seed");
     assert_eq!(created["body"], Value::Null);
     assert_eq!(created["tags"], json!([]));
-    assert_eq!(created["media"], json!([]));
+    assert!(created.get("media").is_none());
     assert_eq!(created["unread"], false);
 
     let retry = router

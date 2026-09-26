@@ -282,15 +282,6 @@
       "path": "/api/v1/media/uploads/{upload_id}/finalize"
     },
     {
-      "feature_behavior_test": "tests/media/md3_http.rs::md3_returns_stable_paginated_canonical_topic_media",
-      "fixture": "contracts/contributions/task-8/fixtures/media-flow.json",
-      "handler": "src/transport/http/topics/mod.rs::list_media",
-      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
-      "method": "get",
-      "operation_id": "MD3",
-      "path": "/api/v1/topics/{topic_id}/media"
-    },
-    {
       "feature_behavior_test": "tests/chatrooms/http.rs::c1_c2_and_c3_http_use_exact_authenticated_mobile_shapes",
       "fixture": "contracts/contributions/task-6b/fixtures/chatroom-history-read.json",
       "handler": "src/transport/http/chatrooms/mod.rs::list_chatrooms",
@@ -325,6 +316,15 @@
       "method": "post",
       "operation_id": "C4",
       "path": "/api/v1/chatrooms/{chatroom_id}/messages"
+    },
+    {
+      "feature_behavior_test": "tests/chatrooms/media.rs::c5_lists_image_and_video_attachments_with_item_cursor_pagination",
+      "fixture": "contracts/contributions/task-6b/fixtures/chatroom-history-read.json",
+      "handler": "src/transport/http/chatrooms/mod.rs::chatroom_media",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "get",
+      "operation_id": "C5",
+      "path": "/api/v1/chatrooms/{chatroom_id}/media"
     },
     {
       "feature_behavior_test": "tests/media/access_http.rs::md4_returns_only_public_metadata_and_the_short_reissued_url",

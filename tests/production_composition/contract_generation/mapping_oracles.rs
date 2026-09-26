@@ -74,11 +74,11 @@ const EXPECTED_REST_OPERATIONS: [(&str, &str, &str); 43] = [
     ),
     ("MD1", "post", "/api/v1/media/uploads"),
     ("MD2", "post", "/api/v1/media/uploads/{upload_id}/finalize"),
-    ("MD3", "get", "/api/v1/topics/{topic_id}/media"),
     ("C1", "get", "/api/v1/groups/{group_id}/chatrooms"),
     ("C2", "get", "/api/v1/chatrooms/{chatroom_id}/messages"),
     ("C3", "post", "/api/v1/chatrooms/{chatroom_id}/read"),
     ("C4", "post", "/api/v1/chatrooms/{chatroom_id}/messages"),
+    ("C5", "get", "/api/v1/chatrooms/{chatroom_id}/media"),
     ("MD4", "get", "/api/v1/media/{media_id}/url"),
     ("MD5", "get", "/api/v1/media/{media_id}/download"),
     (
@@ -351,14 +351,6 @@ const EXPECTED_REST_MAPPING: [RestMappingOracle; 43] = [
         "contracts/contributions/task-8/fixtures/media-flow.json",
     ),
     RestMappingOracle::new(
-        "MD3",
-        "get",
-        "/api/v1/topics/{topic_id}/media",
-        "src/transport/http/topics/mod.rs::list_media",
-        "tests/media/md3_http.rs::md3_returns_stable_paginated_canonical_topic_media",
-        "contracts/contributions/task-8/fixtures/media-flow.json",
-    ),
-    RestMappingOracle::new(
         "C1",
         "get",
         "/api/v1/groups/{group_id}/chatrooms",
@@ -389,6 +381,14 @@ const EXPECTED_REST_MAPPING: [RestMappingOracle; 43] = [
         "src/transport/http/messaging/mod.rs::create_message",
         "tests/messaging/http.rs::c4_preserves_content_idempotency_and_exact_text",
         "contracts/fixtures/c4-normal.json",
+    ),
+    RestMappingOracle::new(
+        "C5",
+        "get",
+        "/api/v1/chatrooms/{chatroom_id}/media",
+        "src/transport/http/chatrooms/mod.rs::chatroom_media",
+        "tests/chatrooms/media.rs::c5_lists_image_and_video_attachments_with_item_cursor_pagination",
+        "contracts/contributions/task-6b/fixtures/chatroom-history-read.json",
     ),
     RestMappingOracle::new(
         "MD4",

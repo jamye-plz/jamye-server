@@ -30,11 +30,11 @@
           {
             "name": "oma-hook-PreToolUse",
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/oma-hook.sh\" --vendor 'claude' --event 'PreToolUse' --matcher 'Bash'",
-            "timeout": 13
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/oma-hook.sh\" --vendor 'claude' --event 'PreToolUse' --matcher 'Bash|Grep|Glob'",
+            "timeout": 15
           }
         ],
-        "matcher": "Bash"
+        "matcher": "Bash|Grep|Glob"
       }
     ],
     "PostToolUse": [
@@ -72,6 +72,8 @@
       "Bash(bun run:*)",
       "Bash(bunx tsx:*)",
       "Bash(git add:*)",
+      "Bash(ls *)",
+      "Bash(oma *)",
       "mcp__serena__*"
     ]
   },

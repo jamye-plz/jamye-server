@@ -9,7 +9,6 @@ fn topic_record(command: &CreateTopicCommand) -> TopicRecord {
         body: None,
         status: TopicStatus::Seed,
         tags: Vec::new(),
-        media: Vec::new(),
         chatroom_id: command.topic_chatroom_id,
         unread: false,
         created_at: OffsetDateTime::UNIX_EPOCH,

@@ -19,8 +19,8 @@ use jamye_server::{
         media::{
             ConfirmedUploadRecord, CreateUploadIntentCommand, FinalizeUploadCommand,
             MediaRepository, MediaRepositoryError, MediaRepositoryFuture, PosterCandidateRecord,
-            PrepareUploadFinalizeQuery, TopicMediaBindingRecord, UploadFinalizePreparation,
-            UploadFinalizeRecord, UploadIntentRecord,
+            PrepareUploadFinalizeQuery, UploadFinalizePreparation, UploadFinalizeRecord,
+            UploadIntentRecord,
         },
         object_storage::{
             InspectObjectRequest, MediaObjectStorage, MediaObjectStorageFuture,
@@ -28,12 +28,6 @@ use jamye_server::{
         },
         rate_limit::{
             RateLimitError, RateLimitFuture, RateLimitOutcome, RateLimitRequest, RateLimiter,
-        },
-        topics::{
-            CreateTopicCommand, CreateTopicOutcome, GetTopicQuery, ListTopicDatesQuery,
-            ListTopicMediaQuery, ListTopicTagsQuery, ListTopicsQuery, PatchTopicCommand,
-            ReplaceTopicTagsCommand, TopicDatePage, TopicMediaPage, TopicPage, TopicRecord,
-            TopicStatus, TopicTagPage, TopicsRepository, TopicsRepositoryFuture,
         },
         transactions::{
             BoxTransactionHandle, TransactionFuture, TransactionHandle, TransactionManager,
@@ -310,44 +304,8 @@ async fn md2_chat_finalize_returns_the_confirmed_unbound_capability() -> TestRes
                 "confirmed_at": "1970-01-01T00:01:00Z",
                 "poster_upload_id": null
             },
-            "topic_media": null,
-            "topic_status": null
         })
     );
-    Ok(())
-}
-
-#[tokio::test]
-async fn md2_topic_finalize_returns_bound_media_and_enriched_status() -> TestResult {
-    let response = harness(UploadMode::Success, FinalizeMode::TopicSuccess)
-        .oneshot(post_request(
-            &format!("/api/v1/media/uploads/{UPLOAD_ID}/finalize"),
-            Some(actor_id()),
-            &json!({"width": 800, "height": 600}),
-        )?)
-        .await?;
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = response_json(response).await?;
-    Uuid::try_parse(
-        body["topic_media"]["id"]
-            .as_str()
-            .ok_or("topic finalize response omitted media id")?,
-    )?;
-    assert_eq!(body["scope"], "topic");
-    assert_eq!(body["status"], "bound");
-    assert_eq!(body["bound"], true);
-    assert_eq!(body["upload"]["id"], UPLOAD_ID);
-    assert_eq!(body["upload"]["scope"], "topic");
-    assert_eq!(body["upload"]["target_id"], TARGET_ID);
-    assert_eq!(body["topic_media"]["topic_id"], TARGET_ID);
-    assert_eq!(body["topic_media"]["media_upload_id"], UPLOAD_ID);
-    assert_eq!(body["topic_media"]["content_type"], "image/jpeg");
-    assert_eq!(body["topic_media"]["width"], 800);
-    assert_eq!(body["topic_media"]["height"], 600);
-    assert_eq!(body["topic_media"]["byte_size"], 1024);
-    assert_eq!(body["topic_status"], "enriched");
-    assert_eq!(body.as_object().map(|object| object.len()), Some(6));
     Ok(())
 }
 
@@ -467,7 +425,6 @@ fn harness(upload_mode: UploadMode, finalize_mode: FinalizeMode) -> Router {
         transactions,
         repository,
         object_storage,
-        topics: Arc::new(FakeTopicsRepository),
     }));
     mutation_router(MediaMutationHttpState::new(
         uploads,
@@ -527,7 +484,6 @@ enum UploadMode {
 enum FinalizeMode {
     ChatSuccess,
     ChatSuccessWithPoster,
-    TopicSuccess,
     TargetNotAccessible,
     Conflict,
     Validation,
@@ -639,7 +595,7 @@ impl MediaRepository for FakeRepository {
                     poster: poster_upload_id.map(poster_candidate_record),
                 }),
                 _ => Ok(UploadFinalizePreparation::Pending {
-                    upload: pending_upload(finalize_scope(mode)),
+                    upload: pending_upload(),
                     poster: None,
                 }),
             }
@@ -663,30 +619,7 @@ impl MediaRepository for FakeRepository {
                         ..
                     },
                 ) => Ok(UploadFinalizeRecord::Chat {
-                    upload: confirmed_upload(MediaScope::Chat, finalized, poster_upload_id),
-                }),
-                (
-                    FinalizeMode::TopicSuccess,
-                    FinalizeUploadCommand::Topic {
-                        topic_media_id,
-                        width,
-                        height,
-                        finalized,
-                        ..
-                    },
-                ) => Ok(UploadFinalizeRecord::Topic {
-                    upload: confirmed_upload(MediaScope::Topic, finalized.clone(), None),
-                    topic_media: TopicMediaBindingRecord {
-                        id: topic_media_id,
-                        topic_id: target_id(),
-                        media_upload_id: upload_id(),
-                        object_key: object_key(MediaScope::Topic),
-                        content_type: finalized.content_type,
-                        width,
-                        height,
-                        byte_size: finalized.byte_size,
-                        created_at: confirmed_at(),
-                    },
+                    upload: confirmed_upload(finalized, poster_upload_id),
                 }),
                 _ => Err(MediaRepositoryError::InvalidData),
             }
@@ -748,68 +681,6 @@ impl MediaObjectStorage for FakeObjectStorage {
     }
 }
 
-struct FakeTopicsRepository;
-
-impl TopicsRepository for FakeTopicsRepository {
-    fn create_topic<'a>(
-        &'a self,
-        _transaction: &'a mut dyn TransactionHandle,
-        _command: &'a CreateTopicCommand,
-    ) -> TopicsRepositoryFuture<'a, CreateTopicOutcome> {
-        Box::pin(async { panic!("media HTTP must not create topics") })
-    }
-
-    fn patch_topic<'a>(
-        &'a self,
-        _transaction: &'a mut dyn TransactionHandle,
-        _command: &'a PatchTopicCommand,
-    ) -> TopicsRepositoryFuture<'a, TopicRecord> {
-        Box::pin(async { panic!("media HTTP must not patch topics") })
-    }
-
-    fn promote_enriched<'a>(
-        &'a self,
-        _transaction: &'a mut dyn TransactionHandle,
-        _topic_id: Uuid,
-    ) -> TopicsRepositoryFuture<'a, TopicStatus> {
-        Box::pin(async { Ok(TopicStatus::Enriched) })
-    }
-
-    fn replace_tags<'a>(
-        &'a self,
-        _transaction: &'a mut dyn TransactionHandle,
-        _command: &'a ReplaceTopicTagsCommand,
-    ) -> TopicsRepositoryFuture<'a, TopicTagPage> {
-        Box::pin(async { panic!("media HTTP must not replace tags") })
-    }
-
-    fn list_topics(&self, _query: ListTopicsQuery) -> TopicsRepositoryFuture<'_, TopicPage> {
-        Box::pin(async { panic!("media HTTP must not list topics") })
-    }
-
-    fn list_topic_dates(
-        &self,
-        _query: ListTopicDatesQuery,
-    ) -> TopicsRepositoryFuture<'_, TopicDatePage> {
-        Box::pin(async { panic!("media HTTP must not list topic dates") })
-    }
-
-    fn get_topic(&self, _query: GetTopicQuery) -> TopicsRepositoryFuture<'_, TopicRecord> {
-        Box::pin(async { panic!("media HTTP must not get topics") })
-    }
-
-    fn list_tags(&self, _query: ListTopicTagsQuery) -> TopicsRepositoryFuture<'_, TopicTagPage> {
-        Box::pin(async { panic!("media HTTP must not list tags") })
-    }
-
-    fn list_media(
-        &self,
-        _query: ListTopicMediaQuery,
-    ) -> TopicsRepositoryFuture<'_, TopicMediaPage> {
-        Box::pin(async { panic!("media HTTP must not list topic media") })
-    }
-}
-
 #[derive(Clone, Copy, Debug, Default)]
 struct TestAccessVerifier;
 
@@ -823,21 +694,13 @@ impl AccessTokenVerifier for TestAccessVerifier {
     }
 }
 
-fn finalize_scope(mode: FinalizeMode) -> MediaScope {
-    if matches!(mode, FinalizeMode::TopicSuccess) {
-        MediaScope::Topic
-    } else {
-        MediaScope::Chat
-    }
-}
-
-fn pending_upload(scope: MediaScope) -> UploadIntentRecord {
+fn pending_upload() -> UploadIntentRecord {
     UploadIntentRecord {
         id: upload_id(),
         user_id: actor_id(),
-        scope,
+        scope: MediaScope::Chat,
         target_id: target_id(),
-        object_key: object_key(scope),
+        object_key: object_key(),
         kind: MediaKind::Image,
         content_type: "image/jpeg".to_owned(),
         byte_size: 1_024,
@@ -848,16 +711,15 @@ fn pending_upload(scope: MediaScope) -> UploadIntentRecord {
 }
 
 fn confirmed_upload(
-    scope: MediaScope,
     finalized: FinalizedObject,
     poster_upload_id: Option<Uuid>,
 ) -> ConfirmedUploadRecord {
     ConfirmedUploadRecord {
         id: upload_id(),
         user_id: actor_id(),
-        scope,
+        scope: MediaScope::Chat,
         target_id: target_id(),
-        object_key: object_key(scope),
+        object_key: object_key(),
         kind: finalized.kind,
         content_type: finalized.content_type,
         byte_size: finalized.byte_size,
@@ -874,7 +736,7 @@ fn pending_video_upload() -> UploadIntentRecord {
         user_id: actor_id(),
         scope: MediaScope::Chat,
         target_id: target_id(),
-        object_key: object_key(MediaScope::Chat),
+        object_key: object_key(),
         kind: MediaKind::Video,
         content_type: "video/mp4".to_owned(),
         byte_size: 4_096,
@@ -899,12 +761,8 @@ fn poster_candidate_record(poster_upload_id: Uuid) -> PosterCandidateRecord {
     }
 }
 
-fn object_key(scope: MediaScope) -> String {
-    let prefix = match scope {
-        MediaScope::Chat => "chat",
-        MediaScope::Topic => "topics",
-    };
-    format!("{prefix}/{TARGET_ID}/{UPLOAD_ID}")
+fn object_key() -> String {
+    format!("chat/{TARGET_ID}/{UPLOAD_ID}")
 }
 
 fn confirmed_at() -> OffsetDateTime {

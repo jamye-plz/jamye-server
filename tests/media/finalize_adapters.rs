@@ -15,10 +15,7 @@ use axum::{
 use jamye_server::{
     adapters::{
         object_storage::media::S3MediaObjectStorage,
-        postgres::{
-            media::PostgresMediaRepository, topics::PostgresTopicsRepository,
-            transactions::SqlxTransactionManager,
-        },
+        postgres::{media::PostgresMediaRepository, transactions::SqlxTransactionManager},
     },
     config::{
         AppEnvironment,
@@ -34,7 +31,6 @@ use jamye_server::{
             PrepareUploadFinalizeQuery, UploadFinalizePreparation, UploadFinalizeRecord,
         },
         object_storage::{InspectObjectRequest, MediaObjectStorage},
-        topics::{TopicStatus, TopicsRepository},
         transactions::TransactionManager,
     },
 };
@@ -55,18 +51,12 @@ const VIDEO_BYTE_SIZE: u64 = 4_096;
 const FILENAME: &str = " 여름/기록.jpg ";
 
 #[tokio::test]
-async fn postgres_prepare_authorizes_upload_owner_and_topic_manager_before_finalize() -> TestResult
-{
+async fn postgres_prepare_authorizes_upload_owner_before_finalize() -> TestResult {
     let fixture = FinalizeDatabaseFixture::new().await?;
     let repository = PostgresMediaRepository::new(fixture.pool.clone());
 
     let chat = fixture
-        .insert_upload(
-            fixture.author_id,
-            MediaScope::Chat,
-            fixture.chatroom_id,
-            false,
-        )
+        .insert_upload(fixture.author_id, fixture.chatroom_id, false)
         .await?;
     let prepared = repository
         .prepare_upload_finalize(&query(fixture.author_id, chat.id, None, None))
@@ -97,68 +87,8 @@ async fn postgres_prepare_authorizes_upload_owner_and_topic_manager_before_final
         Err(MediaRepositoryError::TargetNotAccessible)
     );
 
-    let author_topic = fixture
-        .insert_upload(
-            fixture.author_id,
-            MediaScope::Topic,
-            fixture.topic_id,
-            false,
-        )
-        .await?;
-    assert!(matches!(
-        repository
-            .prepare_upload_finalize(&query(
-                fixture.author_id,
-                author_topic.id,
-                Some(800),
-                Some(600),
-            ))
-            .await,
-        Ok(UploadFinalizePreparation::Pending { .. })
-    ));
-
-    let owner_topic = fixture
-        .insert_upload(fixture.owner_id, MediaScope::Topic, fixture.topic_id, false)
-        .await?;
-    assert!(matches!(
-        repository
-            .prepare_upload_finalize(&query(
-                fixture.owner_id,
-                owner_topic.id,
-                Some(800),
-                Some(600),
-            ))
-            .await,
-        Ok(UploadFinalizePreparation::Pending { .. })
-    ));
-
-    let ordinary_member_topic = fixture
-        .insert_upload(
-            fixture.member_id,
-            MediaScope::Topic,
-            fixture.topic_id,
-            false,
-        )
-        .await?;
-    assert_eq!(
-        repository
-            .prepare_upload_finalize(&query(
-                fixture.member_id,
-                ordinary_member_topic.id,
-                Some(800),
-                Some(600),
-            ))
-            .await,
-        Err(MediaRepositoryError::TargetNotAccessible)
-    );
-
     let expired = fixture
-        .insert_upload(
-            fixture.author_id,
-            MediaScope::Chat,
-            fixture.chatroom_id,
-            true,
-        )
+        .insert_upload(fixture.author_id, fixture.chatroom_id, true)
         .await?;
     assert_eq!(
         repository
@@ -207,9 +137,7 @@ async fn postgres_chat_finalize_with_a_valid_confirmed_poster_sets_poster_upload
         .finalize_upload(transaction.as_mut(), &command)
         .await?;
     transactions.commit(transaction).await?;
-    let UploadFinalizeRecord::Chat { upload } = record else {
-        return Err(io::Error::other("chat finalize returned a topic binding").into());
-    };
+    let UploadFinalizeRecord::Chat { upload } = record;
     assert_eq!(upload.poster_upload_id, Some(poster_id));
 
     let stored_poster: Option<Uuid> =
@@ -273,8 +201,9 @@ async fn postgres_prepare_loads_poster_candidate_fields_that_the_domain_rejects_
     let fixture = FinalizeDatabaseFixture::new().await?;
     let repository = PostgresMediaRepository::new(fixture.pool.clone());
 
+    let other_target_id = Uuid::new_v4();
     let target_mismatch_poster = fixture
-        .insert_confirmed_poster(fixture.author_id, fixture.topic_id)
+        .insert_confirmed_poster(fixture.author_id, other_target_id)
         .await?;
     let owner_mismatch_poster = fixture
         .insert_confirmed_poster(fixture.member_id, fixture.chatroom_id)
@@ -297,7 +226,7 @@ async fn postgres_prepare_loads_poster_candidate_fields_that_the_domain_rejects_
     else {
         return Err(io::Error::other("target-mismatch poster candidate was not loaded").into());
     };
-    assert_eq!(candidate.target_id, fixture.topic_id);
+    assert_eq!(candidate.target_id, other_target_id);
     assert_eq!(
         validate_poster_link(
             &expected_video(),
@@ -342,12 +271,7 @@ async fn postgres_chat_finalize_obeys_caller_rollback_and_returns_canonical_retr
     let repository = PostgresMediaRepository::new(fixture.pool.clone());
     let transactions = SqlxTransactionManager::new(fixture.pool.clone());
     let upload = fixture
-        .insert_upload(
-            fixture.author_id,
-            MediaScope::Chat,
-            fixture.chatroom_id,
-            false,
-        )
+        .insert_upload(fixture.author_id, fixture.chatroom_id, false)
         .await?;
     let command = FinalizeUploadCommand::Chat {
         actor_id: fixture.author_id,
@@ -360,7 +284,10 @@ async fn postgres_chat_finalize_obeys_caller_rollback_and_returns_canonical_retr
     let rolled_back = repository
         .finalize_upload(rolled_back_transaction.as_mut(), &command)
         .await?;
-    assert!(matches!(rolled_back, UploadFinalizeRecord::Chat { .. }));
+    let UploadFinalizeRecord::Chat {
+        upload: rolled_back_upload,
+    } = &rolled_back;
+    assert_eq!(rolled_back_upload.id, upload.id);
     transactions.rollback(rolled_back_transaction).await?;
     assert_eq!(
         upload_state(&fixture.pool, upload.id).await?,
@@ -372,9 +299,7 @@ async fn postgres_chat_finalize_obeys_caller_rollback_and_returns_canonical_retr
         .finalize_upload(committed_transaction.as_mut(), &command)
         .await?;
     transactions.commit(committed_transaction).await?;
-    let UploadFinalizeRecord::Chat { upload: confirmed } = &canonical else {
-        return Err(io::Error::other("chat finalize returned a topic binding").into());
-    };
+    let UploadFinalizeRecord::Chat { upload: confirmed } = &canonical;
     assert_eq!(confirmed.id, upload.id);
     assert_eq!(confirmed.user_id, fixture.author_id);
     assert_eq!(confirmed.target_id, fixture.chatroom_id);
@@ -397,103 +322,6 @@ async fn postgres_chat_finalize_obeys_caller_rollback_and_returns_canonical_retr
 }
 
 #[tokio::test]
-async fn postgres_topic_finalize_binding_and_promotion_share_one_atomic_handle() -> TestResult {
-    let fixture = FinalizeDatabaseFixture::new().await?;
-    let repository = PostgresMediaRepository::new(fixture.pool.clone());
-    let topics = PostgresTopicsRepository::new(fixture.pool.clone());
-    let transactions = SqlxTransactionManager::new(fixture.pool.clone());
-    let upload = fixture
-        .insert_upload(
-            fixture.author_id,
-            MediaScope::Topic,
-            fixture.topic_id,
-            false,
-        )
-        .await?;
-    let topic_media_id = Uuid::new_v4();
-    let command = FinalizeUploadCommand::Topic {
-        actor_id: fixture.author_id,
-        upload_id: upload.id,
-        topic_media_id,
-        width: Some(800),
-        height: Some(600),
-        finalized: finalized_image(),
-    };
-
-    let mut rolled_back_transaction = transactions.begin().await?;
-    let rolled_back = repository
-        .finalize_upload(rolled_back_transaction.as_mut(), &command)
-        .await?;
-    assert!(matches!(rolled_back, UploadFinalizeRecord::Topic { .. }));
-    assert_eq!(
-        topics
-            .promote_enriched(rolled_back_transaction.as_mut(), fixture.topic_id)
-            .await?,
-        TopicStatus::Enriched
-    );
-    transactions.rollback(rolled_back_transaction).await?;
-    assert_eq!(
-        upload_state(&fixture.pool, upload.id).await?,
-        ("pending".to_owned(), None, None, None)
-    );
-    assert_eq!(topic_media_count(&fixture.pool, upload.id).await?, 0);
-    assert_eq!(topic_status(&fixture.pool, fixture.topic_id).await?, "seed");
-
-    let mut committed_transaction = transactions.begin().await?;
-    let canonical = repository
-        .finalize_upload(committed_transaction.as_mut(), &command)
-        .await?;
-    assert_eq!(
-        topics
-            .promote_enriched(committed_transaction.as_mut(), fixture.topic_id)
-            .await?,
-        TopicStatus::Enriched
-    );
-    transactions.commit(committed_transaction).await?;
-
-    let UploadFinalizeRecord::Topic {
-        upload: confirmed,
-        topic_media,
-    } = &canonical
-    else {
-        return Err(io::Error::other("topic finalize returned an unbound chat upload").into());
-    };
-    assert_eq!(confirmed.id, upload.id);
-    assert_eq!(confirmed.target_id, fixture.topic_id);
-    assert_eq!(topic_media.id, topic_media_id);
-    assert_eq!(topic_media.topic_id, fixture.topic_id);
-    assert_eq!(topic_media.media_upload_id, upload.id);
-    assert_eq!(topic_media.width, Some(800));
-    assert_eq!(topic_media.height, Some(600));
-    assert_eq!(topic_media.byte_size, BYTE_SIZE);
-
-    assert_eq!(
-        repository
-            .prepare_upload_finalize(&query(fixture.author_id, upload.id, Some(800), Some(600),))
-            .await?,
-        UploadFinalizePreparation::Existing(canonical)
-    );
-    assert_eq!(
-        repository
-            .prepare_upload_finalize(&query(fixture.author_id, upload.id, Some(801), Some(600),))
-            .await,
-        Err(MediaRepositoryError::FinalizeConflict)
-    );
-    let state = upload_state(&fixture.pool, upload.id).await?;
-    assert_eq!(state.0, "bound");
-    assert!(state.1.is_some());
-    assert_eq!(state.2, Some(topic_media_id));
-    assert!(state.3.is_some());
-    assert_eq!(topic_media_count(&fixture.pool, upload.id).await?, 1);
-    assert_eq!(
-        topic_status(&fixture.pool, fixture.topic_id).await?,
-        "enriched"
-    );
-
-    fixture.dispose().await
-}
-
-#[tokio::test]
 async fn sdk_head_object_uses_internal_signed_path_and_authoritative_metadata() -> TestResult {
     let server = ScriptedS3::start([ScriptedResponse::head(
         StatusCode::OK,
@@ -502,7 +330,7 @@ async fn sdk_head_object_uses_internal_signed_path_and_authoritative_metadata() 
     )])
     .await?;
     let storage = object_storage(server.endpoint())?;
-    let object_key = object_key(MediaScope::Chat, Uuid::new_v4(), Uuid::new_v4());
+    let object_key = object_key(Uuid::new_v4(), Uuid::new_v4());
 
     let inspected = storage
         .inspect_object(&InspectObjectRequest {
@@ -537,7 +365,7 @@ async fn sdk_audio_duration_uses_header_then_packet_fallback_without_decoding() 
         ])
         .await?;
         let storage = object_storage(server.endpoint())?;
-        let object_key = object_key(MediaScope::Chat, Uuid::new_v4(), Uuid::new_v4());
+        let object_key = object_key(Uuid::new_v4(), Uuid::new_v4());
 
         let inspected = storage
             .inspect_object(&InspectObjectRequest {
@@ -642,7 +470,6 @@ struct FinalizeDatabaseFixture {
     member_id: Uuid,
     outsider_id: Uuid,
     chatroom_id: Uuid,
-    topic_id: Uuid,
 }
 
 impl FinalizeDatabaseFixture {
@@ -680,20 +507,6 @@ impl FinalizeDatabaseFixture {
             .bind(group_id)
             .execute(&pool)
             .await?;
-        let topic_id = Uuid::new_v4();
-        sqlx::query(
-            "INSERT INTO topics \
-                 (id, group_id, author_id, idempotency_key, request_fingerprint, title) \
-             VALUES ($1, $2, $3, $4, $5, '미디어 주제')",
-        )
-        .bind(topic_id)
-        .bind(group_id)
-        .bind(author_id)
-        .bind(Uuid::new_v4())
-        .bind("b".repeat(64))
-        .execute(&pool)
-        .await?;
-
         Ok(Self {
             database,
             pool,
@@ -702,39 +515,32 @@ impl FinalizeDatabaseFixture {
             member_id,
             outsider_id,
             chatroom_id,
-            topic_id,
         })
     }
 
     async fn insert_upload(
         &self,
         user_id: Uuid,
-        scope: MediaScope,
         target_id: Uuid,
         expired: bool,
     ) -> TestResult<SeededUpload> {
         let id = Uuid::new_v4();
-        let object_key = object_key(scope, target_id, id);
+        let object_key = object_key(target_id, id);
         let now = OffsetDateTime::now_utc();
         let (created_at, expires_at) = if expired {
             (now - TimeDuration::hours(2), now - TimeDuration::hours(1))
         } else {
             (now, now + TimeDuration::hours(1))
         };
-        let scope = match scope {
-            MediaScope::Chat => "chat",
-            MediaScope::Topic => "topic",
-        };
         sqlx::query(
             "INSERT INTO media_uploads \
                  (id, user_id, object_key, scope, target_id, content_type, byte_size, filename, \
                   expires_at, created_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+             VALUES ($1, $2, $3, 'chat', $4, $5, $6, $7, $8, $9)",
         )
         .bind(id)
         .bind(user_id)
         .bind(&object_key)
-        .bind(scope)
         .bind(target_id)
         .bind(CONTENT_TYPE)
         .bind(i64::try_from(BYTE_SIZE)?)
@@ -752,7 +558,7 @@ impl FinalizeDatabaseFixture {
         target_id: Uuid,
     ) -> TestResult<SeededUpload> {
         let id = Uuid::new_v4();
-        let object_key = object_key(MediaScope::Chat, target_id, id);
+        let object_key = object_key(target_id, id);
         let now = OffsetDateTime::now_utc();
         sqlx::query(
             "INSERT INTO media_uploads \
@@ -774,7 +580,7 @@ impl FinalizeDatabaseFixture {
 
     async fn insert_confirmed_poster(&self, user_id: Uuid, target_id: Uuid) -> TestResult<Uuid> {
         let id = Uuid::new_v4();
-        let object_key = object_key(MediaScope::Chat, target_id, id);
+        let object_key = object_key(target_id, id);
         let now = OffsetDateTime::now_utc();
         sqlx::query(
             "INSERT INTO media_uploads \
@@ -822,7 +628,7 @@ async fn upload_state(
     Option<OffsetDateTime>,
 )> {
     Ok(sqlx::query_as(
-        "SELECT status, confirmed_at, bound_topic_media_id, consumed_at \
+        "SELECT status, confirmed_at, poster_upload_id, consumed_at \
          FROM media_uploads WHERE id = $1",
     )
     .bind(upload_id)
@@ -830,30 +636,8 @@ async fn upload_state(
     .await?)
 }
 
-async fn topic_media_count(pool: &PgPool, upload_id: Uuid) -> TestResult<i64> {
-    Ok(
-        sqlx::query_scalar("SELECT count(*) FROM topic_media WHERE media_upload_id = $1")
-            .bind(upload_id)
-            .fetch_one(pool)
-            .await?,
-    )
-}
-
-async fn topic_status(pool: &PgPool, topic_id: Uuid) -> TestResult<String> {
-    Ok(
-        sqlx::query_scalar("SELECT status FROM topics WHERE id = $1")
-            .bind(topic_id)
-            .fetch_one(pool)
-            .await?,
-    )
-}
-
-fn object_key(scope: MediaScope, target_id: Uuid, upload_id: Uuid) -> String {
-    let prefix = match scope {
-        MediaScope::Chat => "chat",
-        MediaScope::Topic => "topics",
-    };
-    format!("{prefix}/{target_id}/{upload_id}")
+fn object_key(target_id: Uuid, upload_id: Uuid) -> String {
+    format!("chat/{target_id}/{upload_id}")
 }
 
 fn object_storage(endpoint: &str) -> TestResult<S3MediaObjectStorage> {

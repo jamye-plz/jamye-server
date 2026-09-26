@@ -8,6 +8,8 @@ mod chatroom_helpers;
 mod contract;
 #[path = "chatrooms/http.rs"]
 mod http;
+#[path = "chatrooms/media.rs"]
+mod media;
 #[path = "chatrooms/message_order.rs"]
 mod message_order;
 #[path = "chatrooms/migration.rs"]
@@ -34,6 +36,7 @@ fn production_chatrooms_surface_is_statically_registered() -> io::Result<()> {
         "contracts/contributions/task-6b/dto/operations.json",
         "contracts/contributions/task-6b/schemas/chatrooms-wire.schema.json",
         "contracts/contributions/task-6b/fixtures/chatroom-history-read.json",
+        "tests/chatrooms/media.rs",
     ] {
         assert!(
             fs::metadata(path)?.is_file(),
@@ -66,6 +69,7 @@ fn production_chatrooms_surface_is_statically_registered() -> io::Result<()> {
     for route in [
         "/api/v1/groups/{group_id}/chatrooms",
         "/api/v1/chatrooms/{chatroom_id}/messages",
+        "/api/v1/chatrooms/{chatroom_id}/media",
         "/api/v1/chatrooms/{chatroom_id}/read",
     ] {
         assert!(transport.contains(route), "missing task-6b route: {route}");

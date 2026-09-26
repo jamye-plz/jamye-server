@@ -9,9 +9,9 @@ use crate::{
     adapters::postgres::transactions::connection,
     ports::{
         chatrooms::{
-            ChatroomPage, ChatroomsRepository, ChatroomsRepositoryError, ChatroomsRepositoryFuture,
-            ListChatroomsQuery, MarkReadCommand, MessageHistoryPage, MessageHistoryQuery,
-            ReadMarker, ReadMarkerQuery,
+            ChatroomMediaPage, ChatroomMediaQuery, ChatroomPage, ChatroomsRepository,
+            ChatroomsRepositoryError, ChatroomsRepositoryFuture, ListChatroomsQuery,
+            MarkReadCommand, MessageHistoryPage, MessageHistoryQuery, ReadMarker, ReadMarkerQuery,
         },
         transactions::TransactionHandle,
     },
@@ -41,6 +41,13 @@ impl ChatroomsRepository for PostgresChatroomsRepository {
         query: MessageHistoryQuery,
     ) -> ChatroomsRepositoryFuture<'_, MessageHistoryPage> {
         Box::pin(query::message_history(&self.pool, query))
+    }
+
+    fn chatroom_media(
+        &self,
+        query: ChatroomMediaQuery,
+    ) -> ChatroomsRepositoryFuture<'_, ChatroomMediaPage> {
+        Box::pin(query::chatroom_media(&self.pool, query))
     }
 
     fn mark_read<'a>(
