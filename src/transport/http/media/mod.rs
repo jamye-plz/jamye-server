@@ -28,7 +28,7 @@ use crate::{
     },
     domain::media::{MediaKind, MediaScope},
     ports::{
-        media::{ConfirmedUploadRecord, TopicMediaBindingRecord, UploadIntentRecord},
+        media::{ConfirmedUploadRecord, UploadIntentRecord},
         object_storage::PresignedPut,
     },
     transport::http::auth::{AuthVerifierState, AuthenticatedAccess, error_response, request_id},
@@ -289,14 +289,12 @@ struct UploadIntentCreateRequest {
 #[serde(rename_all = "snake_case")]
 enum MediaScopeRequest {
     Chat,
-    Topic,
 }
 
 impl From<MediaScopeRequest> for MediaScope {
     fn from(scope: MediaScopeRequest) -> Self {
         match scope {
             MediaScopeRequest::Chat => Self::Chat,
-            MediaScopeRequest::Topic => Self::Topic,
         }
     }
 }
@@ -379,8 +377,6 @@ struct UploadFinalizeResponse {
     status: &'static str,
     bound: bool,
     upload: ConfirmedUploadResponse,
-    topic_media: Option<TopicMediaBindingResponse>,
-    topic_status: Option<&'static str>,
 }
 
 impl From<UploadFinalizeResult> for UploadFinalizeResponse {
@@ -391,20 +387,6 @@ impl From<UploadFinalizeResult> for UploadFinalizeResponse {
                 status: "confirmed",
                 bound: false,
                 upload: upload.into(),
-                topic_media: None,
-                topic_status: None,
-            },
-            UploadFinalizeResult::Topic {
-                upload,
-                topic_media,
-                topic_status,
-            } => Self {
-                scope: scope_name(upload.scope),
-                status: "bound",
-                bound: true,
-                upload: upload.into(),
-                topic_media: Some(topic_media.into()),
-                topic_status: Some(topic_status.as_str()),
             },
         }
     }
@@ -444,40 +426,9 @@ impl From<ConfirmedUploadRecord> for ConfirmedUploadResponse {
     }
 }
 
-#[derive(Serialize)]
-struct TopicMediaBindingResponse {
-    id: Uuid,
-    topic_id: Uuid,
-    media_upload_id: Uuid,
-    object_key: String,
-    content_type: String,
-    width: Option<u32>,
-    height: Option<u32>,
-    byte_size: u64,
-    #[serde(with = "time::serde::rfc3339")]
-    created_at: OffsetDateTime,
-}
-
-impl From<TopicMediaBindingRecord> for TopicMediaBindingResponse {
-    fn from(media: TopicMediaBindingRecord) -> Self {
-        Self {
-            id: media.id,
-            topic_id: media.topic_id,
-            media_upload_id: media.media_upload_id,
-            object_key: media.object_key,
-            content_type: media.content_type,
-            width: media.width,
-            height: media.height,
-            byte_size: media.byte_size,
-            created_at: media.created_at,
-        }
-    }
-}
-
 fn scope_name(scope: MediaScope) -> &'static str {
     match scope {
         MediaScope::Chat => "chat",
-        MediaScope::Topic => "topic",
     }
 }
 

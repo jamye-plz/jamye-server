@@ -11,7 +11,6 @@
         "created_at": { "format": "date-time", "type": "string" },
         "group_id": { "format": "uuid", "type": "string" },
         "id": { "format": "uuid", "type": "string" },
-        "media": { "items": { "$ref": "#/$defs/TopicMedia" }, "type": "array" },
         "status": { "enum": ["seed", "enriched"], "type": "string" },
         "tags": { "items": { "$ref": "#/$defs/TopicTag" }, "type": "array" },
         "title": { "maxLength": 256, "minLength": 1, "type": "string" },
@@ -20,7 +19,7 @@
       },
       "required": [
         "id", "group_id", "author_id", "author_nickname", "author_avatar_url",
-        "title", "body", "status", "tags", "media", "chatroom_id", "unread",
+        "title", "body", "status", "tags", "chatroom_id", "unread",
         "created_at", "updated_at"
       ],
       "type": "object"
@@ -95,22 +94,6 @@
         "today": { "format": "date", "type": "string" }
       },
       "required": ["dates", "today", "next_cursor"],
-      "type": "object"
-    },
-    "TopicMedia": {
-      "additionalProperties": false,
-      "properties": {
-        "byte_size": { "minimum": 1, "type": ["integer", "null"] },
-        "content_type": { "minLength": 1, "type": "string" },
-        "created_at": { "format": "date-time", "type": "string" },
-        "height": { "minimum": 1, "type": ["integer", "null"] },
-        "id": { "format": "uuid", "type": "string" },
-        "media_upload_id": { "format": "uuid", "type": "string" },
-        "object_key": { "maxLength": 512, "minLength": 1, "type": "string" },
-        "topic_id": { "format": "uuid", "type": "string" },
-        "width": { "minimum": 1, "type": ["integer", "null"] }
-      },
-      "required": ["id", "media_upload_id", "topic_id", "content_type", "object_key", "width", "height", "byte_size", "created_at"],
       "type": "object"
     },
     "TopicPage": {

@@ -329,13 +329,6 @@ impl TopicsRepository for FaultingPostgresRepositories {
     ) -> TopicsRepositoryFuture<'a, TopicRecord> {
         self.topics.patch_topic(transaction, command)
     }
-    fn promote_enriched<'a>(
-        &'a self,
-        transaction: &'a mut dyn jamye_server::ports::transactions::TransactionHandle,
-        topic_id: Uuid,
-    ) -> TopicsRepositoryFuture<'a, TopicStatus> {
-        self.topics.promote_enriched(transaction, topic_id)
-    }
     fn replace_tags<'a>(
         &'a self,
         transaction: &'a mut dyn jamye_server::ports::transactions::TransactionHandle,
@@ -358,9 +351,6 @@ impl TopicsRepository for FaultingPostgresRepositories {
     fn list_tags(&self, query: ListTopicTagsQuery) -> TopicsRepositoryFuture<'_, TopicTagPage> {
         self.topics.list_tags(query)
     }
-    fn list_media(&self, query: ListTopicMediaQuery) -> TopicsRepositoryFuture<'_, TopicMediaPage> {
-        self.topics.list_media(query)
-    }
 }
 impl ChatroomsRepository for FaultingPostgresRepositories {
     fn list_chatrooms(
@@ -374,6 +364,12 @@ impl ChatroomsRepository for FaultingPostgresRepositories {
         query: MessageHistoryQuery,
     ) -> ChatroomsRepositoryFuture<'_, MessageHistoryPage> {
         self.chatrooms.message_history(query)
+    }
+    fn chatroom_media(
+        &self,
+        query: ChatroomMediaQuery,
+    ) -> ChatroomsRepositoryFuture<'_, ChatroomMediaPage> {
+        self.chatrooms.chatroom_media(query)
     }
     fn mark_read<'a>(
         &'a self,

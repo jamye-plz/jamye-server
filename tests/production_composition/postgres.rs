@@ -25,9 +25,10 @@ use jamye_server::{
     },
     ports::{
         chatrooms::{
-            ChatroomPage, ChatroomsRepository, ChatroomsRepositoryError, ChatroomsRepositoryFuture,
-            ListChatroomsQuery, MarkReadCommand, MessageHistoryPage, MessageHistoryQuery,
-            ReadMarker, ReadMarkerAnchor, ReadMarkerQuery,
+            ChatroomMediaPage, ChatroomMediaQuery, ChatroomPage, ChatroomsRepository,
+            ChatroomsRepositoryError, ChatroomsRepositoryFuture, ListChatroomsQuery,
+            MarkReadCommand, MessageHistoryPage, MessageHistoryQuery, ReadMarker, ReadMarkerAnchor,
+            ReadMarkerQuery,
         },
         media::{
             AuthorizeMediaAccessQuery, BindMessageMediaCommand, BindMessageMediaItem,
@@ -47,10 +48,9 @@ use jamye_server::{
         },
         topics::{
             CreateTopicCommand, CreateTopicOutcome, GetTopicQuery, ListTopicDatesQuery,
-            ListTopicMediaQuery, ListTopicTagsQuery, ListTopicsQuery, PatchTopicCommand,
-            ReplaceTopicTagsCommand, TopicDatePage, TopicMediaPage, TopicPage, TopicRecord,
-            TopicStatus, TopicTagPage, TopicsRepository, TopicsRepositoryError,
-            TopicsRepositoryFuture,
+            ListTopicTagsQuery, ListTopicsQuery, PatchTopicCommand, ReplaceTopicTagsCommand,
+            TopicDatePage, TopicPage, TopicRecord, TopicTagPage, TopicsRepository,
+            TopicsRepositoryError, TopicsRepositoryFuture,
         },
         transactions::TransactionManager,
     },

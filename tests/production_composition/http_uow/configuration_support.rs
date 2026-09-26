@@ -33,7 +33,9 @@ fn production_router(config: &AppConfig, auth: &AuthConfig) -> TestResult<Router
     let storage = storage.ok_or_else(|| {
         io::Error::other("Task-12 test environment uses configured object storage")
     })?;
-    let router = composition::router_with_runtime(config, auth, &rate_limits, Some(&storage))?;
+    let app_links = AppLinksConfig::try_from(AppLinksConfigInput::default())?;
+    let router =
+        composition::router_with_runtime(config, &app_links, auth, &rate_limits, Some(&storage))?;
     Ok(router)
 }
 fn token(user: Uuid) -> Result<String, ProductionTokenConfigError> {

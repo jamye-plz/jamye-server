@@ -273,14 +273,6 @@ pub(crate) const REST_SURFACES: &[RestSurface] = &[
         "contracts/contributions/task-8/fixtures/media-flow.json"
     ),
     row!(
-        "MD3",
-        "get",
-        "/api/v1/topics/{topic_id}/media",
-        "src/transport/http/topics/mod.rs::list_media",
-        "tests/media/md3_http.rs::md3_returns_stable_paginated_canonical_topic_media",
-        "contracts/contributions/task-8/fixtures/media-flow.json"
-    ),
-    row!(
         "C1",
         "get",
         "/api/v1/groups/{group_id}/chatrooms",
@@ -311,6 +303,14 @@ pub(crate) const REST_SURFACES: &[RestSurface] = &[
         "src/transport/http/messaging/mod.rs::create_message",
         "tests/messaging/http.rs::c4_preserves_content_idempotency_and_exact_text",
         "contracts/fixtures/c4-normal.json"
+    ),
+    row!(
+        "C5",
+        "get",
+        "/api/v1/chatrooms/{chatroom_id}/media",
+        "src/transport/http/chatrooms/mod.rs::chatroom_media",
+        "tests/chatrooms/media.rs::c5_lists_image_and_video_attachments_with_item_cursor_pagination",
+        "contracts/contributions/task-6b/fixtures/chatroom-history-read.json"
     ),
     row!(
         "MD4",

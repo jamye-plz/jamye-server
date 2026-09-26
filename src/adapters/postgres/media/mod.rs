@@ -9,7 +9,7 @@ use time::OffsetDateTime;
 
 use crate::{
     adapters::postgres::transactions::connection,
-    domain::{media::MediaScope, messaging::MessageAttachment},
+    domain::messaging::MessageAttachment,
     ports::{
         media::{
             AuthoritativeMessageMediaCommand, AuthorizeMediaAccessQuery, BindMessageMediaCommand,
@@ -45,11 +45,6 @@ impl MediaRepository for PostgresMediaRepository {
                 i64::try_from(command.byte_size).map_err(|_| MediaRepositoryError::InvalidData)?;
             let ttl_seconds = i64::try_from(command.expires_in.as_secs())
                 .map_err(|_| MediaRepositoryError::InvalidData)?;
-            let scope = match command.scope {
-                MediaScope::Chat => "chat",
-                MediaScope::Topic => "topic",
-            };
-
             let timestamps = sqlx::query_as::<_, (OffsetDateTime, OffsetDateTime)>(
                 "WITH authorized_chat AS ( \
                      SELECT chatroom.group_id \
@@ -60,25 +55,8 @@ impl MediaRepository for PostgresMediaRepository {
                      JOIN memberships actor_membership \
                        ON actor_membership.group_id = chatroom.group_id \
                       AND actor_membership.user_id = $2 \
-                     WHERE $4 = 'chat' AND chatroom.id = $5 \
+                     WHERE chatroom.id = $5 \
                      FOR SHARE OF chatroom, live_group, actor_membership \
-                 ), \
-                 authorized_topic AS ( \
-                     SELECT topic.group_id \
-                     FROM topics topic \
-                     JOIN groups live_group \
-                       ON live_group.id = topic.group_id \
-                      AND live_group.deleted_at IS NULL \
-                     JOIN memberships actor_membership \
-                       ON actor_membership.group_id = topic.group_id \
-                      AND actor_membership.user_id = $2 \
-                     WHERE $4 = 'topic' AND topic.id = $5 \
-                     FOR SHARE OF topic, live_group, actor_membership \
-                 ), \
-                 authorized AS ( \
-                     SELECT group_id FROM authorized_chat \
-                     UNION ALL \
-                     SELECT group_id FROM authorized_topic \
                  ), \
                  stamped AS ( \
                      SELECT clock_timestamp() AS created_at \
@@ -89,14 +67,14 @@ impl MediaRepository for PostgresMediaRepository {
                  SELECT $1, $2, $3, $4, $5, $6, $7, $8, \
                         stamped.created_at + make_interval(secs => $9::double precision), \
                         stamped.created_at \
-                 FROM authorized \
+                 FROM authorized_chat \
                  CROSS JOIN stamped \
                  RETURNING expires_at, created_at",
             )
             .bind(command.id)
             .bind(command.user_id)
             .bind(&command.object_key)
-            .bind(scope)
+            .bind("chat")
             .bind(command.target_id)
             .bind(&command.content_type)
             .bind(byte_size)

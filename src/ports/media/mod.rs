@@ -146,25 +146,11 @@ pub enum FinalizeUploadCommand {
         finalized: FinalizedObject,
         poster_upload_id: Option<Uuid>,
     },
-    Topic {
-        actor_id: Uuid,
-        upload_id: Uuid,
-        topic_media_id: Uuid,
-        width: Option<u32>,
-        height: Option<u32>,
-        finalized: FinalizedObject,
-    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum UploadFinalizeRecord {
-    Chat {
-        upload: ConfirmedUploadRecord,
-    },
-    Topic {
-        upload: ConfirmedUploadRecord,
-        topic_media: TopicMediaBindingRecord,
-    },
+    Chat { upload: ConfirmedUploadRecord },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -181,19 +167,6 @@ pub struct ConfirmedUploadRecord {
     pub filename: Option<String>,
     pub confirmed_at: OffsetDateTime,
     pub poster_upload_id: Option<Uuid>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TopicMediaBindingRecord {
-    pub id: Uuid,
-    pub topic_id: Uuid,
-    pub media_upload_id: Uuid,
-    pub object_key: String,
-    pub content_type: String,
-    pub width: Option<u32>,
-    pub height: Option<u32>,
-    pub byte_size: u64,
-    pub created_at: OffsetDateTime,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

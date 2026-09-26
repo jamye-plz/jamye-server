@@ -3,8 +3,8 @@ use std::{error::Error, io};
 use jamye_server::{
     adapters::object_storage::media::{BucketLifecycle, S3BucketBackend},
     config::{
-        AppConfig, auth::AuthConfig, object_storage::ObjectStorageConfig,
-        rate_limit::RateLimitConfig,
+        AppConfig, app_links::AppLinksConfig, auth::AuthConfig,
+        object_storage::ObjectStorageConfig, rate_limit::RateLimitConfig,
     },
     platform::{
         logging::init_json_logging,
@@ -17,6 +17,7 @@ use tokio::net::TcpListener;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let config = AppConfig::from_env()?;
+    let app_links = AppLinksConfig::from_env()?;
     let auth = AuthConfig::from_env()?;
     let rate_limits = RateLimitConfig::from_env()?;
     let object_storage = ObjectStorageConfig::from_env(config.environment())?;
@@ -38,8 +39,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         configured_storage.bucket(),
     );
     lifecycle.ensure_bucket().await?;
-    let app =
-        composition::router_with_runtime(&config, &auth, &rate_limits, object_storage.as_ref())?;
+    let app = composition::router_with_runtime(
+        &config,
+        &app_links,
+        &auth,
+        &rate_limits,
+        object_storage.as_ref(),
+    )?;
     let listener = TcpListener::bind(config.listen_address()).await?;
     serve_with_graceful_shutdown(
         listener,

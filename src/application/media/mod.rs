@@ -14,15 +14,14 @@ use crate::{
         media::{
             AuthorizeMediaAccessQuery, ConfirmedUploadRecord, CreateUploadIntentCommand,
             FinalizeUploadCommand, MediaAccessRecord, MediaRepository, MediaRepositoryError,
-            PosterCandidateRecord, PrepareUploadFinalizeQuery, TopicMediaBindingRecord,
-            UploadFinalizePreparation, UploadFinalizeRecord, UploadIntentRecord,
+            PosterCandidateRecord, PrepareUploadFinalizeQuery, UploadFinalizePreparation,
+            UploadFinalizeRecord, UploadIntentRecord,
         },
         object_storage::{
             InspectObjectRequest, MediaObjectStorage, PresignGetRequest, PresignPutRequest,
             PresignedGet,
         },
         rate_limit::{RateLimitOutcome, RateLimitRequest, RateLimiter},
-        topics::{TopicStatus, TopicsRepository},
         transactions::{BoxTransactionHandle, TransactionManager},
     },
 };
@@ -51,7 +50,6 @@ pub struct MediaFinalizeDependencies {
     pub transactions: Arc<dyn TransactionManager>,
     pub repository: Arc<dyn MediaRepository>,
     pub object_storage: Arc<dyn MediaObjectStorage>,
-    pub topics: Arc<dyn TopicsRepository>,
 }
 
 #[derive(Clone)]
@@ -267,26 +265,16 @@ impl MediaFinalizeService {
             .map_err(|_| MediaError::ObjectStorageDegraded)?;
         let finalized = validate_finalized_object(&expected, &inspected)
             .map_err(|_| MediaError::FinalizeValidation)?;
-        let command = match upload.scope {
-            MediaScope::Chat => FinalizeUploadCommand::Chat {
-                actor_id,
-                upload_id,
-                finalized,
-                poster_upload_id,
-            },
-            MediaScope::Topic => FinalizeUploadCommand::Topic {
-                actor_id,
-                upload_id,
-                topic_media_id: Uuid::new_v4(),
-                width: input.width,
-                height: input.height,
-                finalized,
-            },
+        let command = FinalizeUploadCommand::Chat {
+            actor_id,
+            upload_id,
+            finalized,
+            poster_upload_id,
         };
 
         let mut transaction = self.begin().await?;
         let result = self
-            .finalize_in_transaction(transaction.as_mut(), upload.target_id, &command)
+            .finalize_in_transaction(transaction.as_mut(), &command)
             .await;
         self.finish(transaction, result).await
     }
@@ -294,7 +282,6 @@ impl MediaFinalizeService {
     async fn finalize_in_transaction(
         &self,
         transaction: &mut dyn crate::ports::transactions::TransactionHandle,
-        target_id: Uuid,
         command: &FinalizeUploadCommand,
     ) -> Result<UploadFinalizeResult, MediaError> {
         let record = self
@@ -307,29 +294,6 @@ impl MediaFinalizeService {
             (FinalizeUploadCommand::Chat { .. }, UploadFinalizeRecord::Chat { upload }) => {
                 Ok(UploadFinalizeResult::Chat { upload })
             }
-            (
-                FinalizeUploadCommand::Topic { .. },
-                UploadFinalizeRecord::Topic {
-                    upload,
-                    topic_media,
-                },
-            ) => {
-                let topic_status = self
-                    .dependencies
-                    .topics
-                    .promote_enriched(transaction, target_id)
-                    .await
-                    .map_err(|_| MediaError::DatabaseUnavailable)?;
-                if topic_status != TopicStatus::Enriched {
-                    return Err(MediaError::DatabaseUnavailable);
-                }
-                Ok(UploadFinalizeResult::Topic {
-                    upload,
-                    topic_media,
-                    topic_status,
-                })
-            }
-            _ => Err(MediaError::DatabaseUnavailable),
         }
     }
 
@@ -436,14 +400,6 @@ impl MediaAccessService {
 fn finalize_result(record: UploadFinalizeRecord) -> Result<UploadFinalizeResult, MediaError> {
     match record {
         UploadFinalizeRecord::Chat { upload } => Ok(UploadFinalizeResult::Chat { upload }),
-        UploadFinalizeRecord::Topic {
-            upload,
-            topic_media,
-        } => Ok(UploadFinalizeResult::Topic {
-            upload,
-            topic_media,
-            topic_status: TopicStatus::Enriched,
-        }),
     }
 }
 
@@ -459,7 +415,6 @@ fn presign_request(upload: &UploadIntentRecord, expires_in: Duration) -> Presign
 fn scope_name(scope: MediaScope) -> &'static str {
     match scope {
         MediaScope::Chat => "chat",
-        MediaScope::Topic => "topic",
     }
 }
 
@@ -501,14 +456,7 @@ pub struct UploadFinalizeInput {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum UploadFinalizeResult {
-    Chat {
-        upload: ConfirmedUploadRecord,
-    },
-    Topic {
-        upload: ConfirmedUploadRecord,
-        topic_media: TopicMediaBindingRecord,
-        topic_status: TopicStatus,
-    },
+    Chat { upload: ConfirmedUploadRecord },
 }
 
 /// Public-safe metadata plus one short viewing URL. The private object key is omitted.

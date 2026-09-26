@@ -26,8 +26,8 @@ use crate::{
         redis::health::RedisHealthProbe,
     },
     config::{
-        AppConfig, account_deletion::AccountDeletionConfig, auth::AuthConfig,
-        object_storage::ObjectStorageConfig, push::PushConfig,
+        AppConfig, account_deletion::AccountDeletionConfig, app_links::AppLinksConfig,
+        auth::AuthConfig, object_storage::ObjectStorageConfig, push::PushConfig,
     },
     platform::{
         readiness::{DependencyProbe, ReadinessService, UnconfiguredProbe},
@@ -80,6 +80,7 @@ use crate::{
     transport::{
         http::{
             account_deletion::{AccountDeletionHttpState, router as account_deletion_router},
+            app_links::{AppLinksHttpState, router as app_links_router},
             auth::{AuthHttpState, router as auth_router},
             chatrooms::{ChatroomsHttpState, router as chatrooms_router},
             groups::{GroupsHttpState, router as groups_router},
@@ -105,15 +106,23 @@ use crate::{
 /// production startup supplies the complete runtime inputs below.
 pub fn router(config: &AppConfig, auth: &AuthConfig) -> Result<Router, CompositionError> {
     let rate_limits = crate::config::rate_limit::RateLimitConfig::default();
+    let app_links = AppLinksConfig::from_env().map_err(|_| CompositionError::AppLinks)?;
     let object_storage = ObjectStorageConfig::from_env(config.environment())
         .map_err(|_| CompositionError::ObjectStorageNotConfigured)?;
-    router_with_runtime(config, auth, &rate_limits, object_storage.as_ref())
+    router_with_runtime(
+        config,
+        &app_links,
+        auth,
+        &rate_limits,
+        object_storage.as_ref(),
+    )
 }
 
 /// Builds the production router from already-validated feature configuration.
 /// It deliberately performs no object-store I/O; API startup owns bucket ensure.
 pub fn router_with_runtime(
     config: &AppConfig,
+    app_links: &AppLinksConfig,
     auth: &AuthConfig,
     rate_limits: &crate::config::rate_limit::RateLimitConfig,
     object_storage: Option<&ObjectStorageConfig>,
@@ -226,7 +235,6 @@ pub fn router_with_runtime(
         transactions: transactions.clone(),
         repository: media_repository.clone(),
         object_storage: storage.clone(),
-        topics: topics_repository.clone(),
     }));
     let media_access = Arc::new(MediaAccessService::new(MediaAccessDependencies {
         repository: media_repository.clone(),
@@ -258,6 +266,7 @@ pub fn router_with_runtime(
     ));
     let realtime_repository = Arc::new(PostgresRealtimeRepository::new(pool));
     let application = health::router(HealthState::new(readiness))
+        .merge(app_links_router(AppLinksHttpState::new(app_links.clone())))
         .merge(auth_router(AuthHttpState::new(
             auth_service,
             verifier.clone(),
@@ -613,6 +622,7 @@ pub enum CompositionError {
     Redis,
     RedisNotConfigured,
     Minio,
+    AppLinks,
     Auth,
     Groups,
     Media,
@@ -660,6 +670,7 @@ impl fmt::Display for CompositionError {
             Self::Postgres => "PostgreSQL",
             Self::Redis | Self::RedisNotConfigured => "Redis",
             Self::Minio => "MinIO",
+            Self::AppLinks => "app-link configuration",
             Self::Auth => "authentication composition",
             Self::Groups => "groups composition",
             Self::Media => "media composition",

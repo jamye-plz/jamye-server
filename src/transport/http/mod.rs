@@ -1,6 +1,7 @@
 //! HTTP transport and static process composition.
 
 pub mod account_deletion;
+pub mod app_links;
 pub mod auth;
 pub mod chatrooms;
 pub mod composition;

@@ -54,29 +54,6 @@ fn chat_policy_accepts_the_exact_allowlist_at_each_cap_and_rejects_boundaries() 
 }
 
 #[test]
-fn topic_policy_accepts_only_exact_image_types_at_the_image_cap() {
-    for content_type in IMAGE_CONTENT_TYPES {
-        assert_eq!(
-            validate_upload(MediaScope::Topic, content_type, MAX_IMAGE_BYTES, None),
-            Ok(ValidatedUpload {
-                scope: MediaScope::Topic,
-                kind: MediaKind::Image,
-                content_type: content_type.to_owned(),
-                byte_size: MAX_IMAGE_BYTES,
-                filename: None,
-            })
-        );
-    }
-
-    for content_type in VIDEO_CONTENT_TYPES.into_iter().chain(AUDIO_CONTENT_TYPES) {
-        assert_eq!(
-            validate_upload(MediaScope::Topic, content_type, 1, None),
-            Err(UploadPolicyError::UnsupportedContentType)
-        );
-    }
-}
-
-#[test]
 fn filename_policy_preserves_unicode_and_special_characters_with_a_255_character_cap() {
     let filename = " 여름/기록 \"최종\".jpg ";
     assert_eq!(
@@ -108,10 +85,6 @@ fn server_mints_exact_scope_bound_keys_from_ids_without_client_path_input() {
     assert_eq!(
         mint_object_key(MediaScope::Chat, target_id, upload_id),
         "chat/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222"
-    );
-    assert_eq!(
-        mint_object_key(MediaScope::Topic, target_id, upload_id),
-        "topics/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222"
     );
 }
 

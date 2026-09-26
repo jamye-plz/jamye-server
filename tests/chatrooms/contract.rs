@@ -48,6 +48,13 @@ fn task_6b_contract_contribution_is_the_exact_selected_chatroom_wire() -> TestRe
                 Some(200),
                 None
             ),
+            (
+                Some("C5"),
+                Some("GET"),
+                Some("/api/v1/chatrooms/{chatroom_id}/media"),
+                Some(200),
+                Some("before+limit")
+            ),
         ]
     );
     let c3 = operations
@@ -88,6 +95,21 @@ fn task_6b_contract_contribution_is_the_exact_selected_chatroom_wire() -> TestRe
         schema["$defs"]["ReadMarker"]["properties"]
             .get("last_read_at")
             .is_none()
+    );
+    let media_item = &schema["$defs"]["ChatroomMediaItem"];
+    assert_eq!(media_item["properties"]["message_id"]["format"], "uuid");
+    assert_eq!(
+        media_item["properties"]["message_created_at"]["format"],
+        "date-time"
+    );
+    assert!(
+        media_item["properties"]["type"]["enum"]
+            .as_array()
+            .is_some_and(|types| !types.iter().any(|value| value == "audio/ogg"))
+    );
+    assert_eq!(
+        schema["$defs"]["ChatroomMediaPage"]["properties"]["items"]["items"]["$ref"],
+        "#/$defs/ChatroomMediaItem"
     );
 
     let fixture: Value = serde_json::from_str(&fs::read_to_string(

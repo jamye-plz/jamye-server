@@ -11,6 +11,7 @@ use jamye_server::{
     config::{
         AppConfig, AppEnvironment, ConfigInput,
         account_deletion::{AccountDeletionConfig, AccountDeletionConfigInput},
+        app_links::{AppLinksConfig, AppLinksConfigInput},
         auth::{AuthConfig, AuthConfigInput},
         object_storage::{ObjectStorageConfig, ObjectStorageConfigInput},
         push::{PushConfig, PushConfigInput},

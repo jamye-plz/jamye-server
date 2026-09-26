@@ -23,7 +23,6 @@ pub const MAX_POSTER_BYTES: u64 = 1024 * 1024;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MediaScope {
     Chat,
-    Topic,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -199,7 +198,6 @@ pub struct PosterCandidate {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PosterPolicyError {
     VideoOnly,
-    ChatScopeOnly,
     PosterNotImage,
     PosterContentType,
     PosterTooLarge,
@@ -218,9 +216,6 @@ pub fn validate_poster_link(
     video_target_id: Uuid,
     poster: &PosterCandidate,
 ) -> Result<(), PosterPolicyError> {
-    if video.scope != MediaScope::Chat {
-        return Err(PosterPolicyError::ChatScopeOnly);
-    }
     if video.kind != MediaKind::Video {
         return Err(PosterPolicyError::VideoOnly);
     }
@@ -255,7 +250,6 @@ pub fn validate_poster_link(
 pub fn mint_object_key(scope: MediaScope, target_id: Uuid, upload_id: Uuid) -> String {
     let prefix = match scope {
         MediaScope::Chat => "chat",
-        MediaScope::Topic => "topics",
     };
     format!("{prefix}/{target_id}/{upload_id}")
 }
@@ -391,14 +385,14 @@ pub fn validate_message_composition(
     Ok(ValidatedMessageComposition { kind, media })
 }
 
-fn classify_content_type(scope: MediaScope, content_type: &str) -> Option<MediaKind> {
+fn classify_content_type(_scope: MediaScope, content_type: &str) -> Option<MediaKind> {
     if IMAGE_CONTENT_TYPES.contains(&content_type) {
         return Some(MediaKind::Image);
     }
-    if scope == MediaScope::Chat && VIDEO_CONTENT_TYPES.contains(&content_type) {
+    if VIDEO_CONTENT_TYPES.contains(&content_type) {
         return Some(MediaKind::Video);
     }
-    if scope == MediaScope::Chat && AUDIO_CONTENT_TYPES.contains(&content_type) {
+    if AUDIO_CONTENT_TYPES.contains(&content_type) {
         return Some(MediaKind::Audio);
     }
     None

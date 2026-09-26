@@ -188,8 +188,8 @@ async fn lock_uploads_in_request_order(
     let rows = sqlx::query(
         "SELECT upload.id, upload.user_id, upload.object_key, upload.scope, upload.target_id, \
                 upload.content_type, upload.byte_size, upload.duration, upload.filename, \
-                upload.status, upload.bound_message_id, upload.bound_topic_media_id, \
-                upload.confirmed_at, upload.consumed_at, upload.poster_upload_id, \
+                upload.status, upload.bound_message_id, upload.confirmed_at, upload.consumed_at, \
+                upload.poster_upload_id, \
                 upload.expires_at > clock_timestamp() AS is_live \
          FROM media_uploads AS upload \
          WHERE upload.id = ANY($1) \
@@ -251,7 +251,6 @@ async fn bind_confirmed_uploads(
                AND upload.target_id = $5 \
                AND upload.status = 'confirmed' \
                AND upload.bound_message_id IS NULL \
-               AND upload.bound_topic_media_id IS NULL \
                AND upload.consumed_at IS NULL \
                AND upload.expires_at > $3 \
              RETURNING upload.id",
@@ -324,7 +323,6 @@ async fn bind_linked_poster(
            AND upload.target_id = $5 \
            AND upload.status = 'confirmed' \
            AND upload.bound_message_id IS NULL \
-           AND upload.bound_topic_media_id IS NULL \
            AND upload.consumed_at IS NULL \
            AND upload.expires_at > $3 \
          RETURNING upload.id",
@@ -423,7 +421,6 @@ struct StoredUpload {
     filename: Option<String>,
     status: String,
     bound_message_id: Option<Uuid>,
-    bound_topic_media_id: Option<Uuid>,
     confirmed_at: Option<OffsetDateTime>,
     consumed_at: Option<OffsetDateTime>,
     poster_upload_id: Option<Uuid>,
@@ -445,7 +442,6 @@ impl StoredUpload {
             filename: required(row, "filename")?,
             status: required(row, "status")?,
             bound_message_id: required(row, "bound_message_id")?,
-            bound_topic_media_id: required(row, "bound_topic_media_id")?,
             confirmed_at: required(row, "confirmed_at")?,
             consumed_at: required(row, "consumed_at")?,
             poster_upload_id: required(row, "poster_upload_id")?,
@@ -496,7 +492,6 @@ impl StoredUpload {
             && self.confirmed_at.is_some()
             && self.consumed_at.is_none()
             && self.bound_message_id.is_none()
-            && self.bound_topic_media_id.is_none()
     }
 
     fn is_bound(&self) -> bool {
@@ -504,7 +499,6 @@ impl StoredUpload {
             && self.confirmed_at.is_some()
             && self.consumed_at.is_some()
             && self.bound_message_id.is_some()
-            && self.bound_topic_media_id.is_none()
     }
 }
 

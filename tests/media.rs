@@ -42,8 +42,6 @@ mod finalize_orchestration;
 mod finalize_policy;
 #[path = "support/logging.rs"]
 mod logging_support;
-#[path = "media/md3_http.rs"]
-mod md3_http;
 #[path = "media/message_binding_adapters.rs"]
 mod message_binding_adapters;
 #[path = "media/message_policy.rs"]

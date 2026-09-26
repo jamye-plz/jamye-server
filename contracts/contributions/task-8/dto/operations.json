@@ -24,17 +24,6 @@
     },
     {
       "auth": "member",
-      "errors": "E2",
-      "id": "MD3",
-      "method": "GET",
-      "pagination": "after+limit",
-      "path": "/api/v1/topics/{topic_id}/media",
-      "request": "Query",
-      "response": "TopicMediaPage",
-      "success_status": 200
-    },
-    {
-      "auth": "member",
       "errors": "E5",
       "id": "MD4",
       "method": "GET",

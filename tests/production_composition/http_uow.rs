@@ -19,6 +19,7 @@ use jamye_server::{
     adapters::oauth::{ProductionTokenCodec, ProductionTokenConfigError},
     config::{
         AppConfig, AppEnvironment, ConfigInput,
+        app_links::{AppLinksConfig, AppLinksConfigInput},
         auth::{AuthConfig, AuthConfigInput},
         object_storage::{ObjectStorageConfig, ObjectStorageConfigInput},
         rate_limit::RateLimitConfig,

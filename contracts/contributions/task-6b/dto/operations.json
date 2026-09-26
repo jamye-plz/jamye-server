@@ -33,6 +33,17 @@
       "request": "ReadAnchorIn",
       "response": "ReadMarker",
       "success_status": 200
+    },
+    {
+      "auth": "member",
+      "errors": "E2",
+      "id": "C5",
+      "method": "GET",
+      "pagination": "before+limit",
+      "path": "/api/v1/chatrooms/{chatroom_id}/media",
+      "request": null,
+      "response": "ChatroomMediaPage",
+      "success_status": 200
     }
   ]
 }

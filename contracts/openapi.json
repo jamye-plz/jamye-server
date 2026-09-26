@@ -106,12 +106,6 @@
             "format": "uuid",
             "type": "string"
           },
-          "media": {
-            "items": {
-              "$ref": "#/components/schemas/TopicMedia"
-            },
-            "type": "array"
-          },
           "status": {
             "enum": [
               "seed",
@@ -148,7 +142,6 @@
           "body",
           "status",
           "tags",
-          "media",
           "chatroom_id",
           "unread",
           "created_at",
@@ -171,12 +164,6 @@
             "const": "confirmed",
             "type": "string"
           },
-          "topic_media": {
-            "type": "null"
-          },
-          "topic_status": {
-            "type": "null"
-          },
           "upload": {
             "$ref": "#/components/schemas/ConfirmedUpload"
           }
@@ -185,9 +172,7 @@
           "scope",
           "status",
           "bound",
-          "upload",
-          "topic_media",
-          "topic_status"
+          "upload"
         ],
         "type": "object"
       },
@@ -227,6 +212,118 @@
           "type",
           "topic_id",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "ChatroomMediaItem": {
+        "additionalProperties": false,
+        "properties": {
+          "byte_size": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "duration": {
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "filename": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "height": {
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "media_upload_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "message_created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "message_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "position": {
+            "maximum": 3,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "poster_media_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp",
+              "image/gif",
+              "video/mp4"
+            ],
+            "type": "string"
+          },
+          "width": {
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "media_upload_id",
+          "message_id",
+          "message_created_at",
+          "type",
+          "byte_size",
+          "width",
+          "height",
+          "duration",
+          "filename",
+          "position",
+          "poster_media_id"
+        ],
+        "type": "object"
+      },
+      "ChatroomMediaPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ChatroomMediaItem"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
         ],
         "type": "object"
       },
@@ -886,8 +983,7 @@
       },
       "MediaScope": {
         "enum": [
-          "chat",
-          "topic"
+          "chat"
         ],
         "type": "string"
       },
@@ -1783,91 +1879,6 @@
         ],
         "type": "object"
       },
-      "TopicMedia": {
-        "additionalProperties": false,
-        "properties": {
-          "byte_size": {
-            "minimum": 1,
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "content_type": {
-            "minLength": 1,
-            "type": "string"
-          },
-          "created_at": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "height": {
-            "minimum": 1,
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "media_upload_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "object_key": {
-            "maxLength": 512,
-            "minLength": 1,
-            "type": "string"
-          },
-          "topic_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "width": {
-            "minimum": 1,
-            "type": [
-              "integer",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "id",
-          "topic_id",
-          "media_upload_id",
-          "content_type",
-          "object_key",
-          "width",
-          "height",
-          "byte_size",
-          "created_at"
-        ],
-        "type": "object"
-      },
-      "TopicMediaPage": {
-        "additionalProperties": false,
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/TopicMedia"
-            },
-            "type": "array"
-          },
-          "next_cursor": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "items",
-          "next_cursor"
-        ],
-        "type": "object"
-      },
       "TopicPage": {
         "additionalProperties": false,
         "properties": {
@@ -1952,42 +1963,6 @@
         ],
         "type": "object"
       },
-      "TopicUploadFinalizeResult": {
-        "additionalProperties": false,
-        "properties": {
-          "bound": {
-            "const": true,
-            "type": "boolean"
-          },
-          "scope": {
-            "const": "topic",
-            "type": "string"
-          },
-          "status": {
-            "const": "bound",
-            "type": "string"
-          },
-          "topic_media": {
-            "$ref": "#/components/schemas/TopicMedia"
-          },
-          "topic_status": {
-            "const": "enriched",
-            "type": "string"
-          },
-          "upload": {
-            "$ref": "#/components/schemas/ConfirmedUpload"
-          }
-        },
-        "required": [
-          "scope",
-          "status",
-          "bound",
-          "upload",
-          "topic_media",
-          "topic_status"
-        ],
-        "type": "object"
-      },
       "UnsupportedEventMarker": {
         "additionalProperties": false,
         "properties": {
@@ -2037,21 +2012,7 @@
         "type": "object"
       },
       "UploadFinalizeResult": {
-        "discriminator": {
-          "mapping": {
-            "chat": "#/components/schemas/ChatUploadFinalizeResult",
-            "topic": "#/components/schemas/TopicUploadFinalizeResult"
-          },
-          "propertyName": "scope"
-        },
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/ChatUploadFinalizeResult"
-          },
-          {
-            "$ref": "#/components/schemas/TopicUploadFinalizeResult"
-          }
-        ]
+        "$ref": "#/components/schemas/ChatUploadFinalizeResult"
       },
       "UploadIntent": {
         "additionalProperties": false,
@@ -2116,30 +2077,6 @@
       "UploadIntentCreate": {
         "additionalProperties": false,
         "allOf": [
-          {
-            "if": {
-              "properties": {
-                "scope": {
-                  "const": "topic"
-                }
-              },
-              "required": [
-                "scope"
-              ]
-            },
-            "then": {
-              "properties": {
-                "content_type": {
-                  "enum": [
-                    "image/jpeg",
-                    "image/png",
-                    "image/webp",
-                    "image/gif"
-                  ]
-                }
-              }
-            }
-          },
           {
             "if": {
               "properties": {
@@ -2662,6 +2599,80 @@
         "x-jamye-errors": "EA3",
         "x-jamye-fixture": "contracts/contributions/task-5/fixtures/mobile-auth-handoff.json",
         "x-jamye-owner-contribution": "contracts/contributions/task-5/dto/operations.json"
+      }
+    },
+    "/api/v1/chatrooms/{chatroom_id}/media": {
+      "get": {
+        "operationId": "C5",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque pagination cursor returned by the previous page",
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Bounded page size",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatroomMediaPage"
+                }
+              }
+            },
+            "description": "Successful response or canonical idempotent retry"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error response; inspect error.code for the stable machine-readable reason"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "List chatroom image and video attachments",
+        "tags": [
+          "chatrooms"
+        ],
+        "x-jamye-authorization": "member",
+        "x-jamye-behavior-test": "tests/chatrooms/media.rs::c5_lists_image_and_video_attachments_with_item_cursor_pagination",
+        "x-jamye-errors": "E2",
+        "x-jamye-fixture": "contracts/contributions/task-6b/fixtures/chatroom-history-read.json",
+        "x-jamye-owner-contribution": "contracts/contributions/task-6b/dto/operations.json"
       }
     },
     "/api/v1/chatrooms/{chatroom_id}/messages": {
@@ -4903,80 +4914,6 @@
         "x-jamye-fixture": "contracts/fixtures/realtime-lifecycle.json"
       }
     },
-    "/api/v1/topics/{topic_id}/media": {
-      "get": {
-        "operationId": "MD3",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "topic_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Opaque pagination cursor returned by the previous page",
-            "in": "query",
-            "name": "after",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Bounded page size",
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 20,
-              "format": "int32",
-              "maximum": 100,
-              "minimum": 1,
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TopicMediaPage"
-                }
-              }
-            },
-            "description": "Successful response or canonical idempotent retry"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Error response; inspect error.code for the stable machine-readable reason"
-          }
-        },
-        "security": [
-          {
-            "bearer_auth": []
-          }
-        ],
-        "summary": "List topic media",
-        "tags": [
-          "media"
-        ],
-        "x-jamye-authorization": "member",
-        "x-jamye-behavior-test": "tests/media/md3_http.rs::md3_returns_stable_paginated_canonical_topic_media",
-        "x-jamye-errors": "E2",
-        "x-jamye-fixture": "contracts/contributions/task-8/fixtures/media-flow.json",
-        "x-jamye-owner-contribution": "contracts/contributions/task-8/dto/operations.json"
-      }
-    },
     "/health/live": {
       "get": {
         "operationId": "H1",
@@ -5062,7 +4999,7 @@
       "name": "invites"
     },
     {
-      "description": "Chatroom discovery, history, and read markers",
+      "description": "Chatroom discovery, history, media, and read markers",
       "name": "chatrooms"
     },
     {
@@ -5070,7 +5007,7 @@
       "name": "messages"
     },
     {
-      "description": "Topics, dates, tags, and topic media",
+      "description": "Topics, dates, and tags",
       "name": "topics"
     },
     {

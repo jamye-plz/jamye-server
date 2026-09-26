@@ -7,8 +7,9 @@ use uuid::Uuid;
 use crate::{
     domain::messaging::{CanonicalMessage, MessageAttachment, MessageKind},
     ports::chatrooms::{
-        ChatroomKind, ChatroomPage, ChatroomRecord, ChatroomsRepositoryError, ListChatroomsQuery,
-        MessageHistoryPage, MessageHistoryQuery, MessageHistoryRecord, ReadMarker, ReadMarkerQuery,
+        ChatroomKind, ChatroomMediaItem, ChatroomMediaPage, ChatroomMediaQuery, ChatroomPage,
+        ChatroomRecord, ChatroomsRepositoryError, ListChatroomsQuery, MessageHistoryPage,
+        MessageHistoryQuery, MessageHistoryRecord, ReadMarker, ReadMarkerQuery,
     },
 };
 
@@ -50,6 +51,23 @@ type MessageMediaRow = (
     Option<String>,
     i32,
     Option<Uuid>,
+);
+
+type ChatroomMediaAccessRow = (
+    bool,
+    bool,
+    Option<Uuid>,
+    Option<Uuid>,
+    Option<Uuid>,
+    Option<String>,
+    Option<i64>,
+    Option<i32>,
+    Option<i32>,
+    Option<i32>,
+    Option<String>,
+    Option<i32>,
+    Option<Uuid>,
+    Option<OffsetDateTime>,
 );
 
 type ReadMarkerAccessRow = (
@@ -205,6 +223,95 @@ pub(super) async fn message_history(
     Ok(MessageHistoryPage { items, next_cursor })
 }
 
+pub(super) async fn chatroom_media(
+    pool: &PgPool,
+    query: ChatroomMediaQuery,
+) -> Result<ChatroomMediaPage, ChatroomsRepositoryError> {
+    let fetch_limit = i64::from(query.limit) + 1;
+    let rows = sqlx::query_as::<_, ChatroomMediaAccessRow>(
+        "WITH actor_access AS ( \
+             SELECT \
+                 EXISTS ( \
+                     SELECT 1 FROM chatrooms c \
+                     JOIN groups g ON g.id = c.group_id AND g.deleted_at IS NULL \
+                     JOIN memberships actor_membership \
+                       ON actor_membership.group_id = g.id \
+                      AND actor_membership.user_id = $2 \
+                     WHERE c.id = $1 \
+                 ) AS member, \
+                 ( \
+                     $3::uuid IS NULL \
+                     OR EXISTS ( \
+                         SELECT 1 FROM message_media cursor_media \
+                         JOIN messages cursor_message ON cursor_message.id = cursor_media.message_id \
+                         WHERE cursor_media.id = $3 \
+                           AND cursor_message.chatroom_id = $1 \
+                     ) \
+                 ) AS cursor_valid \
+         ), cursor_item AS ( \
+             SELECT cursor_message.created_at, cursor_message.id AS message_id, \
+                    cursor_media.position \
+             FROM message_media cursor_media \
+             JOIN messages cursor_message ON cursor_message.id = cursor_media.message_id \
+             WHERE cursor_media.id = $3 AND cursor_message.chatroom_id = $1 \
+         ), page AS ( \
+             SELECT media.id, media.message_id, media.media_upload_id, media.type, \
+                    media.byte_size, media.width, media.height, media.duration, \
+                    media.filename, media.position, upload.poster_upload_id, \
+                    message.created_at AS message_created_at \
+             FROM message_media media \
+             JOIN messages message ON message.id = media.message_id \
+             LEFT JOIN media_uploads upload ON upload.id = media.media_upload_id \
+             CROSS JOIN actor_access \
+             WHERE message.chatroom_id = $1 \
+               AND actor_access.member \
+               AND actor_access.cursor_valid \
+               AND (media.type LIKE 'image/%' OR media.type LIKE 'video/%') \
+               AND ( \
+                 $3::uuid IS NULL \
+                 OR (message.created_at, message.id) < ( \
+                     SELECT cursor_item.created_at, cursor_item.message_id FROM cursor_item \
+                 ) \
+                 OR ( \
+                     message.id = (SELECT cursor_item.message_id FROM cursor_item) \
+                     AND media.position > (SELECT cursor_item.position FROM cursor_item) \
+                 ) \
+               ) \
+             ORDER BY message.created_at DESC, message.id DESC, media.position ASC \
+             LIMIT $4 \
+         ) \
+         SELECT actor_access.member, actor_access.cursor_valid, page.id, page.message_id, \
+                page.media_upload_id, page.type, page.byte_size, page.width, page.height, \
+                page.duration, page.filename, page.position, page.poster_upload_id, \
+                page.message_created_at \
+         FROM actor_access LEFT JOIN page ON TRUE \
+         ORDER BY page.message_created_at DESC NULLS LAST, page.message_id DESC NULLS LAST, \
+                  page.position ASC NULLS LAST",
+    )
+    .bind(query.chatroom_id)
+    .bind(query.user_id)
+    .bind(query.before)
+    .bind(fetch_limit)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| database_error("chatroom_media", error))?;
+
+    let first = rows.first().ok_or(ChatroomsRepositoryError::Unavailable)?;
+    require_access(first.0, first.1)?;
+    let mut items = rows
+        .into_iter()
+        .filter_map(chatroom_media_from_access_row)
+        .collect::<Result<Vec<_>, _>>()?;
+    let has_more = items.len() > query.limit as usize;
+    if has_more {
+        items.truncate(query.limit as usize);
+    }
+    let next_cursor = has_more
+        .then(|| items.last().map(|item| item.attachment.id.to_string()))
+        .flatten();
+    Ok(ChatroomMediaPage { items, next_cursor })
+}
+
 async fn hydrate_message_media(
     pool: &PgPool,
     items: &mut [MessageHistoryRecord],
@@ -268,6 +375,32 @@ fn message_attachment_from_row(
         position: u8::try_from(row.9).map_err(|_| ChatroomsRepositoryError::InvalidData)?,
         poster_media_id: row.10,
     })
+}
+
+fn chatroom_media_from_access_row(
+    row: ChatroomMediaAccessRow,
+) -> Option<Result<ChatroomMediaItem, ChatroomsRepositoryError>> {
+    let id = row.2?;
+    Some((|| {
+        let attachment = MessageAttachment {
+            id,
+            media_upload_id: row.4.ok_or(ChatroomsRepositoryError::InvalidData)?,
+            content_type: row.5.ok_or(ChatroomsRepositoryError::InvalidData)?,
+            byte_size: positive_u64(row.6.ok_or(ChatroomsRepositoryError::InvalidData)?)?,
+            width: positive_optional_u32(row.7)?,
+            height: positive_optional_u32(row.8)?,
+            duration: positive_optional_u64(row.9)?,
+            filename: row.10,
+            position: u8::try_from(row.11.ok_or(ChatroomsRepositoryError::InvalidData)?)
+                .map_err(|_| ChatroomsRepositoryError::InvalidData)?,
+            poster_media_id: row.12,
+        };
+        Ok(ChatroomMediaItem {
+            attachment,
+            message_id: row.3.ok_or(ChatroomsRepositoryError::InvalidData)?,
+            message_created_at: row.13.ok_or(ChatroomsRepositoryError::InvalidData)?,
+        })
+    })())
 }
 
 fn positive_u64(value: i64) -> Result<u64, ChatroomsRepositoryError> {

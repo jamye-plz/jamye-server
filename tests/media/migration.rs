@@ -7,6 +7,7 @@ use crate::{TestResult, postgres_support::TestDatabase};
 
 const MEDIA_MIGRATION: &str = "migrations/0006_media.sql";
 const MEDIA_POSTERS_MIGRATION: &str = "migrations/0010_media_posters.sql";
+const REMOVE_TOPIC_MEDIA_MIGRATION: &str = "migrations/0012_remove_topic_media.sql";
 
 #[test]
 fn media_migration_is_forward_only_and_owns_one_time_binding_constraints() -> TestResult {
@@ -91,13 +92,11 @@ async fn media_migration_upgrades_the_exact_0005_predecessor() -> TestResult {
 }
 
 #[tokio::test]
-async fn media_schema_allows_four_ordered_attachments_and_rejects_cross_consumption() -> TestResult
-{
+async fn media_schema_allows_four_ordered_chat_attachments_and_rejects_a_fifth() -> TestResult {
     let database = TestDatabase::migrated().await?;
     let mut connection = database.connection().await?;
     let user_id = Uuid::new_v4();
     let group_id = Uuid::new_v4();
-    let topic_id = Uuid::new_v4();
     let chatroom_id = Uuid::new_v4();
     let message_id = Uuid::new_v4();
 
@@ -110,17 +109,6 @@ async fn media_schema_allows_four_ordered_attachments_and_rejects_cross_consumpt
         .bind(user_id)
         .execute(&mut connection)
         .await?;
-    sqlx::query(
-        "INSERT INTO topics (id, group_id, author_id, idempotency_key, request_fingerprint, title) \
-         VALUES ($1, $2, $3, $4, $5, 'media topic')",
-    )
-    .bind(topic_id)
-    .bind(group_id)
-    .bind(user_id)
-    .bind(Uuid::new_v4())
-    .bind("a".repeat(64))
-    .execute(&mut connection)
-    .await?;
     sqlx::query("INSERT INTO chatrooms (id, group_id, type) VALUES ($1, $2, 'main')")
         .bind(chatroom_id)
         .bind(group_id)
@@ -137,7 +125,6 @@ async fn media_schema_allows_four_ordered_attachments_and_rejects_cross_consumpt
     .execute(&mut connection)
     .await?;
 
-    let mut upload_ids = Vec::new();
     for position in 0..4 {
         let upload_id = Uuid::new_v4();
         insert_bound_chat_attachment(
@@ -149,7 +136,6 @@ async fn media_schema_allows_four_ordered_attachments_and_rejects_cross_consumpt
             position,
         )
         .await?;
-        upload_ids.push(upload_id);
     }
 
     let attachment_count: i64 =
@@ -185,68 +171,6 @@ async fn media_schema_allows_four_ordered_attachments_and_rejects_cross_consumpt
         "a fifth attachment unexpectedly passed"
     );
     fifth.rollback().await?;
-
-    let mut cross_consumer = connection.begin().await?;
-    sqlx::query(
-        "INSERT INTO topic_media \
-         (id, topic_id, media_upload_id, type, object_key, width, height, byte_size) \
-         VALUES ($1, $2, $3, 'image/jpeg', 'topic/cross-consumer', 1, 1, 42)",
-    )
-    .bind(Uuid::new_v4())
-    .bind(topic_id)
-    .bind(upload_ids[0])
-    .execute(&mut *cross_consumer)
-    .await?;
-    let cross_result = cross_consumer.commit().await;
-    assert!(
-        cross_result.is_err(),
-        "one upload unexpectedly acquired both chat and topic consumers"
-    );
-
-    let topic_count: i64 = sqlx::query_scalar("SELECT count(*) FROM topic_media")
-        .fetch_one(&mut connection)
-        .await?;
-    assert_eq!(topic_count, 0);
-
-    let topic_upload_id = Uuid::new_v4();
-    let topic_media_id = Uuid::new_v4();
-    let mut topic_binding = connection.begin().await?;
-    sqlx::query(
-        "INSERT INTO media_uploads \
-         (id, user_id, object_key, scope, target_id, content_type, byte_size, status, \
-          bound_topic_media_id, confirmed_at, consumed_at, expires_at, created_at) \
-         VALUES ($1, $2, 'topics/bound', 'topic', $3, 'image/jpeg', 42, 'bound', $4, \
-                 statement_timestamp(), statement_timestamp(), \
-                 statement_timestamp() + interval '15 minutes', statement_timestamp())",
-    )
-    .bind(topic_upload_id)
-    .bind(user_id)
-    .bind(topic_id)
-    .bind(topic_media_id)
-    .execute(&mut *topic_binding)
-    .await?;
-    sqlx::query(
-        "INSERT INTO topic_media \
-         (id, topic_id, media_upload_id, type, object_key, width, height, byte_size) \
-         VALUES ($1, $2, $3, 'image/jpeg', 'topics/bound', 1, 1, 42)",
-    )
-    .bind(topic_media_id)
-    .bind(topic_id)
-    .bind(topic_upload_id)
-    .execute(&mut *topic_binding)
-    .await?;
-    topic_binding.commit().await?;
-
-    let canonical_topic_binding: (Uuid, Uuid) = sqlx::query_as(
-        "SELECT tm.media_upload_id, mu.bound_topic_media_id \
-         FROM topic_media tm \
-         JOIN media_uploads mu ON mu.id = tm.media_upload_id \
-         WHERE tm.id = $1",
-    )
-    .bind(topic_media_id)
-    .fetch_one(&mut connection)
-    .await?;
-    assert_eq!(canonical_topic_binding, (topic_upload_id, topic_media_id));
 
     connection.close().await?;
     database.dispose().await
@@ -377,6 +301,168 @@ async fn poster_migration_upgrades_the_exact_0009_predecessor() -> TestResult {
     .fetch_one(&mut connection)
     .await?;
     assert_eq!(applied, 10);
+
+    connection.close().await?;
+    database.dispose().await
+}
+
+#[test]
+fn remove_topic_media_migration_is_forward_only_and_preserves_chat_checks() -> TestResult {
+    let sql = fs::read_to_string(REMOVE_TOPIC_MEDIA_MIGRATION).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            io::Error::other(format!(
+                "RED: {REMOVE_TOPIC_MEDIA_MIGRATION} is absent; S3 must remove topic media with a forward-only migration"
+            ))
+        } else {
+            error
+        }
+    })?;
+
+    for required in [
+        "-- migration: 0012_remove_topic_media",
+        "-- prerequisite: 0011_main_chat_notifications.sql",
+        "-- reversibility: forward-only",
+        "-- recovery: docs/adr/0003-forward-only-sqlx-migrations.md",
+        "INSERT INTO account_object_deletion_intents",
+        "DROP TABLE topic_media",
+        "DROP COLUMN bound_topic_media_id",
+        "ADD CONSTRAINT media_uploads_scope_check CHECK (scope = 'chat')",
+        "ADD CONSTRAINT media_uploads_consumer_shape_check CHECK",
+        "status = 'bound'",
+        "bound_message_id IS NOT NULL",
+    ] {
+        assert!(
+            sql.contains(required),
+            "0012 migration is missing: {required}"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn remove_topic_media_migration_deletes_topic_scope_and_keeps_chat_invariant() -> TestResult {
+    let database = TestDatabase::migrated_to(11).await?;
+    let mut connection = database.connection().await?;
+    let user_id = Uuid::new_v4();
+    let group_id = Uuid::new_v4();
+    let topic_id = Uuid::new_v4();
+    let topic_upload_id = Uuid::new_v4();
+    let topic_media_id = Uuid::new_v4();
+    let pending_topic_upload_id = Uuid::new_v4();
+    let topic_object_key = format!("topics/{topic_id}/{topic_upload_id}");
+    let pending_object_key = format!("topics/{topic_id}/{pending_topic_upload_id}");
+
+    sqlx::query("INSERT INTO users (id, nickname) VALUES ($1, 'topic media removal')")
+        .bind(user_id)
+        .execute(&mut connection)
+        .await?;
+    sqlx::query("INSERT INTO groups (id, name, owner_id) VALUES ($1, 'topic media removal', $2)")
+        .bind(group_id)
+        .bind(user_id)
+        .execute(&mut connection)
+        .await?;
+    sqlx::query(
+        "INSERT INTO topics (id, group_id, author_id, idempotency_key, request_fingerprint, title) \
+         VALUES ($1, $2, $3, $4, $5, 'remove topic media')",
+    )
+    .bind(topic_id)
+    .bind(group_id)
+    .bind(user_id)
+    .bind(Uuid::new_v4())
+    .bind("d".repeat(64))
+    .execute(&mut connection)
+    .await?;
+
+    let mut topic_binding = connection.begin().await?;
+    sqlx::query(
+        "INSERT INTO media_uploads \
+         (id, user_id, object_key, scope, target_id, content_type, byte_size, status, \
+          bound_topic_media_id, confirmed_at, consumed_at, expires_at, created_at) \
+         VALUES ($1, $2, $3, 'topic', $4, 'image/jpeg', 42, 'bound', $5, \
+                 statement_timestamp(), statement_timestamp(), \
+                 statement_timestamp() + interval '15 minutes', statement_timestamp())",
+    )
+    .bind(topic_upload_id)
+    .bind(user_id)
+    .bind(&topic_object_key)
+    .bind(topic_id)
+    .bind(topic_media_id)
+    .execute(&mut *topic_binding)
+    .await?;
+    sqlx::query(
+        "INSERT INTO topic_media \
+         (id, topic_id, media_upload_id, type, object_key, width, height, byte_size) \
+         VALUES ($1, $2, $3, 'image/jpeg', $4, 1, 1, 42)",
+    )
+    .bind(topic_media_id)
+    .bind(topic_id)
+    .bind(topic_upload_id)
+    .bind(&topic_object_key)
+    .execute(&mut *topic_binding)
+    .await?;
+    topic_binding.commit().await?;
+    sqlx::query(
+        "INSERT INTO media_uploads \
+         (id, user_id, object_key, scope, target_id, content_type, byte_size, expires_at, created_at) \
+         VALUES ($1, $2, $3, 'topic', $4, 'image/jpeg', 42, \
+                 statement_timestamp() + interval '15 minutes', statement_timestamp())",
+    )
+    .bind(pending_topic_upload_id)
+    .bind(user_id)
+    .bind(&pending_object_key)
+    .bind(topic_id)
+    .execute(&mut connection)
+    .await?;
+
+    let migrator = sqlx::migrate::Migrator::new(std::path::Path::new("migrations")).await?;
+    migrator.run_to(12, &mut connection).await?;
+
+    assert!(!table_exists(&mut connection, "topic_media").await?);
+    assert!(!column_exists(&mut connection, "media_uploads", "bound_topic_media_id").await?);
+    assert!(constraint_exists(&mut connection, "media_uploads_scope_check").await?);
+    assert!(constraint_exists(&mut connection, "media_uploads_consumer_shape_check").await?);
+
+    let deletion_intents: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM account_object_deletion_intents WHERE object_key = ANY($1)",
+    )
+    .bind(vec![topic_object_key.clone(), pending_object_key.clone()])
+    .fetch_one(&mut connection)
+    .await?;
+    assert_eq!(deletion_intents, 2);
+
+    let rejected_topic_scope = sqlx::query(
+        "INSERT INTO media_uploads \
+         (id, user_id, object_key, scope, target_id, content_type, byte_size, expires_at, created_at) \
+         VALUES ($1, $2, 'topics/rejected', 'topic', $3, 'image/jpeg', 42, \
+                 statement_timestamp() + interval '15 minutes', statement_timestamp())",
+    )
+    .bind(Uuid::new_v4())
+    .bind(user_id)
+    .bind(topic_id)
+    .execute(&mut connection)
+    .await;
+    assert!(
+        rejected_topic_scope.is_err(),
+        "0012 unexpectedly accepted a topic-scope upload"
+    );
+
+    let rejected_chat_shape = sqlx::query(
+        "INSERT INTO media_uploads \
+         (id, user_id, object_key, scope, target_id, content_type, byte_size, status, \
+          confirmed_at, consumed_at, expires_at, created_at) \
+         VALUES ($1, $2, 'chat/rejected-shape', 'chat', $3, 'image/jpeg', 42, 'bound', \
+                 statement_timestamp(), statement_timestamp(), \
+                 statement_timestamp() + interval '15 minutes', statement_timestamp())",
+    )
+    .bind(Uuid::new_v4())
+    .bind(user_id)
+    .bind(Uuid::new_v4())
+    .execute(&mut connection)
+    .await;
+    assert!(
+        rejected_chat_shape.is_err(),
+        "0012 dropped the chat consumer-shape invariant"
+    );
 
     connection.close().await?;
     database.dispose().await

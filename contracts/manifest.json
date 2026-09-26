@@ -58,11 +58,11 @@
     "T7",
     "MD1",
     "MD2",
-    "MD3",
     "C1",
     "C2",
     "C3",
     "C4",
+    "C5",
     "MD4",
     "MD5",
     "S1",
@@ -77,5 +77,5 @@
     "message.created",
     "topic.created"
   ],
-  "sha256": "b95e463946861d981c9e973fa048f6ee6dc4e63307f5e29583be6478bc650b69"
+  "sha256": "ca275256289955f20a13a5f6d2f51df326c43da79ffd8b526ef867db5faf5a5c"
 }

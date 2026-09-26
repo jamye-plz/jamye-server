@@ -127,6 +127,12 @@ Redis queue나 in-memory hub를 authoritative state로 사용하지 않는다. p
 - OpenAPI 3.1, realtime JSON Schema, fixture, reproducible checksum manifest는 server repository가 생성
 - API v1은 additive change가 기본이며 current/previous mobile projection을 함께 지원
 
+앱 링크 association과 초대 랜딩은 API origin에서 인증 없이 제공한다.
+<!-- oma-docs:ignore-start -->
+`/.well-known/apple-app-site-association`과 `/.well-known/assetlinks.json`은 JSON association 문서만 반환하고 redirect하지 않는다. `/invite/{code}`는 초대 코드 형식만 검사하며 PostgreSQL을 조회하지 않는 정적 HTML 랜딩이다.
+<!-- oma-docs:ignore-end -->
+이 공개 표면은 앱 설치·딥링크 연결을 돕는 entrypoint일 뿐 그룹 이름, 초대 유효성, membership 상태를 노출하지 않는다([ADR 0010](adr/0010-app-links-chatroom-media-topic-media-removal.md)).
+
 Realtime event는 `version`, `type`, `event_id`, `conversation_id`, `cursor`, `occurred_at`, `data`를 가진 discriminated union이다. C2에는 `message.created`와 membership eviction 계열의 선택된 두 variant만 들어가며 STT/transcription variant는 없다.
 
 ## 6. 인증과 권한
@@ -153,7 +159,11 @@ task-4b 전까지 이 feature-local router는 중앙 API composition이나 binar
 
 MinIO bucket은 private이고 app에는 MinIO credential을 전달하지 않는다. upload intent를 DB에 기록한 뒤 short-lived presigned PUT을 발급하고, finalize에서 사용자·대상·MIME·크기·만료와 object HEAD 결과를 검증한다. 조회는 membership 검증 후 short-lived presigned GET을 재발급한다. 채팅 영상 업로드는 finalize 시 발신 단말이 만든 JPEG 포스터(`poster_upload_id`, `image/jpeg` ≤1 MiB, ≤640px)를 연결할 수 있으며, 포스터는 메시지 바인딩 때 영상과 함께 bound 상태로 전이해 `MessageAttachment.poster_media_id`(nullable)로 노출되고 접근 시 영상과 같은 membership 검사를 받는다([ADR 0009](adr/0009-media-posters.md)).
 
+대화방 갤러리는 `GET /api/v1/chatrooms/{chatroom_id}/media`가 message attachment projection을 item 단위로 페이지네이션한다. membership은 `chatrooms → groups(live) → memberships(user)` 경로로 확인하고, 없는 방과 비멤버는 같은 403을 반환한다. 정렬은 `messages.created_at DESC, messages.id DESC, message_media.position ASC`이며 cursor는 마지막 `message_media.id`다. 음성은 메시지 재생 표면에만 남고, 갤러리 API는 이미지와 동영상만 반환한다([ADR 0010](adr/0010-app-links-chatroom-media-topic-media-removal.md)).
+
 음성 메시지는 body 없이 정확히 audio media 한 개를 가진 일반 message다. 동일한 message transaction, history, delta sync, `message.created`, authorized presigned GET 경로를 사용한다. STT field, job, event, worker, Python runtime은 이번 작업과 C2에 없다.
+
+주제 미디어(`topic_media`, topic-scope upload/finalize, `CanonicalTopic.media`)는 task-17에서 제거됐다. 주제 상세의 갤러리 요구는 주제 자체에 결합된 미디어가 아니라 주제 대화방의 message attachments를 읽는 C5 API로 충족한다.
 
 MinIO의 SigV4는 `Host`를 서명하므로 ingress가 `Host`를 무조건 덮어쓰면 안 된다.
 
@@ -161,7 +171,7 @@ MinIO의 SigV4는 `Host`를 서명하므로 ingress가 `Host`를 무조건 덮�
 
 첫 migration은 수직 절편에 필요한 table만 만들고 이후 owner가 forward-only additive migration을 추가한다.
 
-- 제품: `users`, `groups`, `memberships`, `invites`, `topics`, `topic_media`, `topic_tags`, `chatrooms`, `messages`, `message_media`, `chatroom_reads`, `notifications`
+- 제품: `users`, `groups`, `memberships`, `invites`, `topics`, `topic_tags`, `chatrooms`, `messages`, `message_media`, `chatroom_reads`, `notifications`
 - 모바일 인증: `auth_identities`, `refresh_sessions`
 - push: `push_installations`
 - media authorization: `media_uploads`

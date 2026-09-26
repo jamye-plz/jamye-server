@@ -13,19 +13,12 @@ use jamye_server::{
         media::{
             ConfirmedUploadRecord, CreateUploadIntentCommand, FinalizeUploadCommand,
             MediaRepository, MediaRepositoryError, MediaRepositoryFuture, PosterCandidateRecord,
-            PrepareUploadFinalizeQuery, TopicMediaBindingRecord, UploadFinalizePreparation,
-            UploadFinalizeRecord, UploadIntentRecord,
+            PrepareUploadFinalizeQuery, UploadFinalizePreparation, UploadFinalizeRecord,
+            UploadIntentRecord,
         },
         object_storage::{
             InspectObjectRequest, MediaObjectStorage, MediaObjectStorageFuture,
             ObjectStorageProviderError, PresignPutRequest, PresignedPut,
-        },
-        topics::{
-            CreateTopicCommand, CreateTopicOutcome, GetTopicQuery, ListTopicDatesQuery,
-            ListTopicMediaQuery, ListTopicTagsQuery, ListTopicsQuery, PatchTopicCommand,
-            ReplaceTopicTagsCommand, TopicDatePage, TopicMediaPage, TopicPage, TopicRecord,
-            TopicStatus, TopicTagPage, TopicsRepository, TopicsRepositoryError,
-            TopicsRepositoryFuture,
         },
         transactions::{
             BoxTransactionHandle, TransactionFuture, TransactionHandle, TransactionManager,
@@ -38,11 +31,9 @@ use uuid::Uuid;
 #[tokio::test]
 async fn authorization_or_conflict_fails_before_object_access_and_transaction() {
     let inaccessible = Harness::new(
-        MediaScope::Chat,
         PrepareMode::TargetNotAccessible,
         InspectMode::Success,
         FinalizeMode::Success,
-        PromoteMode::Success,
     );
 
     assert_eq!(
@@ -55,16 +46,14 @@ async fn authorization_or_conflict_fails_before_object_access_and_transaction() 
     assert_eq!(inaccessible.calls(), vec![Call::Prepare]);
 
     let conflict = Harness::new(
-        MediaScope::Topic,
         PrepareMode::Conflict,
         InspectMode::Success,
         FinalizeMode::Success,
-        PromoteMode::Success,
     );
     assert_eq!(
         conflict
             .service
-            .finalize_upload(actor_id(), upload_id(), topic_input())
+            .finalize_upload(actor_id(), upload_id(), UploadFinalizeInput::default())
             .await,
         Err(MediaError::FinalizeConflict)
     );
@@ -74,11 +63,9 @@ async fn authorization_or_conflict_fails_before_object_access_and_transaction() 
 #[tokio::test]
 async fn object_or_metadata_failure_happens_before_the_transaction() {
     let unavailable = Harness::new(
-        MediaScope::Chat,
         PrepareMode::Pending,
         InspectMode::Unavailable,
         FinalizeMode::Success,
-        PromoteMode::Success,
     );
     assert_eq!(
         unavailable
@@ -90,11 +77,9 @@ async fn object_or_metadata_failure_happens_before_the_transaction() {
     assert_eq!(unavailable.calls(), vec![Call::Prepare, Call::Inspect]);
 
     let mismatch = Harness::new(
-        MediaScope::Chat,
         PrepareMode::Pending,
         InspectMode::ContentTypeMismatch,
         FinalizeMode::Success,
-        PromoteMode::Success,
     );
     assert_eq!(
         mismatch
@@ -109,18 +94,16 @@ async fn object_or_metadata_failure_happens_before_the_transaction() {
 #[tokio::test]
 async fn chat_finalize_inspects_before_one_transaction_and_returns_unbound() {
     let harness = Harness::new(
-        MediaScope::Chat,
         PrepareMode::Pending,
         InspectMode::Success,
         FinalizeMode::Success,
-        PromoteMode::Success,
     );
 
     let result = harness
         .service
         .finalize_upload(actor_id(), upload_id(), UploadFinalizeInput::default())
         .await;
-    assert_eq!(result, Ok(application_result(MediaScope::Chat)));
+    assert_eq!(result, Ok(application_result()));
     assert_eq!(
         harness.calls(),
         vec![
@@ -144,7 +127,7 @@ async fn chat_finalize_inspects_before_one_transaction_and_returns_unbound() {
     assert_eq!(
         harness.object_storage.inspections(),
         vec![InspectObjectRequest {
-            object_key: object_key(MediaScope::Chat),
+            object_key: object_key(),
             kind: MediaKind::Image,
         }]
     );
@@ -162,61 +145,19 @@ async fn chat_finalize_inspects_before_one_transaction_and_returns_unbound() {
                 && finalized.byte_size == 1_024
                 && finalized.duration_seconds.is_none()
     ));
-    assert!(harness.topics.promotions().is_empty());
 }
 
 #[tokio::test]
-async fn topic_finalize_binds_then_promotes_and_commits_once() {
-    let harness = Harness::new(
-        MediaScope::Topic,
-        PrepareMode::Pending,
-        InspectMode::Success,
-        FinalizeMode::Success,
-        PromoteMode::Success,
-    );
-
-    let result = harness
-        .service
-        .finalize_upload(actor_id(), upload_id(), topic_input())
-        .await;
-    assert_eq!(result, Ok(application_result(MediaScope::Topic)));
-    assert_eq!(
-        harness.calls(),
-        vec![
-            Call::Prepare,
-            Call::Inspect,
-            Call::Begin,
-            Call::Finalize,
-            Call::Promote,
-            Call::Commit,
-        ]
-    );
-    assert!(matches!(
-        harness.repository.finalizations().as_slice(),
-        [FinalizeUploadCommand::Topic { actor_id: actor, upload_id: upload, width, height, finalized, .. }]
-            if *actor == actor_id()
-                && *upload == upload_id()
-                && *width == Some(800)
-                && *height == Some(600)
-                && finalized.content_type == "image/jpeg"
-                && finalized.byte_size == 1_024
-    ));
-    assert_eq!(harness.topics.promotions(), vec![target_id()]);
-}
-
-#[tokio::test]
-async fn finalize_or_topic_promotion_failure_rolls_back_without_commit() {
+async fn finalize_failure_rolls_back_without_commit() {
     let conflict = Harness::new(
-        MediaScope::Topic,
         PrepareMode::Pending,
         InspectMode::Success,
         FinalizeMode::Conflict,
-        PromoteMode::Success,
     );
     assert_eq!(
         conflict
             .service
-            .finalize_upload(actor_id(), upload_id(), topic_input())
+            .finalize_upload(actor_id(), upload_id(), UploadFinalizeInput::default())
             .await,
         Err(MediaError::FinalizeConflict)
     );
@@ -230,59 +171,24 @@ async fn finalize_or_topic_promotion_failure_rolls_back_without_commit() {
             Call::Rollback,
         ]
     );
-
-    let promotion_failure = Harness::new(
-        MediaScope::Topic,
-        PrepareMode::Pending,
-        InspectMode::Success,
-        FinalizeMode::Success,
-        PromoteMode::Unavailable,
-    );
-    assert_eq!(
-        promotion_failure
-            .service
-            .finalize_upload(actor_id(), upload_id(), topic_input())
-            .await,
-        Err(MediaError::DatabaseUnavailable)
-    );
-    assert_eq!(
-        promotion_failure.calls(),
-        vec![
-            Call::Prepare,
-            Call::Inspect,
-            Call::Begin,
-            Call::Finalize,
-            Call::Promote,
-            Call::Rollback,
-        ]
-    );
 }
 
 #[tokio::test]
 async fn exact_retry_returns_the_canonical_result_without_io_or_new_transaction() {
-    for scope in [MediaScope::Chat, MediaScope::Topic] {
-        let harness = Harness::new(
-            scope,
-            PrepareMode::Existing,
-            InspectMode::Unavailable,
-            FinalizeMode::Conflict,
-            PromoteMode::Unavailable,
-        );
-        let input = if scope == MediaScope::Topic {
-            topic_input()
-        } else {
-            UploadFinalizeInput::default()
-        };
+    let harness = Harness::new(
+        PrepareMode::Existing,
+        InspectMode::Unavailable,
+        FinalizeMode::Conflict,
+    );
 
-        assert_eq!(
-            harness
-                .service
-                .finalize_upload(actor_id(), upload_id(), input)
-                .await,
-            Ok(application_result(scope))
-        );
-        assert_eq!(harness.calls(), vec![Call::Prepare]);
-    }
+    assert_eq!(
+        harness
+            .service
+            .finalize_upload(actor_id(), upload_id(), UploadFinalizeInput::default())
+            .await,
+        Ok(application_result())
+    );
+    assert_eq!(harness.calls(), vec![Call::Prepare]);
 }
 
 #[tokio::test]
@@ -292,7 +198,6 @@ async fn valid_poster_upload_id_is_accepted_and_carried_into_the_finalize_comman
         poster.clone(),
         InspectMode::VideoSuccess,
         FinalizeMode::Success,
-        PromoteMode::Success,
     );
 
     let result = harness
@@ -325,7 +230,6 @@ async fn invalid_poster_upload_id_is_rejected_before_any_object_access_or_transa
         poster.clone(),
         InspectMode::VideoSuccess,
         FinalizeMode::Success,
-        PromoteMode::Success,
     );
 
     let result = harness
@@ -340,34 +244,11 @@ async fn invalid_poster_upload_id_is_rejected_before_any_object_access_or_transa
             },
         )
         .await;
+
     assert_eq!(result, Err(MediaError::PosterValidation));
     assert_eq!(harness.calls(), vec![Call::Prepare]);
-}
-
-#[tokio::test]
-async fn unknown_poster_upload_id_is_rejected_before_any_object_access_or_transaction() {
-    let harness = Harness::new(
-        MediaScope::Chat,
-        PrepareMode::PendingVideo,
-        InspectMode::VideoSuccess,
-        FinalizeMode::Success,
-        PromoteMode::Success,
-    );
-
-    let result = harness
-        .service
-        .finalize_upload(
-            actor_id(),
-            upload_id(),
-            UploadFinalizeInput {
-                width: None,
-                height: None,
-                poster_upload_id: Some(poster_id()),
-            },
-        )
-        .await;
-    assert_eq!(result, Err(MediaError::PosterValidation));
-    assert_eq!(harness.calls(), vec![Call::Prepare]);
+    assert!(harness.object_storage.inspections().is_empty());
+    assert!(harness.repository.finalizations().is_empty());
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -376,38 +257,8 @@ enum Call {
     Inspect,
     Begin,
     Finalize,
-    Promote,
     Commit,
     Rollback,
-}
-
-#[derive(Clone, Copy)]
-enum PrepareMode {
-    Pending,
-    PendingVideo,
-    Existing,
-    TargetNotAccessible,
-    Conflict,
-}
-
-#[derive(Clone, Copy)]
-enum InspectMode {
-    Success,
-    VideoSuccess,
-    ContentTypeMismatch,
-    Unavailable,
-}
-
-#[derive(Clone, Copy)]
-enum FinalizeMode {
-    Success,
-    Conflict,
-}
-
-#[derive(Clone, Copy)]
-enum PromoteMode {
-    Success,
-    Unavailable,
 }
 
 struct Harness {
@@ -415,74 +266,55 @@ struct Harness {
     calls: Arc<Mutex<Vec<Call>>>,
     repository: Arc<RecordingRepository>,
     object_storage: Arc<RecordingObjectStorage>,
-    topics: Arc<RecordingTopicsRepository>,
 }
 
 impl Harness {
     fn new(
-        scope: MediaScope,
         prepare_mode: PrepareMode,
         inspect_mode: InspectMode,
         finalize_mode: FinalizeMode,
-        promote_mode: PromoteMode,
     ) -> Self {
-        Self::build(
-            scope,
-            prepare_mode,
-            None,
-            inspect_mode,
-            finalize_mode,
-            promote_mode,
-        )
+        Self::with_poster(prepare_mode, None, inspect_mode, finalize_mode)
     }
 
     fn new_with_poster(
         poster: PosterCandidateRecord,
         inspect_mode: InspectMode,
         finalize_mode: FinalizeMode,
-        promote_mode: PromoteMode,
     ) -> Self {
-        Self::build(
-            MediaScope::Chat,
+        Self::with_poster(
             PrepareMode::PendingVideo,
             Some(poster),
             inspect_mode,
             finalize_mode,
-            promote_mode,
         )
     }
 
-    fn build(
-        scope: MediaScope,
+    fn with_poster(
         prepare_mode: PrepareMode,
         poster: Option<PosterCandidateRecord>,
         inspect_mode: InspectMode,
         finalize_mode: FinalizeMode,
-        promote_mode: PromoteMode,
     ) -> Self {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let transactions = Arc::new(RecordingTransactions::new(calls.clone()));
         let repository = Arc::new(RecordingRepository::new(
             calls.clone(),
-            scope,
             prepare_mode,
             finalize_mode,
             poster,
         ));
         let object_storage = Arc::new(RecordingObjectStorage::new(calls.clone(), inspect_mode));
-        let topics = Arc::new(RecordingTopicsRepository::new(calls.clone(), promote_mode));
         let service = MediaFinalizeService::new(MediaFinalizeDependencies {
             transactions,
             repository: repository.clone(),
             object_storage: object_storage.clone(),
-            topics: topics.clone(),
         });
         Self {
             service,
             calls,
             repository,
             object_storage,
-            topics,
         }
     }
 
@@ -532,32 +364,44 @@ impl TransactionManager for RecordingTransactions {
     }
 }
 
+#[derive(Clone, Copy)]
+enum PrepareMode {
+    Pending,
+    PendingVideo,
+    Existing,
+    Conflict,
+    TargetNotAccessible,
+}
+
+#[derive(Clone, Copy)]
+enum FinalizeMode {
+    Success,
+    Conflict,
+}
+
 struct RecordingRepository {
     calls: Arc<Mutex<Vec<Call>>>,
-    scope: MediaScope,
+    preparations: Mutex<Vec<PrepareUploadFinalizeQuery>>,
+    finalizations: Mutex<Vec<FinalizeUploadCommand>>,
     prepare_mode: PrepareMode,
     finalize_mode: FinalizeMode,
     poster: Option<PosterCandidateRecord>,
-    preparations: Mutex<Vec<PrepareUploadFinalizeQuery>>,
-    finalizations: Mutex<Vec<FinalizeUploadCommand>>,
 }
 
 impl RecordingRepository {
     fn new(
         calls: Arc<Mutex<Vec<Call>>>,
-        scope: MediaScope,
         prepare_mode: PrepareMode,
         finalize_mode: FinalizeMode,
         poster: Option<PosterCandidateRecord>,
     ) -> Self {
         Self {
             calls,
-            scope,
+            preparations: Mutex::new(Vec::new()),
+            finalizations: Mutex::new(Vec::new()),
             prepare_mode,
             finalize_mode,
             poster,
-            preparations: Mutex::new(Vec::new()),
-            finalizations: Mutex::new(Vec::new()),
         }
     }
 
@@ -586,23 +430,22 @@ impl MediaRepository for RecordingRepository {
         record(&self.calls, Call::Prepare);
         crate::lock_test_mutex(&self.preparations, "preparation").push(*query);
         let mode = self.prepare_mode;
-        let scope = self.scope;
         let poster = self.poster.clone();
         Box::pin(async move {
             match mode {
-                PrepareMode::Pending => Ok(UploadFinalizePreparation::Pending {
-                    upload: pending_upload(scope),
-                    poster: None,
-                }),
-                PrepareMode::PendingVideo => Ok(UploadFinalizePreparation::Pending {
-                    upload: pending_video_upload(),
-                    poster,
-                }),
-                PrepareMode::Existing => Ok(UploadFinalizePreparation::Existing(
-                    repository_result(scope),
-                )),
                 PrepareMode::TargetNotAccessible => Err(MediaRepositoryError::TargetNotAccessible),
                 PrepareMode::Conflict => Err(MediaRepositoryError::FinalizeConflict),
+                PrepareMode::Existing => {
+                    Ok(UploadFinalizePreparation::Existing(upload_finalize_record()))
+                }
+                PrepareMode::Pending => Ok(UploadFinalizePreparation::Pending {
+                    upload: upload_intent(MediaKind::Image),
+                    poster,
+                }),
+                PrepareMode::PendingVideo => Ok(UploadFinalizePreparation::Pending {
+                    upload: upload_intent(MediaKind::Video),
+                    poster,
+                }),
             }
         })
     }
@@ -621,28 +464,35 @@ impl MediaRepository for RecordingRepository {
         record(&self.calls, Call::Finalize);
         crate::lock_test_mutex(&self.finalizations, "finalization").push(command.clone());
         let mode = self.finalize_mode;
-        let scope = self.scope;
         Box::pin(async move {
             match mode {
-                FinalizeMode::Success => Ok(repository_result(scope)),
+                FinalizeMode::Success => Ok(upload_finalize_record()),
                 FinalizeMode::Conflict => Err(MediaRepositoryError::FinalizeConflict),
             }
         })
     }
 }
 
+#[derive(Clone, Copy)]
+enum InspectMode {
+    Success,
+    VideoSuccess,
+    ContentTypeMismatch,
+    Unavailable,
+}
+
 struct RecordingObjectStorage {
     calls: Arc<Mutex<Vec<Call>>>,
-    mode: InspectMode,
     inspections: Mutex<Vec<InspectObjectRequest>>,
+    mode: InspectMode,
 }
 
 impl RecordingObjectStorage {
     fn new(calls: Arc<Mutex<Vec<Call>>>, mode: InspectMode) -> Self {
         Self {
             calls,
-            mode,
             inspections: Mutex::new(Vec::new()),
+            mode,
         }
     }
 
@@ -656,7 +506,7 @@ impl MediaObjectStorage for RecordingObjectStorage {
         &'a self,
         _request: &'a PresignPutRequest,
     ) -> MediaObjectStorageFuture<'a, PresignedPut> {
-        Box::pin(async { panic!("finalize tests must not presign uploads") })
+        Box::pin(async { panic!("finalize tests must not presign upload puts") })
     }
 
     fn inspect_object<'a>(
@@ -675,7 +525,7 @@ impl MediaObjectStorage for RecordingObjectStorage {
                 }),
                 InspectMode::VideoSuccess => Ok(InspectedObject {
                     content_type: Some("video/mp4".to_owned()),
-                    byte_size: Some(4_096),
+                    byte_size: Some(2_048),
                     audio_duration: None,
                 }),
                 InspectMode::ContentTypeMismatch => Ok(InspectedObject {
@@ -689,147 +539,60 @@ impl MediaObjectStorage for RecordingObjectStorage {
     }
 }
 
-struct RecordingTopicsRepository {
-    calls: Arc<Mutex<Vec<Call>>>,
-    mode: PromoteMode,
-    promotions: Mutex<Vec<Uuid>>,
+fn record(calls: &Mutex<Vec<Call>>, call: Call) {
+    crate::lock_test_mutex(calls, "call").push(call);
 }
 
-impl RecordingTopicsRepository {
-    fn new(calls: Arc<Mutex<Vec<Call>>>, mode: PromoteMode) -> Self {
-        Self {
-            calls,
-            mode,
-            promotions: Mutex::new(Vec::new()),
-        }
-    }
-
-    fn promotions(&self) -> Vec<Uuid> {
-        crate::lock_test_mutex(&self.promotions, "promotion").clone()
-    }
-}
-
-impl TopicsRepository for RecordingTopicsRepository {
-    fn create_topic<'a>(
-        &'a self,
-        _transaction: &'a mut dyn TransactionHandle,
-        _command: &'a CreateTopicCommand,
-    ) -> TopicsRepositoryFuture<'a, CreateTopicOutcome> {
-        Box::pin(async { panic!("finalize tests must not create topics") })
-    }
-
-    fn patch_topic<'a>(
-        &'a self,
-        _transaction: &'a mut dyn TransactionHandle,
-        _command: &'a PatchTopicCommand,
-    ) -> TopicsRepositoryFuture<'a, TopicRecord> {
-        Box::pin(async { panic!("finalize tests must not patch topics") })
-    }
-
-    fn promote_enriched<'a>(
-        &'a self,
-        transaction: &'a mut dyn TransactionHandle,
-        topic_id: Uuid,
-    ) -> TopicsRepositoryFuture<'a, TopicStatus> {
-        assert!(
-            transaction
-                .as_any_mut()
-                .downcast_mut::<RecordingHandle>()
-                .is_some()
-        );
-        record(&self.calls, Call::Promote);
-        crate::lock_test_mutex(&self.promotions, "promotion").push(topic_id);
-        let mode = self.mode;
-        Box::pin(async move {
-            match mode {
-                PromoteMode::Success => Ok(TopicStatus::Enriched),
-                PromoteMode::Unavailable => Err(TopicsRepositoryError::Unavailable),
-            }
-        })
-    }
-
-    fn replace_tags<'a>(
-        &'a self,
-        _transaction: &'a mut dyn TransactionHandle,
-        _command: &'a ReplaceTopicTagsCommand,
-    ) -> TopicsRepositoryFuture<'a, TopicTagPage> {
-        Box::pin(async { panic!("finalize tests must not replace topic tags") })
-    }
-
-    fn list_topics(&self, _query: ListTopicsQuery) -> TopicsRepositoryFuture<'_, TopicPage> {
-        Box::pin(async { panic!("finalize tests must not list topics") })
-    }
-
-    fn list_topic_dates(
-        &self,
-        _query: ListTopicDatesQuery,
-    ) -> TopicsRepositoryFuture<'_, TopicDatePage> {
-        Box::pin(async { panic!("finalize tests must not list topic dates") })
-    }
-
-    fn get_topic(&self, _query: GetTopicQuery) -> TopicsRepositoryFuture<'_, TopicRecord> {
-        Box::pin(async { panic!("finalize tests must not get topics") })
-    }
-
-    fn list_tags(&self, _query: ListTopicTagsQuery) -> TopicsRepositoryFuture<'_, TopicTagPage> {
-        Box::pin(async { panic!("finalize tests must not list topic tags") })
-    }
-
-    fn list_media(
-        &self,
-        _query: ListTopicMediaQuery,
-    ) -> TopicsRepositoryFuture<'_, TopicMediaPage> {
-        Box::pin(async { panic!("finalize tests must not list topic media") })
-    }
-}
-
-fn pending_upload(scope: MediaScope) -> UploadIntentRecord {
-    UploadIntentRecord {
-        id: upload_id(),
-        user_id: actor_id(),
-        scope,
-        target_id: target_id(),
-        object_key: object_key(scope),
-        kind: MediaKind::Image,
-        content_type: "image/jpeg".to_owned(),
-        byte_size: 1_024,
-        filename: Some(" 여름/기록.jpg ".to_owned()),
-        expires_at: OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1),
-        created_at: OffsetDateTime::UNIX_EPOCH,
-    }
-}
-
-fn confirmed_upload(scope: MediaScope) -> ConfirmedUploadRecord {
-    let upload = pending_upload(scope);
-    ConfirmedUploadRecord {
-        id: upload.id,
-        user_id: upload.user_id,
-        scope: upload.scope,
-        target_id: upload.target_id,
-        object_key: upload.object_key,
-        kind: upload.kind,
-        content_type: upload.content_type,
-        byte_size: upload.byte_size,
-        duration_seconds: None,
-        filename: upload.filename,
-        confirmed_at: OffsetDateTime::UNIX_EPOCH + time::Duration::minutes(1),
-        poster_upload_id: None,
-    }
-}
-
-fn pending_video_upload() -> UploadIntentRecord {
+fn upload_intent(kind: MediaKind) -> UploadIntentRecord {
     UploadIntentRecord {
         id: upload_id(),
         user_id: actor_id(),
         scope: MediaScope::Chat,
         target_id: target_id(),
-        object_key: object_key(MediaScope::Chat),
-        kind: MediaKind::Video,
-        content_type: "video/mp4".to_owned(),
-        byte_size: 4_096,
-        filename: Some(" 여름/영상.mp4 ".to_owned()),
+        object_key: object_key(),
+        kind,
+        content_type: match kind {
+            MediaKind::Image => "image/jpeg".to_owned(),
+            MediaKind::Video => "video/mp4".to_owned(),
+            MediaKind::Audio => "audio/ogg".to_owned(),
+        },
+        byte_size: match kind {
+            MediaKind::Image => 1_024,
+            MediaKind::Video => 2_048,
+            MediaKind::Audio => 512,
+        },
+        filename: None,
         expires_at: OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1),
         created_at: OffsetDateTime::UNIX_EPOCH,
+    }
+}
+
+fn upload_finalize_record() -> UploadFinalizeRecord {
+    UploadFinalizeRecord::Chat {
+        upload: confirmed_upload(),
+    }
+}
+
+fn application_result() -> UploadFinalizeResult {
+    UploadFinalizeResult::Chat {
+        upload: confirmed_upload(),
+    }
+}
+
+fn confirmed_upload() -> ConfirmedUploadRecord {
+    ConfirmedUploadRecord {
+        id: upload_id(),
+        user_id: actor_id(),
+        scope: MediaScope::Chat,
+        target_id: target_id(),
+        object_key: object_key(),
+        kind: MediaKind::Image,
+        content_type: "image/jpeg".to_owned(),
+        byte_size: 1_024,
+        duration_seconds: None,
+        filename: None,
+        confirmed_at: OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(1),
+        poster_upload_id: None,
     }
 }
 
@@ -841,89 +604,29 @@ fn valid_poster_candidate() -> PosterCandidateRecord {
         target_id: target_id(),
         kind: MediaKind::Image,
         content_type: "image/jpeg".to_owned(),
-        byte_size: 2_048,
+        byte_size: 32_000,
         status_confirmed: true,
         already_linked: false,
         has_own_poster: false,
     }
 }
 
-fn poster_id() -> Uuid {
-    Uuid::from_u128(0xeeeeeeee_eeee_4eee_8eee_eeeeeeeeeeee)
-}
-
-fn topic_media() -> TopicMediaBindingRecord {
-    TopicMediaBindingRecord {
-        id: topic_media_id(),
-        topic_id: target_id(),
-        media_upload_id: upload_id(),
-        object_key: object_key(MediaScope::Topic),
-        content_type: "image/jpeg".to_owned(),
-        width: Some(800),
-        height: Some(600),
-        byte_size: 1_024,
-        created_at: OffsetDateTime::UNIX_EPOCH + time::Duration::minutes(1),
-    }
-}
-
-fn repository_result(scope: MediaScope) -> UploadFinalizeRecord {
-    match scope {
-        MediaScope::Chat => UploadFinalizeRecord::Chat {
-            upload: confirmed_upload(scope),
-        },
-        MediaScope::Topic => UploadFinalizeRecord::Topic {
-            upload: confirmed_upload(scope),
-            topic_media: topic_media(),
-        },
-    }
-}
-
-fn application_result(scope: MediaScope) -> UploadFinalizeResult {
-    match repository_result(scope) {
-        UploadFinalizeRecord::Chat { upload } => UploadFinalizeResult::Chat { upload },
-        UploadFinalizeRecord::Topic {
-            upload,
-            topic_media,
-        } => UploadFinalizeResult::Topic {
-            upload,
-            topic_media,
-            topic_status: TopicStatus::Enriched,
-        },
-    }
-}
-
-fn topic_input() -> UploadFinalizeInput {
-    UploadFinalizeInput {
-        width: Some(800),
-        height: Some(600),
-        poster_upload_id: None,
-    }
-}
-
-fn record(calls: &Mutex<Vec<Call>>, call: Call) {
-    crate::lock_test_mutex(calls, "call").push(call);
-}
-
 fn actor_id() -> Uuid {
     Uuid::from_u128(0xaaaaaaaa_aaaa_4aaa_8aaa_aaaaaaaaaaaa)
 }
 
-fn upload_id() -> Uuid {
+fn target_id() -> Uuid {
     Uuid::from_u128(0xbbbbbbbb_bbbb_4bbb_8bbb_bbbbbbbbbbbb)
 }
 
-fn target_id() -> Uuid {
+fn upload_id() -> Uuid {
     Uuid::from_u128(0xcccccccc_cccc_4ccc_8ccc_cccccccccccc)
 }
 
-fn topic_media_id() -> Uuid {
+fn poster_id() -> Uuid {
     Uuid::from_u128(0xdddddddd_dddd_4ddd_8ddd_dddddddddddd)
 }
 
-fn object_key(scope: MediaScope) -> String {
-    let prefix = match scope {
-        MediaScope::Chat => "chat",
-        MediaScope::Topic => "topics",
-    };
-    format!("{prefix}/{}/{}", target_id(), upload_id())
+fn object_key() -> String {
+    format!("chat/{}/{}", target_id(), upload_id())
 }

@@ -1,10 +1,10 @@
 # jamye-server 로드맵 — FastAPI 전체 이관, 신뢰성 고도화, 모바일 계약
 
 > 세션: ultrawork/20260822-200110 · 후속 로드맵 등록: ultrawork/20260922-100557
-> 현재 단계: Task 13 완료(루트 Justfile 검증 체계, NixOS module, homelab midgard 배포) — 후속 task-14-16 등록(planned_unapproved)
-> 상태: Task 13(루트 `Justfile` 검증 체계, NixOS module, homelab midgard 배포)이 완료됐다(근거는 §9). task-14(soft delete)·task-15(Apple exchange)·task-16(서버측 잔여 백로그)는 2026-09-22 로드맵에 등록만 됐으며 각 task 착수는 별도 승인이 필요하다.
-> 진행률: Task 1-13 구현·배포 완료, task-14-16은 등록(planned_unapproved) 단계
-> 기계 SSOT: .agents/results/plan-20260822-200110.json (task-1-13) · task-14 이후는 착수 시 새 plan JSON 생성
+> 현재 단계: Task 17 구현 완료(앱 M14 라운드 1 서버 지원: app-link 공개 route, 대화방 미디어 목록, 주제 미디어 제거) — 배포 전
+> 상태: Task 13(루트 `Justfile` 검증 체계, NixOS module, homelab midgard 배포)이 완료됐다(근거는 §9). task-14(soft delete)·task-15(Apple exchange)·task-16(서버측 잔여 백로그)는 2026-09-22 로드맵에 등록만 됐으며 각 task 착수는 별도 승인이 필요하다. task-17은 2026-09-26 앱 M14 라운드 1 지원 범위로 구현됐지만, 운영 배포와 homelab 반영은 별도 task가 소유한다.
+> 진행률: Task 1-13 구현·배포 완료, task-14-16은 등록(planned_unapproved) 단계, task-17은 implemented_not_deployed
+> 기계 SSOT: .agents/results/plan-20260822-200110.json (task-1-13) · .agents/results/plan-20260926-181036.json (task-17) · task-14 이후는 착수 시 새 plan JSON 생성
 
 ## 1. 목표와 범위
 
@@ -29,7 +29,7 @@
 - pending 제품 결정은 가장 이른 materializer가 한 번만 사용자 선택을 받아 evidence를 고정한다. 후속 task와 VERIFY/SHIP는 dependency를 통해 그 evidence를 소비하며 같은 결정을 다시 승인받지 않는다.
 - production/release/SCM 변경은 별도 승인이 있어야 한다.
 - legacy jamye-plz, homelab, 운영 PostgreSQL/Redis/MinIO는 읽기 전용 또는 범위 밖이다.
-- task-14 이후는 2026-09-22 로드맵 등록만 됐고 각 task 구현·migration·contract publication·배포는 별도 승인이 필요하다.
+- task-14~16은 2026-09-22 로드맵 등록만 됐고 각 task 구현·migration·contract publication·배포는 별도 승인이 필요하다. task-17은 2026-09-26 계획에 따라 구현됐지만, 운영 백업·행 수 확인·배포는 별도 S4 절차가 필요하다.
 
 ## 3. 목표 아키텍처
 
@@ -73,7 +73,7 @@ flowchart LR
 
 C0는 정확히 5개 REST operation(H1, H2, C4, S1, R1)과 message.created 하나만 생성한다. D1, D8, D13만 C0를 막을 수 있다. 인증, 그룹, 주제, 미디어, 알림, 푸시, 계정 삭제 계약은 각 runtime feature owner가 나중에 추가한다.
 
-후속 PWA→React Native 교체 지시로 D2는 Expo-only로 고정되었다. 선택된 최종 REST index는 정확히 42행이며, Web Push/VAPID 관련 runtime/schema/table/config/Nix surface는 만들지 않는다.
+후속 PWA→React Native 교체 지시로 D2는 Expo-only로 고정되었다. 선택된 최종 REST index는 task-17에서 `MD3` 주제 미디어 목록을 제거하고 `C5` 대화방 미디어 목록을 추가해 정확히 43행이며, Web Push/VAPID 관련 runtime/schema/table/config/Nix surface는 만들지 않는다.
 
 C2 realtime union은 `message.created`, `topic.created` 두 가지다. STT field/event/job/worker/provider/package는 C2에 없다.
 
@@ -279,12 +279,13 @@ D3=C에 따라 이번 작업과 C2에는 STT contract, field, job, migration, ev
 | 13 | M12 | task-14 | soft delete: 전 테이블 audit 컬럼, hard→soft 전환·조회 필터, 메시지/주제 삭제 API + `*.deleted` 이벤트, 계정 삭제 유예·복구 + purge worker, C3 계약 | task-13 + D14/D15/D18/D19 |
 | 14 | M13 | task-15 | Apple exchange endpoint, JWKS 검증, `auth_identities` provider 확장, 계정 삭제 시 revoke, C3 계약 | task-5, task-14(계정 삭제 결합) + D16/D17 |
 | 14 | M14 | task-16 | 서버측 잔여 백로그: 메시지 편집 계약(옵션), README/roadmap drift, homelab 백업 연동, 모니터링 | task-14 |
+| 15 | M15 | task-17 | 앱 M14 라운드 1 서버 지원: app-link association 공개 route, 초대 랜딩, 대화방 이미지·동영상 미디어 목록 API, 주제 미디어 제거와 `0012` migration, C2 계약 재생성 | task-13 + 2026-09-26 task-srv 승인 |
 
 우선순위는 dependency가 없는 task는 1, 나머지는 1 + max(dependency priority)다. 같은 tier에는 dependency나 directory-prefix scope collision이 없어야 한다.
 
 task-10은 사용자 승인 STT non-goal로 삭제했다. 기존 참조 안정성을 위해 task-11 이후 ID는 renumber하지 않아 task ID가 의도적으로 비연속이다.
 
-서버 마일스톤 번호 M12-M14(task-14-16, 2026-09-22 등록)는 jamye-app 로드맵의 M14-M18 번호 체계와 완전히 독립이다. 두 번호 체계를 혼동해 표기하지 않는다.
+서버 마일스톤 번호 M12-M15(task-14-17)는 jamye-app 로드맵의 M14-M18 번호 체계와 완전히 독립이다. task-17 설명의 "앱 M14 라운드 1"은 지원 대상 앱 라운드를 가리키며, 서버 milestone 번호를 뜻하지 않는다.
 
 ## 12. 테스트와 완료 판정
 
@@ -301,7 +302,9 @@ task-10은 사용자 승인 STT non-goal로 삭제했다. 기존 참조 안정�
 
 Task 13은 완료됐다. 검증 체계·NixOS module·homelab midgard 배포의 증거 경로와 공개 URL은 §9에 한 번만 기록한다.
 
-2026-09-22 로드맵 등록으로 §11에 task-14-16이 추가됐다. 이 등록은 구현 승인이 아니다. R3(사용자 결정)에 따라 앱(jamye-app) M14(UI/UX 라운드)가 진행되는 동안 서버 task-14(soft delete)·task-15(Apple exchange)·task-16(잔여 백로그)을 병행 착수할 수 있다. 다음 액션은 task-14 PLAN 착수(사용자 승인 필요)이며, 단계 분할과 시작 조건은 §14를 따른다.
+2026-09-22 로드맵 등록으로 §11에 task-14-16이 추가됐다. 이 등록은 구현 승인이 아니다. R3(사용자 결정)에 따라 앱(jamye-app) M14(UI/UX 라운드)가 진행되는 동안 서버 task-14(soft delete)·task-15(Apple exchange)·task-16(잔여 백로그)을 병행 착수할 수 있다.
+
+2026-09-26 task-17은 앱 M14 라운드 1에 필요한 서버 지원을 구현했다. 배포는 아직 아니며, 다음 운영 액션은 S4 predeploy 안전 리뷰, 운영 `pg_dump`, 주제 미디어 삭제 대상 count, 커밋·PR·CI·homelab GitOps 배포 순서를 별도로 수행하는 것이다.
 
 ## 14. 후속 과제 상세 (2026-09-22 등록)
 
@@ -329,3 +332,13 @@ D16(locked)·D17(권고 필수)을 materialize한다(앱 M16 Sign in with Apple�
 요구사항 R8(서버·운영 묶음)에 대응한다. 항목: 메시지 편집 계약(옵션, 앱 M17(C)와 연동), README/roadmap drift 정리, homelab 자동 백업 연동, 모니터링·알림 점검(앱 M17(D) 서버·운영 묶음과 연동).
 
 시작 조건: task-14 완료. 별도 승인: 각 항목은 개별 승인으로 착수하며, homelab 변경이 필요한 항목(백업 연동)은 homelab 로드맵과 별도로 조율한다.
+
+### task-17 — 앱 M14 라운드 1 서버 지원 (M15)
+
+상태: `implemented_not_deployed` (2026-09-26). 이 task는 앱 M14 라운드 1 요구사항 중 서버가 선행해야 하는 S1-S3를 구현한다. 공개 route는 `GET /.well-known/apple-app-site-association`, `GET /.well-known/assetlinks.json`, `GET /invite/{code}`이고, 기본 association 값은 개발 bundle/package와 Android debug SHA-256(E3)을 사용한다. 잘못된 초대 코드는 404이며, 형식이 맞는 코드도 DB 조회 없이 정적 HTML만 반환해 그룹 이름·유효성 oracle을 노출하지 않는다.
+
+대화방 갤러리는 `GET /api/v1/chatrooms/{chatroom_id}/media`(`C5`)로 제공한다. membership은 기존 chatroom 권한 경로를 재사용하고, item cursor는 `message_media.id`이며 정렬은 메시지 작성 시각 최신순, 메시지 id 역순, 첨부 position 오름차순이다. 응답은 기존 `MessageAttachment` 필드와 `message_id`, `message_created_at`을 포함하고 이미지·동영상만 반환한다.
+
+주제 미디어는 서버까지 제거했다. `GET /api/v1/topics/{topic_id}/media`, topic-scope upload/finalize, `CanonicalTopic.media`, `UploadFinalizeResult` topic 분기를 계약과 코드에서 제거하고, `migrations/0012_remove_topic_media.sql`가 기존 topic media row와 topic-scope upload를 제거한다. `account_object_deletion_intents`가 임의 object key를 받을 수 있으므로 topic object는 기존 object cleanup worker 경로로 삭제 예약한다. 배포 전 운영에서 읽기 전용 count SQL을 실행해 삭제 대상 행·object 수를 기록해야 한다.
+
+새 env 기본값은 `JAMYE_APP_LINKS_AASA_APP_IDS=6ZH8V43A7D.dev.local.jamyeapp`, `JAMYE_APP_LINKS_ANDROID_PACKAGE=dev.local.jamyeapp`, `JAMYE_APP_LINKS_ANDROID_SHA256_CERT_FINGERPRINTS=FA:C6:17:45:DC:09:03:78:6F:B9:ED:E6:2A:96:2B:39:9F:73:48:F0:BB:6F:89:9B:83:32:66:75:91:03:3B:9C`, `JAMYE_APP_STORE_URL=`(빈 값), `JAMYE_PLAY_STORE_URL=`(빈 값)이다. 스토어 URL은 설정 시 `https`만 허용한다. 설계 결정은 [ADR 0010](adr/0010-app-links-chatroom-media-topic-media-removal.md)에 기록한다.

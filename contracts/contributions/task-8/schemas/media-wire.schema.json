@@ -6,11 +6,9 @@
         "bound": { "const": false, "type": "boolean" },
         "scope": { "const": "chat", "type": "string" },
         "status": { "const": "confirmed", "type": "string" },
-        "topic_media": { "type": "null" },
-        "topic_status": { "type": "null" },
         "upload": { "$ref": "#/$defs/ConfirmedUpload" }
       },
-      "required": ["scope", "status", "bound", "upload", "topic_media", "topic_status"],
+      "required": ["scope", "status", "bound", "upload"],
       "type": "object"
     },
     "ConfirmedUpload": {
@@ -67,7 +65,7 @@
       "type": "object"
     },
     "MediaScope": {
-      "enum": ["chat", "topic"],
+      "enum": ["chat"],
       "type": "string"
     },
     "MessageAttachment": {
@@ -105,47 +103,6 @@
       "required": ["url", "expires_in"],
       "type": "object"
     },
-    "TopicMedia": {
-      "additionalProperties": false,
-      "properties": {
-        "byte_size": { "minimum": 1, "type": ["integer", "null"] },
-        "content_type": { "minLength": 1, "type": "string" },
-        "created_at": { "format": "date-time", "type": "string" },
-        "height": { "minimum": 1, "type": ["integer", "null"] },
-        "id": { "format": "uuid", "type": "string" },
-        "media_upload_id": { "format": "uuid", "type": "string" },
-        "object_key": { "maxLength": 512, "minLength": 1, "type": "string" },
-        "topic_id": { "format": "uuid", "type": "string" },
-        "width": { "minimum": 1, "type": ["integer", "null"] }
-      },
-      "required": [
-        "id", "topic_id", "media_upload_id", "content_type", "object_key", "width",
-        "height", "byte_size", "created_at"
-      ],
-      "type": "object"
-    },
-    "TopicMediaPage": {
-      "additionalProperties": false,
-      "properties": {
-        "items": { "items": { "$ref": "#/$defs/TopicMedia" }, "type": "array" },
-        "next_cursor": { "type": ["string", "null"] }
-      },
-      "required": ["items", "next_cursor"],
-      "type": "object"
-    },
-    "TopicUploadFinalizeResult": {
-      "additionalProperties": false,
-      "properties": {
-        "bound": { "const": true, "type": "boolean" },
-        "scope": { "const": "topic", "type": "string" },
-        "status": { "const": "bound", "type": "string" },
-        "topic_media": { "$ref": "#/$defs/TopicMedia" },
-        "topic_status": { "const": "enriched", "type": "string" },
-        "upload": { "$ref": "#/$defs/ConfirmedUpload" }
-      },
-      "required": ["scope", "status", "bound", "upload", "topic_media", "topic_status"],
-      "type": "object"
-    },
     "UploadFinalize": {
       "additionalProperties": false,
       "properties": {
@@ -156,17 +113,7 @@
       "type": "object"
     },
     "UploadFinalizeResult": {
-      "discriminator": {
-        "mapping": {
-          "chat": "#/$defs/ChatUploadFinalizeResult",
-          "topic": "#/$defs/TopicUploadFinalizeResult"
-        },
-        "propertyName": "scope"
-      },
-      "oneOf": [
-        { "$ref": "#/$defs/ChatUploadFinalizeResult" },
-        { "$ref": "#/$defs/TopicUploadFinalizeResult" }
-      ]
+      "$ref": "#/$defs/ChatUploadFinalizeResult"
     },
     "UploadIntent": {
       "additionalProperties": false,
@@ -191,16 +138,6 @@
     "UploadIntentCreate": {
       "additionalProperties": false,
       "allOf": [
-        {
-          "if": { "properties": { "scope": { "const": "topic" } }, "required": ["scope"] },
-          "then": {
-            "properties": {
-              "content_type": {
-                "enum": ["image/jpeg", "image/png", "image/webp", "image/gif"]
-              }
-            }
-          }
-        },
         {
           "if": {
             "properties": {

@@ -1,6 +1,7 @@
 //! Environment-backed process configuration.
 
 pub mod account_deletion;
+pub mod app_links;
 pub mod auth;
 pub mod object_storage;
 pub mod push;

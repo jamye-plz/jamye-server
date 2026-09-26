@@ -14,7 +14,7 @@ use jamye_server::{
             TopicsError,
         },
     },
-    ports::{topics::TopicStatus, transactions::TransactionManager},
+    ports::topics::TopicStatus,
 };
 use uuid::Uuid;
 
@@ -371,63 +371,6 @@ async fn t6_replaces_tags_for_author_or_owner_and_t7_paginates_for_members() -> 
         .fetch_one(&pool)
         .await?;
     assert_eq!(before, after);
-
-    pool.close().await;
-    database.dispose().await
-}
-
-#[tokio::test]
-async fn promote_enriched_joins_the_caller_transaction_and_is_idempotent() -> TestResult {
-    let database = TestDatabase::migrated().await?;
-    let pool = database.pool()?;
-    let fixture = topology(&pool).await?;
-    let topics = harness(pool.clone());
-    let topic = create_topic(
-        &topics,
-        fixture.author_id,
-        fixture.group_id,
-        Uuid::new_v4(),
-        "사진 예정 주제",
-    )
-    .await?;
-    let manager = SqlxTransactionManager::new(pool.clone());
-
-    let mut rolled_back = manager.begin().await?;
-    assert_eq!(
-        topics
-            .service
-            .promote_enriched(rolled_back.as_mut(), topic.id)
-            .await?,
-        TopicStatus::Enriched
-    );
-    manager.rollback(rolled_back).await?;
-    let status: String = sqlx::query_scalar("SELECT status FROM topics WHERE id = $1")
-        .bind(topic.id)
-        .fetch_one(&pool)
-        .await?;
-    assert_eq!(status, "seed");
-
-    let mut committed = manager.begin().await?;
-    assert_eq!(
-        topics
-            .service
-            .promote_enriched(committed.as_mut(), topic.id)
-            .await?,
-        TopicStatus::Enriched
-    );
-    assert_eq!(
-        topics
-            .service
-            .promote_enriched(committed.as_mut(), topic.id)
-            .await?,
-        TopicStatus::Enriched
-    );
-    manager.commit(committed).await?;
-    let status: String = sqlx::query_scalar("SELECT status FROM topics WHERE id = $1")
-        .bind(topic.id)
-        .fetch_one(&pool)
-        .await?;
-    assert_eq!(status, "enriched");
 
     pool.close().await;
     database.dispose().await

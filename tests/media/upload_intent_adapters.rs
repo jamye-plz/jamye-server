@@ -52,20 +52,6 @@ async fn postgres_intent_insert_authorizes_targets_and_obeys_caller_transaction(
         .bind(group_id)
         .execute(&pool)
         .await?;
-    let topic_id = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO topics \
-         (id, group_id, author_id, idempotency_key, request_fingerprint, title) \
-         VALUES ($1, $2, $3, $4, $5, '미디어 주제')",
-    )
-    .bind(topic_id)
-    .bind(group_id)
-    .bind(actor_id)
-    .bind(Uuid::new_v4())
-    .bind("a".repeat(64))
-    .execute(&pool)
-    .await?;
-
     let transactions = SqlxTransactionManager::new(pool.clone());
     let repository = PostgresMediaRepository::new(pool.clone());
 
@@ -94,21 +80,6 @@ async fn postgres_intent_insert_authorizes_targets_and_obeys_caller_transaction(
     assert_record(&stored_chat, &chat);
     assert_eq!(stored_chat.filename.as_deref(), Some(""));
 
-    let topic = command(
-        actor_id,
-        MediaScope::Topic,
-        topic_id,
-        "image/png",
-        2_048,
-        Some("가".repeat(255)),
-    );
-    let mut transaction = transactions.begin().await?;
-    let stored_topic = repository
-        .create_upload_intent(transaction.as_mut(), &topic)
-        .await?;
-    transactions.commit(transaction).await?;
-    assert_record(&stored_topic, &topic);
-
     let denied = command(
         outsider_id,
         MediaScope::Chat,
@@ -128,7 +99,7 @@ async fn postgres_intent_insert_authorizes_targets_and_obeys_caller_transaction(
 
     let missing = command(
         actor_id,
-        MediaScope::Topic,
+        MediaScope::Chat,
         Uuid::new_v4(),
         "image/gif",
         256,
@@ -163,9 +134,8 @@ async fn postgres_intent_insert_authorizes_targets_and_obeys_caller_transaction(
     )
     .fetch_all(&pool)
     .await?;
-    assert_eq!(rows.len(), 2);
+    assert_eq!(rows.len(), 1);
     assert!(rows.iter().any(|row| row.0 == chat.id));
-    assert!(rows.iter().any(|row| row.0 == topic.id));
     assert!(!rows.iter().any(|row| row.0 == denied.id));
     assert!(!rows.iter().any(|row| row.0 == missing.id));
     assert!(!rows.iter().any(|row| row.0 == rolled_back.id));
@@ -239,7 +209,6 @@ fn command(
     let id = Uuid::new_v4();
     let prefix = match scope {
         MediaScope::Chat => "chat",
-        MediaScope::Topic => "topics",
     };
     CreateUploadIntentCommand {
         id,
