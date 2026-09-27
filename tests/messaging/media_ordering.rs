@@ -169,6 +169,73 @@ async fn http_send_binds_up_to_four_visual_attachments_in_request_order() -> Tes
 }
 
 #[tokio::test]
+async fn http_send_retry_with_four_attachments_returns_the_existing_message_unchanged() -> TestResult
+{
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let (sender_id, chatroom_id) = insert_sender_with_main_chatroom(&pool).await?;
+    let mut upload_ids = Vec::new();
+    for _ in 0..4 {
+        upload_ids.push(insert_confirmed_image_upload(&pool, sender_id, chatroom_id).await?);
+    }
+    let input = SendMessageInput {
+        chatroom_id,
+        client_msg_id: Uuid::new_v4(),
+        body: None,
+        media_upload_ids: upload_ids.clone(),
+        idempotency_key: None,
+    };
+    let compositions = compositions(&pool);
+
+    let created = match compositions
+        .send_message_http(sender_id, input.clone())
+        .await
+        .map_err(|error| std::io::Error::other(format!("first send failed: {error}")))?
+    {
+        SendMessageOutcome::Created(message) => message,
+        SendMessageOutcome::Existing(_) => {
+            return Err(std::io::Error::other("expected the first send to be Created").into());
+        }
+    };
+    // The app's outbox resends the same client_msg_id when a response is lost.
+    let replayed = match compositions
+        .send_message_http(sender_id, input)
+        .await
+        .map_err(|error| std::io::Error::other(format!("retry failed: {error}")))?
+    {
+        SendMessageOutcome::Existing(message) => message,
+        SendMessageOutcome::Created(_) => {
+            return Err(std::io::Error::other("expected the retry to return Existing").into());
+        }
+    };
+    assert_eq!(
+        replayed, created,
+        "a retry returns the stored message as-is"
+    );
+    let bound = replayed
+        .media
+        .iter()
+        .map(|attachment| attachment.media_upload_id)
+        .collect::<Vec<_>>();
+    assert_eq!(bound, upload_ids, "a retry keeps the request order");
+
+    let messages: i64 = sqlx::query_scalar("SELECT count(*) FROM messages WHERE chatroom_id = $1")
+        .bind(chatroom_id)
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(messages, 1, "a retry never duplicates the message");
+    let attachments: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM message_media WHERE message_id = $1")
+            .bind(created.id)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(attachments, 4, "a retry never duplicates its attachments");
+
+    database.dispose().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn http_send_rejects_a_fifth_attachment_without_persisting_a_message() -> TestResult {
     let database = TestDatabase::migrated().await?;
     let pool = database.pool()?;
