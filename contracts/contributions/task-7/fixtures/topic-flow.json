@@ -38,7 +38,7 @@
     "title_is_server_trimmed": true
   },
   "t6_t7": {
-    "replace_policy": "author|owner",
+    "replace_policy": "author",
     "sources": ["ai", "user"],
     "stable_order": "tag+id"
   },

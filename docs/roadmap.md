@@ -1,10 +1,10 @@
 # jamye-server 로드맵 — FastAPI 전체 이관, 신뢰성 고도화, 모바일 계약
 
 > 세션: ultrawork/20260822-200110 · 후속 로드맵 등록: ultrawork/20260922-100557
-> 현재 단계: Task 17 구현 완료(앱 M14 라운드 1 서버 지원: app-link 공개 route, 대화방 미디어 목록, 주제 미디어 제거) — 배포 전
-> 상태: Task 13(루트 `Justfile` 검증 체계, NixOS module, homelab midgard 배포)이 완료됐다(근거는 §9). task-14(soft delete)·task-15(Apple exchange)·task-16(서버측 잔여 백로그)는 2026-09-22 로드맵에 등록만 됐으며 각 task 착수는 별도 승인이 필요하다. task-17은 2026-09-26 앱 M14 라운드 1 지원 범위로 구현됐지만, 운영 배포와 homelab 반영은 별도 task가 소유한다.
-> 진행률: Task 1-13 구현·배포 완료, task-14-16은 등록(planned_unapproved) 단계, task-17은 implemented_not_deployed
-> 기계 SSOT: .agents/results/plan-20260822-200110.json (task-1-13) · .agents/results/plan-20260926-181036.json (task-17) · task-14 이후는 착수 시 새 plan JSON 생성
+> 현재 단계: Task 18 구현 완료(앱 M14 라운드 2 서버 지원: 알림 context args, T6 작성자-only, avatar_url HTTPS 검증, `0013` migration) — 배포 전
+> 상태: Task 13(루트 `Justfile` 검증 체계, NixOS module, homelab midgard 배포)이 완료됐다(근거는 §9). task-14(soft delete)·task-15(Apple exchange)·task-16(서버측 잔여 백로그)는 2026-09-22 로드맵에 등록만 됐으며 각 task 착수는 별도 승인이 필요하다. task-17은 2026-09-26 앱 M14 라운드 1 지원 범위로 구현됐고, task-18은 2026-09-27 앱 M14 라운드 2 지원 범위로 구현됐지만 운영 배포와 homelab 반영은 별도 task가 소유한다.
+> 진행률: Task 1-13 구현·배포 완료, task-14-16은 등록(planned_unapproved) 단계, task-17-18은 implemented_not_deployed
+> 기계 SSOT: .agents/results/plan-20260822-200110.json (task-1-13) · .agents/results/plan-20260926-181036.json (task-17) · .agents/results/plan-20260927-120934.json (task-18) · task-14 이후는 착수 시 새 plan JSON 생성
 
 ## 1. 목표와 범위
 
@@ -29,7 +29,7 @@
 - pending 제품 결정은 가장 이른 materializer가 한 번만 사용자 선택을 받아 evidence를 고정한다. 후속 task와 VERIFY/SHIP는 dependency를 통해 그 evidence를 소비하며 같은 결정을 다시 승인받지 않는다.
 - production/release/SCM 변경은 별도 승인이 있어야 한다.
 - legacy jamye-plz, homelab, 운영 PostgreSQL/Redis/MinIO는 읽기 전용 또는 범위 밖이다.
-- task-14~16은 2026-09-22 로드맵 등록만 됐고 각 task 구현·migration·contract publication·배포는 별도 승인이 필요하다. task-17은 2026-09-26 계획에 따라 구현됐지만, 운영 백업·행 수 확인·배포는 별도 S4 절차가 필요하다.
+- task-14~16은 2026-09-22 로드맵 등록만 됐고 각 task 구현·migration·contract publication·배포는 별도 승인이 필요하다. task-17은 2026-09-26 계획에 따라 구현됐고 task-18은 2026-09-27 계획에 따라 구현됐지만, 운영 백업·읽기 전용 확인 SQL·배포는 별도 절차가 필요하다.
 
 ## 3. 목표 아키텍처
 
@@ -280,12 +280,13 @@ D3=C에 따라 이번 작업과 C2에는 STT contract, field, job, migration, ev
 | 14 | M13 | task-15 | Apple exchange endpoint, JWKS 검증, `auth_identities` provider 확장, 계정 삭제 시 revoke, C3 계약 | task-5, task-14(계정 삭제 결합) + D16/D17 |
 | 14 | M14 | task-16 | 서버측 잔여 백로그: 메시지 편집 계약(옵션), README/roadmap drift, homelab 백업 연동, 모니터링 | task-14 |
 | 15 | M15 | task-17 | 앱 M14 라운드 1 서버 지원: app-link association 공개 route, 초대 랜딩, 대화방 이미지·동영상 미디어 목록 API, 주제 미디어 제거와 `0012` migration, C2 계약 재생성 | task-13 + 2026-09-26 task-srv 승인 |
+| 16 | M16 | task-18 | 앱 M14 라운드 2 서버 지원: 알림 args에 `group_name`/`topic_title`, T6 태그 교체 작성자-only, U2 `avatar_url` HTTPS 검증, Kakao `secure_resource=true`, `0013` avatar URL HTTPS migration, C2 계약 재생성 | task-17 + 2026-09-27 task-srv 승인 |
 
 우선순위는 dependency가 없는 task는 1, 나머지는 1 + max(dependency priority)다. 같은 tier에는 dependency나 directory-prefix scope collision이 없어야 한다.
 
 task-10은 사용자 승인 STT non-goal로 삭제했다. 기존 참조 안정성을 위해 task-11 이후 ID는 renumber하지 않아 task ID가 의도적으로 비연속이다.
 
-서버 마일스톤 번호 M12-M15(task-14-17)는 jamye-app 로드맵의 M14-M18 번호 체계와 완전히 독립이다. task-17 설명의 "앱 M14 라운드 1"은 지원 대상 앱 라운드를 가리키며, 서버 milestone 번호를 뜻하지 않는다.
+서버 마일스톤 번호 M12-M16(task-14-18)는 jamye-app 로드맵의 M14-M18 번호 체계와 완전히 독립이다. task-17/18 설명의 "앱 M14 라운드"는 지원 대상 앱 라운드를 가리키며, 서버 milestone 번호를 뜻하지 않는다.
 
 ## 12. 테스트와 완료 판정
 
@@ -306,9 +307,11 @@ Task 13은 완료됐다. 검증 체계·NixOS module·homelab midgard 배포의 
 
 2026-09-26 task-17은 앱 M14 라운드 1에 필요한 서버 지원을 구현했다. 배포는 아직 아니며, 다음 운영 액션은 S4 predeploy 안전 리뷰, 운영 `pg_dump`, 주제 미디어 삭제 대상 count, 커밋·PR·CI·homelab GitOps 배포 순서를 별도로 수행하는 것이다.
 
-## 14. 후속 과제 상세 (2026-09-22 등록)
+2026-09-27 task-18은 앱 M14 라운드 2에 필요한 서버 지원을 구현했다. 배포는 아직 아니며, 다음 운영 액션은 predeploy 안전 리뷰, 운영 백업, `0013` 적용 전후 avatar URL count 확인, 커밋·PR·CI·homelab GitOps 배포 순서를 별도로 수행하는 것이다.
 
-이 절은 §11 표의 task-14-16을 위한 상세 명세다. 모든 항목의 상태는 `planned_unapproved`이며, 이 등록 자체는 구현·migration 적용·contract publication·homelab 배포의 승인이 아니다.
+## 14. 후속 과제 상세
+
+이 절은 §11 표의 task-14-18을 위한 상세 명세다. task-14-16의 상태는 `planned_unapproved`이며, 이 등록 자체는 구현·migration 적용·contract publication·homelab 배포의 승인이 아니다. task-17-18은 구현됐지만 배포 전 상태다.
 
 ### task-14 — soft delete (M12)
 
@@ -342,3 +345,19 @@ D16(locked)·D17(권고 필수)을 materialize한다(앱 M16 Sign in with Apple�
 주제 미디어는 서버까지 제거했다. `GET /api/v1/topics/{topic_id}/media`, topic-scope upload/finalize, `CanonicalTopic.media`, `UploadFinalizeResult` topic 분기를 계약과 코드에서 제거하고, `migrations/0012_remove_topic_media.sql`가 기존 topic media row와 topic-scope upload를 제거한다. `account_object_deletion_intents`가 임의 object key를 받을 수 있으므로 topic object는 기존 object cleanup worker 경로로 삭제 예약한다. 배포 전 운영에서 읽기 전용 count SQL을 실행해 삭제 대상 행·object 수를 기록해야 한다.
 
 새 env 기본값은 `JAMYE_APP_LINKS_AASA_APP_IDS=6ZH8V43A7D.dev.local.jamyeapp`, `JAMYE_APP_LINKS_ANDROID_PACKAGE=dev.local.jamyeapp`, `JAMYE_APP_LINKS_ANDROID_SHA256_CERT_FINGERPRINTS=FA:C6:17:45:DC:09:03:78:6F:B9:ED:E6:2A:96:2B:39:9F:73:48:F0:BB:6F:89:9B:83:32:66:75:91:03:3B:9C`, `JAMYE_APP_STORE_URL=`(빈 값), `JAMYE_PLAY_STORE_URL=`(빈 값)이다. 스토어 URL은 설정 시 `https`만 허용한다. 설계 결정은 [ADR 0010](adr/0010-app-links-chatroom-media-topic-media-removal.md)에 기록한다.
+
+### task-18 — 앱 M14 라운드 2 서버 지원 (M16)
+
+상태: `implemented_not_deployed` (2026-09-27). 이 task는 앱 M14 라운드 2 요구사항 중 서버 S1-S4를 구현한다. 알림 fan-out은 기존 `NotificationArgs` map 안에 `group_name`과 주제 관련 알림의 `topic_title`을 추가한다. `new_topic`은 `author_display_name`, `group_name`, `topic_title`을, 주제 대화방 `chat_unread`는 `sender_display_name`, `group_name`, `topic_title`을, 그룹 기본 대화방 `chat_unread`는 `sender_display_name`, `group_name`을 가진다. Expo push delivery payload는 기존 `{type, notification_id, conversation_id, message_id}` 모양을 유지한다.
+
+T6 태그 교체 권한은 작성자-only로 맞췄다. 그룹 소유자라도 주제 작성자가 아니면 기존 `403 topic_author_required` 오류를 받으며, 계약 contribution의 T6 auth도 `author`로 갱신한다.
+
+U2 `PATCH /api/v1/me`의 `avatar_url`은 null/omitted를 변경 없음, 빈 문자열을 삭제, 그 외 문자열을 길이 512 이하의 절대 `https` URL(host 필수)로 검증한다. Kakao identity 요청은 `secure_resource=true`를 보낸다. Provider가 준 avatar URL은 `http://`이면 `https://`로 변환한 뒤 같은 규칙으로 검증하고, 통과하지 못하면 저장하지 않는다.
+
+`migrations/0013_https_avatar_urls.sql`은 저장된 `http://` avatar URL만 `https://`로 변환하는 forward-only migration이다. 운영 배포 전후 읽기 전용 확인 SQL은 다음 세 개다.
+
+```sql
+SELECT count(*) FROM users WHERE avatar_url LIKE 'http://%';
+SELECT count(*) FROM users WHERE avatar_url LIKE 'https://%';
+SELECT version, success FROM _sqlx_migrations WHERE version = 13;
+```

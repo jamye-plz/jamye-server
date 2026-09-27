@@ -487,6 +487,49 @@ async fn malformed_provider_identity_is_rejected_before_database_mutation() -> T
     database.dispose().await
 }
 
+#[tokio::test]
+async fn provider_identity_with_invalid_avatar_url_is_rejected_before_database_mutation()
+-> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let fixture = harness_with_provider_identity(
+        pool.clone(),
+        jamye_server::ports::oauth_provider::ProviderIdentity {
+            provider_id: "valid-provider-id".to_owned(),
+            nickname: "프로필 이미지 검증".to_owned(),
+            avatar_url: Some("http://images.example/plain.png".to_owned()),
+        },
+    )?;
+    let state = authorize(&fixture.service).await?;
+    assert_eq!(
+        fixture
+            .service
+            .exchange(
+                "kakao",
+                ExchangeInput {
+                    authorization_code: "provider-code".to_owned(),
+                    state,
+                    code_verifier: TEST_VERIFIER.to_owned(),
+                    redirect_uri: KAKAO_REDIRECT.to_owned(),
+                },
+                "ip:fixture",
+            )
+            .await,
+        Err(AuthError::OAuthProviderUnavailable)
+    );
+    let rows: i64 = sqlx::query_scalar(
+        "SELECT (SELECT count(*) FROM users) + \
+                (SELECT count(*) FROM auth_identities) + \
+                (SELECT count(*) FROM refresh_sessions)",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(rows, 0);
+
+    pool.close().await;
+    database.dispose().await
+}
+
 #[test]
 fn production_bearer_verifies_exact_issuer_audience_and_expiry() -> TestResult {
     let codec = ProductionTokenCodec::new(

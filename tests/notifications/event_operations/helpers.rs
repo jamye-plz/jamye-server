@@ -13,7 +13,7 @@ use jamye_server::{
         transactions::TransactionManager,
     },
 };
-use serde_json::json;
+use serde_json::{Value, json};
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -227,6 +227,38 @@ pub(super) async fn notification_count(pool: &PgPool, user_id: Uuid) -> TestResu
             .fetch_one(pool)
             .await?,
     )
+}
+
+pub(super) async fn notification_payload(
+    pool: &PgPool,
+    user_id: Uuid,
+    conversation_id: Uuid,
+    notification_type: &str,
+) -> TestResult<Value> {
+    Ok(sqlx::query_scalar(
+        "SELECT payload FROM notifications \
+         WHERE user_id = $1 AND conversation_id = $2 AND type = $3",
+    )
+    .bind(user_id)
+    .bind(conversation_id)
+    .bind(notification_type)
+    .fetch_one(pool)
+    .await?)
+}
+
+pub(super) async fn push_delivery_payload(
+    pool: &PgPool,
+    user_id: Uuid,
+    source_event_id: Uuid,
+) -> TestResult<Value> {
+    Ok(sqlx::query_scalar(
+        "SELECT payload FROM push_delivery_intents \
+         WHERE recipient_user_id = $1 AND source_event_id = $2",
+    )
+    .bind(user_id)
+    .bind(source_event_id)
+    .fetch_one(pool)
+    .await?)
 }
 
 pub(super) async fn occurrence_count(pool: &PgPool, user_id: Uuid) -> TestResult<i64> {

@@ -296,8 +296,7 @@ pub(super) async fn replace_tags(
     connection: &mut PgConnection,
     command: &ReplaceTopicTagsCommand,
 ) -> Result<TopicTagPage, TopicsRepositoryError> {
-    let membership =
-        lock_group_and_membership(connection, command.group_id, command.actor_id).await?;
+    lock_group_and_membership(connection, command.group_id, command.actor_id).await?;
     let author_id = sqlx::query_scalar::<_, Uuid>(
         "SELECT author_id FROM topics WHERE id = $1 AND group_id = $2 FOR UPDATE",
     )
@@ -307,8 +306,8 @@ pub(super) async fn replace_tags(
     .await
     .map_err(|error| database_error("topic_tag_authorize", error))?
     .ok_or(TopicsRepositoryError::TopicNotFound)?;
-    if author_id != command.actor_id && membership.0 != "owner" {
-        return Err(TopicsRepositoryError::TopicManageRequired);
+    if author_id != command.actor_id {
+        return Err(TopicsRepositoryError::AuthorRequired);
     }
     sqlx::query("DELETE FROM topic_tags WHERE topic_id = $1")
         .bind(command.topic_id)

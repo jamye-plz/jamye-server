@@ -4,9 +4,12 @@ use std::{fmt, sync::Arc};
 
 use uuid::Uuid;
 
-use crate::ports::{
-    auth::{AuthRepository, AvatarPatch, ProfilePatch, UserProfile},
-    transactions::{BoxTransactionHandle, TransactionManager},
+use crate::{
+    domain::profile::valid_avatar_url,
+    ports::{
+        auth::{AuthRepository, AvatarPatch, ProfilePatch, UserProfile},
+        transactions::{BoxTransactionHandle, TransactionManager},
+    },
 };
 
 #[derive(Clone)]
@@ -88,7 +91,7 @@ fn validate_patch(input: UserPatch) -> Result<ProfilePatch, UserError> {
     };
     let avatar_url = match input.avatar_url {
         PatchValue::Value(value) if value.is_empty() => AvatarPatch::Clear,
-        PatchValue::Value(value) if value.chars().count() <= 512 => AvatarPatch::Set(value),
+        PatchValue::Value(value) if valid_avatar_url(&value) => AvatarPatch::Set(value),
         PatchValue::Value(_) => return Err(UserError::RequestValidation),
         PatchValue::Omitted | PatchValue::Null => AvatarPatch::Unchanged,
     };

@@ -40,7 +40,7 @@ fn task_7_contract_contribution_is_the_exact_selected_topic_wire() -> TestResult
     assert_eq!(rows[0]["auth"], "member");
     assert_eq!(rows[0]["success_status"], "201 new|200 retry");
     assert_eq!(rows[4]["auth"], "author");
-    assert_eq!(rows[5]["auth"], "author|owner");
+    assert_eq!(rows[5]["auth"], "author");
 
     let schema: Value = serde_json::from_str(&fs::read_to_string(
         "contracts/contributions/task-7/schemas/topics-wire.schema.json",
@@ -81,6 +81,7 @@ fn task_7_contract_contribution_is_the_exact_selected_topic_wire() -> TestResult
         fixture["t5"]["owner_non_author"],
         "403 topic_author_required"
     );
+    assert_eq!(fixture["t6_t7"]["replace_policy"], "author");
     assert_eq!(
         fixture["transaction"]["rows"].as_array().map(Vec::len),
         Some(8)

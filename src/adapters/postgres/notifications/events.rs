@@ -23,6 +23,8 @@ struct Fanout<'a> {
     notification_type: &'static str,
     display_name_key: &'static str,
     display_name: &'a str,
+    group_name: String,
+    topic_title: Option<String>,
 }
 
 pub(super) async fn record_topic_created(
@@ -32,6 +34,8 @@ pub(super) async fn record_topic_created(
     validate_display_name(&command.author_display_name)?;
     let recipients = lock_live_recipients(connection, command.group_id, command.author_id).await?;
     let source_cursor = topic_source_cursor(connection, command).await?;
+    let (group_name, topic_title) =
+        notification_context(connection, command.group_id, Some(command.topic_id)).await?;
     fan_out(
         connection,
         &recipients,
@@ -44,6 +48,8 @@ pub(super) async fn record_topic_created(
             notification_type: "new_topic",
             display_name_key: "author_display_name",
             display_name: &command.author_display_name,
+            group_name,
+            topic_title,
         },
     )
     .await
@@ -56,6 +62,8 @@ pub(super) async fn record_message_created(
     validate_display_name(&command.sender_display_name)?;
     let recipients = lock_live_recipients(connection, command.group_id, command.sender_id).await?;
     let source_cursor = message_source_cursor(connection, command).await?;
+    let (group_name, topic_title) =
+        notification_context(connection, command.group_id, command.topic_id).await?;
     fan_out(
         connection,
         &recipients,
@@ -68,6 +76,8 @@ pub(super) async fn record_message_created(
             notification_type: "chat_unread",
             display_name_key: "sender_display_name",
             display_name: &command.sender_display_name,
+            group_name,
+            topic_title,
         },
     )
     .await
@@ -276,6 +286,36 @@ async fn message_source_cursor(
         .ok_or(NotificationsRepositoryError::InvalidData)
 }
 
+async fn notification_context(
+    connection: &mut PgConnection,
+    group_id: Uuid,
+    topic_id: Option<Uuid>,
+) -> Result<(String, Option<String>), NotificationsRepositoryError> {
+    let group_name = sqlx::query_scalar::<_, String>(
+        "SELECT name FROM groups WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(group_id)
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(|error| database_error("notification_group_name", error))?
+    .ok_or(NotificationsRepositoryError::InvalidData)?;
+    let topic_title = match topic_id {
+        Some(topic_id) => Some(
+            sqlx::query_scalar::<_, String>(
+                "SELECT title FROM topics WHERE id = $1 AND group_id = $2",
+            )
+            .bind(topic_id)
+            .bind(group_id)
+            .fetch_optional(connection)
+            .await
+            .map_err(|error| database_error("notification_topic_title", error))?
+            .ok_or(NotificationsRepositoryError::InvalidData)?,
+        ),
+        None => None,
+    };
+    Ok((group_name, topic_title))
+}
+
 async fn fan_out(
     connection: &mut PgConnection,
     recipient_user_ids: &[Uuid],
@@ -307,6 +347,13 @@ fn notification_args(fanout: &Fanout<'_>) -> Value {
         fanout.display_name_key.to_owned(),
         Value::String(fanout.display_name.to_owned()),
     );
+    args.insert(
+        "group_name".to_owned(),
+        Value::String(fanout.group_name.clone()),
+    );
+    if let Some(topic_title) = &fanout.topic_title {
+        args.insert("topic_title".to_owned(), Value::String(topic_title.clone()));
+    }
     Value::Object(args)
 }
 

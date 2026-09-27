@@ -173,12 +173,25 @@ async fn t1_through_t7_http_use_the_locked_authenticated_mobile_shapes() -> Test
     assert_eq!(patched["status"], "enriched");
 
     let tags_uri = format!("{topic_uri}/tags");
+    for actor_id in [fixture.owner_id, fixture.member_id] {
+        let denied = router
+            .clone()
+            .oneshot(json_request(
+                "PUT",
+                &tags_uri,
+                Some(actor_id),
+                None,
+                json!({"tags": [{"tag": "친구", "source": "user", "confidence": null}]}),
+            )?)
+            .await?;
+        assert_error(denied, StatusCode::FORBIDDEN, "topic_author_required").await?;
+    }
     let tags = router
         .clone()
         .oneshot(json_request(
             "PUT",
             &tags_uri,
-            Some(fixture.owner_id),
+            Some(fixture.author_id),
             None,
             json!({"tags": [{"tag": "친구", "source": "user", "confidence": null}]}),
         )?)
