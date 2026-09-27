@@ -2206,10 +2206,19 @@
         "additionalProperties": false,
         "properties": {
           "avatar_url": {
-            "maxLength": 512,
-            "type": [
-              "string",
-              "null"
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "const": ""
+              },
+              {
+                "format": "uri",
+                "maxLength": 512,
+                "pattern": "^https://",
+                "type": "string"
+              }
             ]
           },
           "created_at": {
@@ -4162,7 +4171,7 @@
         "tags": [
           "topics"
         ],
-        "x-jamye-authorization": "author|owner",
+        "x-jamye-authorization": "author",
         "x-jamye-behavior-test": "tests/topics/http.rs::t1_through_t7_http_use_the_locked_authenticated_mobile_shapes",
         "x-jamye-errors": "E3",
         "x-jamye-fixture": "contracts/contributions/task-7/fixtures/topic-flow.json",

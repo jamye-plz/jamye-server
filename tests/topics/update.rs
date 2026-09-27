@@ -254,7 +254,7 @@ async fn t5_is_author_only_validates_trimmed_title_and_promotes_body() -> TestRe
 }
 
 #[tokio::test]
-async fn t6_replaces_tags_for_author_or_owner_and_t7_paginates_for_members() -> TestResult {
+async fn t6_replaces_tags_for_author_only_and_t7_paginates_for_members() -> TestResult {
     let database = TestDatabase::migrated().await?;
     let pool = database.pool()?;
     let fixture = topology(&pool).await?;
@@ -268,22 +268,24 @@ async fn t6_replaces_tags_for_author_or_owner_and_t7_paginates_for_members() -> 
     )
     .await?;
 
-    assert_eq!(
-        topics
-            .service
-            .replace_tags(
-                fixture.member_id,
-                fixture.group_id,
-                topic.id,
-                TopicTagsInput { tags: Vec::new() },
-            )
-            .await,
-        Err(TopicsError::TopicManageRequired)
-    );
+    for actor_id in [fixture.owner_id, fixture.member_id] {
+        assert_eq!(
+            topics
+                .service
+                .replace_tags(
+                    actor_id,
+                    fixture.group_id,
+                    topic.id,
+                    TopicTagsInput { tags: Vec::new() },
+                )
+                .await,
+            Err(TopicsError::AuthorRequired)
+        );
+    }
     let replaced = topics
         .service
         .replace_tags(
-            fixture.owner_id,
+            fixture.author_id,
             fixture.group_id,
             topic.id,
             TopicTagsInput {

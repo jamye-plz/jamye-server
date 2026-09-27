@@ -2,3 +2,4 @@
 
 pub mod media;
 pub mod messaging;
+pub mod profile;

@@ -3,21 +3,24 @@ use std::{fmt, sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::ports::{
-    auth::{
-        AccessTokenIssuer, AuthClock, AuthRepository, CredentialSource, NewProviderIdentity,
-        NewRefreshSession, NewRotatedSession, RotationOutcome,
+use crate::{
+    domain::profile::valid_avatar_url,
+    ports::{
+        auth::{
+            AccessTokenIssuer, AuthClock, AuthRepository, CredentialSource, NewProviderIdentity,
+            NewRefreshSession, NewRotatedSession, RotationOutcome,
+        },
+        oauth_attempt::{
+            ConsumeAttemptOutcome, CreateAttemptOutcome, OAuthAttempt, OAuthAttemptError,
+            OAuthAttemptStore,
+        },
+        oauth_provider::{
+            AuthorizationRequest, OAuthProvider, OAuthProviderError, ProviderExchangeRequest,
+            ProviderKind,
+        },
+        rate_limit::{RateLimitOutcome, RateLimitRequest, RateLimiter},
+        transactions::{BoxTransactionHandle, TransactionManager},
     },
-    oauth_attempt::{
-        ConsumeAttemptOutcome, CreateAttemptOutcome, OAuthAttempt, OAuthAttemptError,
-        OAuthAttemptStore,
-    },
-    oauth_provider::{
-        AuthorizationRequest, OAuthProvider, OAuthProviderError, ProviderExchangeRequest,
-        ProviderKind,
-    },
-    rate_limit::{RateLimitOutcome, RateLimitRequest, RateLimiter},
-    transactions::{BoxTransactionHandle, TransactionManager},
 };
 
 pub const OAUTH_ATTEMPT_TTL: Duration = Duration::from_secs(600);
@@ -499,7 +502,7 @@ fn valid_provider_identity(identity: &crate::ports::oauth_provider::ProviderIden
         && identity
             .avatar_url
             .as_ref()
-            .is_none_or(|avatar_url| avatar_url.chars().count() <= 512)
+            .is_none_or(|avatar_url| valid_avatar_url(avatar_url))
 }
 
 fn valid_base64url_credential(value: &str) -> bool {

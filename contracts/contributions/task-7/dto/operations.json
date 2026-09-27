@@ -55,7 +55,7 @@
       "success_status": 200
     },
     {
-      "auth": "author|owner",
+      "auth": "author",
       "errors": "E3",
       "id": "T6",
       "method": "PUT",

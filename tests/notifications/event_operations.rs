@@ -7,6 +7,7 @@ use jamye_server::{
         RecordTopicNotificationCommand,
     },
 };
+use serde_json::{Value, json};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -19,7 +20,8 @@ use helpers::{
     Topology, chat_notification, committed_clear, committed_message, committed_topic,
     conversation_chat_notification, insert_direct_notification, insert_message_event,
     insert_message_event_in, insert_topic_event, is_read, main_message_command, message_command,
-    notification_count, notification_id, occurrence_count, operations,
+    notification_count, notification_id, notification_payload, occurrence_count, operations,
+    push_delivery_payload,
 };
 
 #[tokio::test]
@@ -133,6 +135,195 @@ async fn distinct_messages_coalesce_history_but_keep_one_occurrence_per_source_e
     .fetch_one(&pool)
     .await?;
     assert_eq!(leaked, 0);
+
+    pool.close().await;
+    database.dispose().await
+}
+
+#[tokio::test]
+async fn notification_args_cover_context_shapes_and_do_not_change_push_payloads() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let topology = Topology::new(&pool).await?;
+    let operations = operations(pool.clone());
+    let transactions = SqlxTransactionManager::new(pool.clone());
+
+    let topic_event = insert_topic_event(&pool, &topology).await?;
+    committed_topic(
+        &operations,
+        &transactions,
+        RecordTopicNotificationCommand {
+            group_id: topology.group_id,
+            topic_id: topology.topic_id,
+            conversation_id: topology.conversation_id,
+            source_event_id: topic_event.event_id,
+            author_id: topology.owner_id,
+            author_display_name: "주제 작성자".to_owned(),
+        },
+    )
+    .await?;
+    let new_topic_id =
+        notification_id(&pool, topology.recipient_id, topology.topic_id, "new_topic").await?;
+    assert_eq!(
+        notification_payload(
+            &pool,
+            topology.recipient_id,
+            topology.conversation_id,
+            "new_topic",
+        )
+        .await?,
+        json!({
+            "author_display_name": "주제 작성자",
+            "group_name": "알림 그룹",
+            "topic_title": "첫 주제",
+        })
+    );
+    assert_eq!(
+        push_delivery_payload(&pool, topology.recipient_id, topic_event.event_id).await?,
+        json!({
+            "type": "new_topic",
+            "notification_id": new_topic_id,
+            "conversation_id": topology.conversation_id,
+            "message_id": Value::Null,
+        })
+    );
+
+    let topic_message = insert_message_event(&pool, &topology, "topic message").await?;
+    committed_message(
+        &operations,
+        &transactions,
+        message_command(&topology, topic_message),
+    )
+    .await?;
+    let (topic_chat_id, _, _, _) =
+        conversation_chat_notification(&pool, topology.recipient_id, topology.conversation_id)
+            .await?;
+    let first_topic_chat_args = json!({
+        "sender_display_name": "메시지 작성자",
+        "group_name": "알림 그룹",
+        "topic_title": "첫 주제",
+    });
+    assert_eq!(
+        notification_payload(
+            &pool,
+            topology.recipient_id,
+            topology.conversation_id,
+            "chat_unread",
+        )
+        .await?,
+        first_topic_chat_args
+    );
+    assert_eq!(
+        push_delivery_payload(&pool, topology.recipient_id, topic_message.event_id).await?,
+        json!({
+            "type": "chat_unread",
+            "notification_id": topic_chat_id,
+            "conversation_id": topology.conversation_id,
+            "message_id": topic_message.message_id,
+        })
+    );
+
+    sqlx::query("UPDATE groups SET name = '알림 그룹 변경' WHERE id = $1")
+        .bind(topology.group_id)
+        .execute(&pool)
+        .await?;
+    sqlx::query("UPDATE topics SET title = '첫 주제 변경' WHERE id = $1")
+        .bind(topology.topic_id)
+        .execute(&pool)
+        .await?;
+    committed_message(
+        &operations,
+        &transactions,
+        message_command(&topology, topic_message),
+    )
+    .await?;
+    assert_eq!(
+        notification_payload(
+            &pool,
+            topology.recipient_id,
+            topology.conversation_id,
+            "chat_unread",
+        )
+        .await?,
+        first_topic_chat_args
+    );
+
+    let newer_topic_message = insert_message_event(&pool, &topology, "newer topic message").await?;
+    committed_message(
+        &operations,
+        &transactions,
+        message_command(&topology, newer_topic_message),
+    )
+    .await?;
+    assert_eq!(
+        notification_payload(
+            &pool,
+            topology.recipient_id,
+            topology.conversation_id,
+            "chat_unread",
+        )
+        .await?,
+        json!({
+            "sender_display_name": "메시지 작성자",
+            "group_name": "알림 그룹 변경",
+            "topic_title": "첫 주제 변경",
+        })
+    );
+
+    let main_message = insert_message_event_in(
+        &pool,
+        &topology,
+        topology.main_conversation_id,
+        "main message",
+    )
+    .await?;
+    committed_message(
+        &operations,
+        &transactions,
+        main_message_command(&topology, main_message),
+    )
+    .await?;
+    let (main_chat_id, _, _, _) =
+        conversation_chat_notification(&pool, topology.recipient_id, topology.main_conversation_id)
+            .await?;
+    assert_eq!(
+        notification_payload(
+            &pool,
+            topology.recipient_id,
+            topology.main_conversation_id,
+            "chat_unread",
+        )
+        .await?,
+        json!({
+            "sender_display_name": "메시지 작성자",
+            "group_name": "알림 그룹 변경",
+        })
+    );
+    assert_eq!(
+        push_delivery_payload(&pool, topology.recipient_id, main_message.event_id).await?,
+        json!({
+            "type": "chat_unread",
+            "notification_id": main_chat_id,
+            "conversation_id": topology.main_conversation_id,
+            "message_id": main_message.message_id,
+        })
+    );
+
+    let legacy_notification = insert_direct_notification(
+        &pool,
+        topology.recipient_id,
+        topology.other_topic_id,
+        topology.other_conversation_id,
+        topic_event.cursor,
+        "legacy-empty-args",
+    )
+    .await?;
+    let legacy_payload: Value =
+        sqlx::query_scalar("SELECT payload FROM notifications WHERE id = $1")
+            .bind(legacy_notification)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(legacy_payload, json!({}));
 
     pool.close().await;
     database.dispose().await
