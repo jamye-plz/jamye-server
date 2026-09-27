@@ -6,7 +6,10 @@ use uuid::Uuid;
 
 use crate::{
     application::auth::AccessIdentity,
-    domain::messaging::{CanonicalMessage, EventPage, SendMessageCommand},
+    domain::{
+        media::MAX_MEDIA_PER_MESSAGE,
+        messaging::{CanonicalMessage, EventPage, SendMessageCommand},
+    },
     ports::{
         messaging::{
             ContractProjection, DeltaQuery, MessageDeliveryContext, MessagingRepository,
@@ -90,9 +93,11 @@ impl MessagingService {
     /// Validates the mounted HTTP input and creates the feature command before
     /// a caller decides whether opening a transaction is appropriate.
     ///
-    /// This bridge deliberately permits exactly one media upload.  The
-    /// standalone messaging wrapper retains its legacy media-unavailable
-    /// projection and its own begin/commit/rollback lifecycle.
+    /// This bridge accepts up to `MAX_MEDIA_PER_MESSAGE` uploads; their
+    /// confirmation, kinds, order and the voice-only rule are checked when
+    /// they are bound in the same transaction.  The standalone messaging
+    /// wrapper retains its legacy media-unavailable projection and its own
+    /// begin/commit/rollback lifecycle.
     pub(crate) fn prepare_http_send(
         &self,
         actor_id: Uuid,
@@ -207,7 +212,7 @@ fn validate_message(input: &SendMessageInput) -> Result<(), MessagingError> {
 
 fn validate_composed_http_message(input: &SendMessageInput) -> Result<(), MessagingError> {
     validate_message_base(input)?;
-    if input.media_upload_ids.len() > 1 {
+    if input.media_upload_ids.len() > MAX_MEDIA_PER_MESSAGE {
         return Err(MessagingError::MediaNotAvailable);
     }
     Ok(())
