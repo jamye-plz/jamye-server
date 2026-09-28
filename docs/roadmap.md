@@ -1,9 +1,9 @@
 # jamye-server 로드맵 — FastAPI 전체 이관, 신뢰성 고도화, 모바일 계약
 
 > 세션: ultrawork/20260822-200110 · 후속 로드맵 등록: ultrawork/20260922-100557
-> 현재 단계: Task 18 구현 완료(앱 M14 라운드 2 서버 지원: 알림 context args, T6 작성자-only, avatar_url HTTPS 검증, `0013` migration) — 배포 전
-> 상태: Task 13(루트 `Justfile` 검증 체계, NixOS module, homelab midgard 배포)이 완료됐다(근거는 §9). task-14(soft delete)·task-15(Apple exchange)·task-16(서버측 잔여 백로그)는 2026-09-22 로드맵에 등록만 됐으며 각 task 착수는 별도 승인이 필요하다. task-17은 2026-09-26 앱 M14 라운드 1 지원 범위로 구현됐고, task-18은 2026-09-27 앱 M14 라운드 2 지원 범위로 구현됐지만 운영 배포와 homelab 반영은 별도 task가 소유한다.
-> 진행률: Task 1-13 구현·배포 완료, task-14-16은 등록(planned_unapproved) 단계, task-17-18은 implemented_not_deployed
+> 현재 단계: task-17·18 운영 배포 완료(앱 M14 라운드 1·2 서버 지원, 2026-09-28 HTTP 전송 첨부 최대 4개 후속 배포 포함). 앱 M14는 2026-09-28 종료됐고 task-14-16은 착수 승인 대기
+> 상태: Task 13(루트 `Justfile` 검증 체계, NixOS module, homelab midgard 배포)이 완료됐다(근거는 §9). task-14(soft delete)·task-15(Apple exchange)·task-16(서버측 잔여 백로그)는 2026-09-22 로드맵에 등록만 됐으며 각 task 착수는 별도 승인이 필요하다. task-17은 2026-09-26 앱 M14 라운드 1 지원 범위로 구현해 같은 날 운영 배포했고(merge `5b987a2`, migration `0012`), task-18은 2026-09-27 앱 M14 라운드 2 지원 범위로 구현해 같은 날 운영 배포했다(merge `a77cac5`, migration `0013`). 2026-09-28에는 HTTP 메시지 전송의 첨부 1개 제한을 푼 수정(merge `c7f71a8`)을 배포했다(§13).
+> 진행률: Task 1-13·17-18 구현·배포 완료, task-14-16은 등록(planned_unapproved) 단계
 > 기계 SSOT: .agents/results/plan-20260822-200110.json (task-1-13) · .agents/results/plan-20260926-181036.json (task-17) · .agents/results/plan-20260927-120934.json (task-18) · task-14 이후는 착수 시 새 plan JSON 생성
 
 ## 1. 목표와 범위
@@ -29,7 +29,7 @@
 - pending 제품 결정은 가장 이른 materializer가 한 번만 사용자 선택을 받아 evidence를 고정한다. 후속 task와 VERIFY/SHIP는 dependency를 통해 그 evidence를 소비하며 같은 결정을 다시 승인받지 않는다.
 - production/release/SCM 변경은 별도 승인이 있어야 한다.
 - legacy jamye-plz, homelab, 운영 PostgreSQL/Redis/MinIO는 읽기 전용 또는 범위 밖이다.
-- task-14~16은 2026-09-22 로드맵 등록만 됐고 각 task 구현·migration·contract publication·배포는 별도 승인이 필요하다. task-17은 2026-09-26 계획에 따라 구현됐고 task-18은 2026-09-27 계획에 따라 구현됐지만, 운영 백업·읽기 전용 확인 SQL·배포는 별도 절차가 필요하다.
+- task-14~16은 2026-09-22 로드맵 등록만 됐고 각 task 구현·migration·contract publication·배포는 별도 승인이 필요하다. task-17(2026-09-26)과 task-18(2026-09-27)은 각 세션에서 사용자가 배포를 승인해 운영 백업·읽기 전용 확인 SQL·배포 절차를 거쳐 배포됐다(§13).
 
 ## 3. 목표 아키텍처
 
@@ -67,9 +67,9 @@ flowchart LR
 | C0 | 모바일 채팅을 시작할 수 있는 최소 runtime-adjacent 계약 | 공통 wire/error, H1/H2, C4, S1, R1, WebSocket protocol/close, message.created, outbox/delta와 ordinary-401 보존 marker | task-3b |
 | C1 | 실제 메시지 수직 경로 | REST message → PostgreSQL outbox → worker → Redis → authorized WS → paginated delta recovery | task-4a/task-4b |
 | C2 | 선택된 전체 서버 계약 release candidate | 모든 runtime owner의 DTO/schema/fixture contribution, selected REST inventory, 최종 2 realtime variants, manifest provenance | task-12 |
-| C3 | 후속 soft delete/Apple 계약 확장(2026-09-22 등록, planned_unapproved) | 메시지 삭제(가칭 C5)·주제 삭제(가칭 T8) REST, `deleted_at`/`updated_at` 필드, realtime `message.deleted`/`topic.deleted`, Apple exchange endpoint(가칭 A6) | task-14/task-15 |
+| C3 | 후속 soft delete/Apple 계약 확장(2026-09-22 등록, planned_unapproved) | 메시지 삭제(가칭 C6)·주제 삭제(가칭 T8) REST, `deleted_at`/`updated_at` 필드, realtime `message.deleted`/`topic.deleted`, Apple exchange endpoint(가칭 A6) | task-14/task-15 |
 
-계약 단계 C3는 operation ID `C3`(read marker; `contracts/openapi.json`)와 이름만 같고 무관하다. contract version 정책(현재 버전 1 유지 vs 버전 2로 증가, realtime event version 협상 포함)은 task-14 PLAN에서 결정한다.
+계약 단계 C3는 operation ID `C3`(read marker; `contracts/openapi.json`)와 이름만 같고 무관하다. 메시지 삭제의 가칭은 처음 C5였지만 task-17이 `C5`를 대화방 미디어 목록에 쓰게 되어 C6으로 바꿨다. contract version 정책(현재 버전 1 유지 vs 버전 2로 증가, realtime event version 협상 포함)은 task-14 PLAN에서 결정한다.
 
 C0는 정확히 5개 REST operation(H1, H2, C4, S1, R1)과 message.created 하나만 생성한다. D1, D8, D13만 C0를 막을 수 있다. 인증, 그룹, 주제, 미디어, 알림, 푸시, 계정 삭제 계약은 각 runtime feature owner가 나중에 추가한다.
 
@@ -305,13 +305,17 @@ Task 13은 완료됐다. 검증 체계·NixOS module·homelab midgard 배포의 
 
 2026-09-22 로드맵 등록으로 §11에 task-14-16이 추가됐다. 이 등록은 구현 승인이 아니다. R3(사용자 결정)에 따라 앱(jamye-app) M14(UI/UX 라운드)가 진행되는 동안 서버 task-14(soft delete)·task-15(Apple exchange)·task-16(잔여 백로그)을 병행 착수할 수 있다.
 
-2026-09-26 task-17은 앱 M14 라운드 1에 필요한 서버 지원을 구현했다. 배포는 아직 아니며, 다음 운영 액션은 S4 predeploy 안전 리뷰, 운영 `pg_dump`, 주제 미디어 삭제 대상 count, 커밋·PR·CI·homelab GitOps 배포 순서를 별도로 수행하는 것이다.
+2026-09-26 task-17은 앱 M14 라운드 1에 필요한 서버 지원을 구현하고 같은 날 운영 배포했다. predeploy 안전 리뷰 PASS, 운영 `pg_dump`(`pre-0012-20260926T132032Z.dump`), 삭제 대상 count(주제 미디어 행·topic-scope upload·object key 모두 0)를 확인한 뒤 커밋 `9ad82e1` → PR #8 → merge `5b987a2` → homelab PR #87 배포 순서로 진행했다. migration `0012` 적용 뒤 보존 기준값이 그대로임을 확인했고, 운영 smoke는 AASA·assetlinks·`/invite/{code}` 보안 header, C5 무인증 401, MD3 404를 확인했다. 기록은 `.agents/results/deploy-20260926-181036.md`다.
 
-2026-09-27 task-18은 앱 M14 라운드 2에 필요한 서버 지원을 구현했다. 배포는 아직 아니며, 다음 운영 액션은 predeploy 안전 리뷰, 운영 백업, `0013` 적용 전후 avatar URL count 확인, 커밋·PR·CI·homelab GitOps 배포 순서를 별도로 수행하는 것이다.
+2026-09-27 task-18은 앱 M14 라운드 2에 필요한 서버 지원을 구현하고 같은 날 운영 배포했다. predeploy 안전 리뷰 PASS, 운영 백업(`pre-0013-20260927T062151Z.dump`), `0013` 적용 전 avatar URL count(`http://` 1, `https://` 1)를 확인한 뒤 커밋 `d5167c3` → PR #9 → merge `a77cac5` → homelab PR #88 배포(2026-09-27 06:42:46Z 시작)로 진행했다. 적용 뒤 `http://` 0, `https://` 2, version 13 success를 확인했다. 기록은 `.agents/results/deploy-20260927-120934.md` §1-9다.
+
+2026-09-28 앱 기기 검증 중 HTTP 메시지 전송이 첨부 2개 이상을 422 `media_not_available`로 거부하는 문제를 찾았다. 도메인 규칙·Postgres 바인딩과 계약은 이미 최대 4개를 지원했으므로 HTTP 검증(`validate_composed_http_message`)의 1개 제한만 풀어 배포했다(커밋 `9a6cba1`·`fd07187` → PR #10 → merge `c7f71a8` → homelab PR #89, 스키마·계약 변경 없음). 기록은 같은 파일 §10이다. 이때 드러난 `tests/media` fixture의 시계 오차 취약점(호스트 `now`와 DB `clock_timestamp()` 혼용으로 `media_uploads_timestamp_check`가 간헐 실패)은 후속 과제로 남긴다.
+
+앱 M14는 2026-09-28 종료됐다. task-14-16 착수는 여전히 각각 별도 승인이 필요하고, task-15와 task-16은 task-14를 선행으로 둔다(§11, §14).
 
 ## 14. 후속 과제 상세
 
-이 절은 §11 표의 task-14-18을 위한 상세 명세다. task-14-16의 상태는 `planned_unapproved`이며, 이 등록 자체는 구현·migration 적용·contract publication·homelab 배포의 승인이 아니다. task-17-18은 구현됐지만 배포 전 상태다.
+이 절은 §11 표의 task-14-18을 위한 상세 명세다. task-14-16의 상태는 `planned_unapproved`이며, 이 등록 자체는 구현·migration 적용·contract publication·homelab 배포의 승인이 아니다. task-17-18은 구현과 운영 배포를 마쳤다(§13).
 
 ### task-14 — soft delete (M12)
 
@@ -319,7 +323,7 @@ D14·D15·D18·D19(모두 2026-09-22 locked)를 materialize한다(앱 M15 소프
 
 - **A. audit 컬럼 migration + `updated_at` 규칙**: 대상 테이블에 `created_at`/`updated_at`/`deleted_at`을 추가하는 forward-only migration(ADR 0003, 새 번호)과 D19의 PostgreSQL `BEFORE UPDATE` 트리거를 적용한다. `refresh_sessions`, oauth attempt, `media_uploads`처럼 이미 `revoked_at`/`consumed_at`/`expires_at` 같은 의미별 컬럼을 쓰는 일회성/보안 row는 그 의미를 유지하고 `deleted_at`만 추가한다.
 - **B. hard→soft 전환**: 현재 hard delete인 memberships, users, push_delivery_intents/installations, notifications·chatroom_reads·invites·refresh_sessions·auth_identities·media_uploads, topic_tags를 soft delete로 전환하고 모든 조회 경로에 `deleted_at IS NULL` 필터를 추가한다.
-- **C. 삭제 API + 이벤트**: 메시지 삭제(가칭 C5)·주제 삭제(가칭 T8) REST endpoint, D18에 따른 realtime `message.deleted`/`topic.deleted` 이벤트, 삭제된 메시지/주제에 결합된 미디어 object 정리 규칙을 구현한다.
+- **C. 삭제 API + 이벤트**: 메시지 삭제(가칭 C6)·주제 삭제(가칭 T8) REST endpoint, D18에 따른 realtime `message.deleted`/`topic.deleted` 이벤트, 삭제된 메시지/주제에 결합된 미디어 object 정리 규칙을 구현한다.
 - **D. 계정 삭제 유예·복구**: D15(30일 유예, 유예 중 같은 provider 재로그인 시 부활)를 endpoint/worker로 구현하고, 유예 만료 시 기존 D10 tombstone 전이 로직을 재사용하는 purge worker를 추가한다.
 
 시작 조건: task-13 완료(충족) + D14/D15/D18/D19 확정(충족). 별도 승인: 각 forward-only migration 적용, C3 계약 publication, homelab 배포.
@@ -338,17 +342,17 @@ D16(locked)·D17(권고 필수)을 materialize한다(앱 M16 Sign in with Apple�
 
 ### task-17 — 앱 M14 라운드 1 서버 지원 (M15)
 
-상태: `implemented_not_deployed` (2026-09-26). 이 task는 앱 M14 라운드 1 요구사항 중 서버가 선행해야 하는 S1-S3를 구현한다. 공개 route는 `GET /.well-known/apple-app-site-association`, `GET /.well-known/assetlinks.json`, `GET /invite/{code}`이고, 기본 association 값은 개발 bundle/package와 Android debug SHA-256(E3)을 사용한다. 잘못된 초대 코드는 404이며, 형식이 맞는 코드도 DB 조회 없이 정적 HTML만 반환해 그룹 이름·유효성 oracle을 노출하지 않는다.
+상태: `deployed` (2026-09-26 구현·운영 배포, merge `5b987a2`, migration `0012`). 이 task는 앱 M14 라운드 1 요구사항 중 서버가 선행해야 하는 S1-S3를 구현한다. 공개 route는 `GET /.well-known/apple-app-site-association`, `GET /.well-known/assetlinks.json`, `GET /invite/{code}`이고, 기본 association 값은 개발 bundle/package와 Android debug SHA-256(E3)을 사용한다. 잘못된 초대 코드는 404이며, 형식이 맞는 코드도 DB 조회 없이 정적 HTML만 반환해 그룹 이름·유효성 oracle을 노출하지 않는다.
 
 대화방 갤러리는 `GET /api/v1/chatrooms/{chatroom_id}/media`(`C5`)로 제공한다. membership은 기존 chatroom 권한 경로를 재사용하고, item cursor는 `message_media.id`이며 정렬은 메시지 작성 시각 최신순, 메시지 id 역순, 첨부 position 오름차순이다. 응답은 기존 `MessageAttachment` 필드와 `message_id`, `message_created_at`을 포함하고 이미지·동영상만 반환한다.
 
-주제 미디어는 서버까지 제거했다. `GET /api/v1/topics/{topic_id}/media`, topic-scope upload/finalize, `CanonicalTopic.media`, `UploadFinalizeResult` topic 분기를 계약과 코드에서 제거하고, `migrations/0012_remove_topic_media.sql`가 기존 topic media row와 topic-scope upload를 제거한다. `account_object_deletion_intents`가 임의 object key를 받을 수 있으므로 topic object는 기존 object cleanup worker 경로로 삭제 예약한다. 배포 전 운영에서 읽기 전용 count SQL을 실행해 삭제 대상 행·object 수를 기록해야 한다.
+주제 미디어는 서버까지 제거했다. `GET /api/v1/topics/{topic_id}/media`, topic-scope upload/finalize, `CanonicalTopic.media`, `UploadFinalizeResult` topic 분기를 계약과 코드에서 제거하고, `migrations/0012_remove_topic_media.sql`가 기존 topic media row와 topic-scope upload를 제거한다. `account_object_deletion_intents`가 임의 object key를 받을 수 있으므로 topic object는 기존 object cleanup worker 경로로 삭제 예약한다. 배포 전 운영 읽기 전용 count SQL로 삭제 대상 행·object 수가 모두 0임을 기록했다(`.agents/results/deploy-20260926-181036.md` §3).
 
 새 env 기본값은 `JAMYE_APP_LINKS_AASA_APP_IDS=6ZH8V43A7D.dev.local.jamyeapp`, `JAMYE_APP_LINKS_ANDROID_PACKAGE=dev.local.jamyeapp`, `JAMYE_APP_LINKS_ANDROID_SHA256_CERT_FINGERPRINTS=FA:C6:17:45:DC:09:03:78:6F:B9:ED:E6:2A:96:2B:39:9F:73:48:F0:BB:6F:89:9B:83:32:66:75:91:03:3B:9C`, `JAMYE_APP_STORE_URL=`(빈 값), `JAMYE_PLAY_STORE_URL=`(빈 값)이다. 스토어 URL은 설정 시 `https`만 허용한다. 설계 결정은 [ADR 0010](adr/0010-app-links-chatroom-media-topic-media-removal.md)에 기록한다.
 
 ### task-18 — 앱 M14 라운드 2 서버 지원 (M16)
 
-상태: `implemented_not_deployed` (2026-09-27). 이 task는 앱 M14 라운드 2 요구사항 중 서버 S1-S4를 구현한다. 알림 fan-out은 기존 `NotificationArgs` map 안에 `group_name`과 주제 관련 알림의 `topic_title`을 추가한다. `new_topic`은 `author_display_name`, `group_name`, `topic_title`을, 주제 대화방 `chat_unread`는 `sender_display_name`, `group_name`, `topic_title`을, 그룹 기본 대화방 `chat_unread`는 `sender_display_name`, `group_name`을 가진다. Expo push delivery payload는 기존 `{type, notification_id, conversation_id, message_id}` 모양을 유지한다.
+상태: `deployed` (2026-09-27 구현·운영 배포, merge `a77cac5`, migration `0013`). 이 task는 앱 M14 라운드 2 요구사항 중 서버 S1-S4를 구현한다. 알림 fan-out은 기존 `NotificationArgs` map 안에 `group_name`과 주제 관련 알림의 `topic_title`을 추가한다. `new_topic`은 `author_display_name`, `group_name`, `topic_title`을, 주제 대화방 `chat_unread`는 `sender_display_name`, `group_name`, `topic_title`을, 그룹 기본 대화방 `chat_unread`는 `sender_display_name`, `group_name`을 가진다. Expo push delivery payload는 기존 `{type, notification_id, conversation_id, message_id}` 모양을 유지한다.
 
 T6 태그 교체 권한은 작성자-only로 맞췄다. 그룹 소유자라도 주제 작성자가 아니면 기존 `403 topic_author_required` 오류를 받으며, 계약 contribution의 T6 auth도 `author`로 갱신한다.
 
@@ -361,3 +365,5 @@ SELECT count(*) FROM users WHERE avatar_url LIKE 'http://%';
 SELECT count(*) FROM users WHERE avatar_url LIKE 'https://%';
 SELECT version, success FROM _sqlx_migrations WHERE version = 13;
 ```
+
+배포 결과: 적용 전 `http://` 1·`https://` 1, 적용 뒤 `http://` 0·`https://` 2, version 13 success(`.agents/results/deploy-20260927-120934.md` §3·§7).
