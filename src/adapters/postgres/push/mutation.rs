@@ -36,7 +36,8 @@ pub(super) async fn upsert_installation(
         "SELECT id, user_id, owner_epoch, installation_id, platform, provider, token, \
                 environment, message_preview_enabled, last_seen_at, disabled_at \
          FROM push_installations \
-         WHERE installation_id = $1 OR (environment = $2 AND token = $3) \
+         WHERE deleted_at IS NULL \
+           AND (installation_id = $1 OR (environment = $2 AND token = $3)) \
          ORDER BY id \
          FOR UPDATE",
     )
@@ -117,13 +118,17 @@ pub(super) async fn update_installation(
 
     let rows = sqlx::query_as::<_, InstallationRow>(
         "WITH target AS ( \
-             SELECT environment FROM push_installations WHERE installation_id = $1 \
+             SELECT environment FROM push_installations \
+             WHERE installation_id = $1 AND deleted_at IS NULL \
          ) \
          SELECT id, user_id, owner_epoch, installation_id, platform, provider, token, \
                 environment, message_preview_enabled, last_seen_at, disabled_at \
          FROM push_installations \
-         WHERE installation_id = $1 \
-            OR (environment = (SELECT environment FROM target) AND token = $2) \
+         WHERE deleted_at IS NULL \
+           AND ( \
+             installation_id = $1 \
+             OR (environment = (SELECT environment FROM target) AND token = $2) \
+           ) \
          ORDER BY id \
          FOR UPDATE",
     )
@@ -182,6 +187,7 @@ pub(super) async fn delete_installation(
     let installation_id = sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM push_installations \
          WHERE installation_id = $1 AND user_id = $2 \
+           AND deleted_at IS NULL \
          FOR UPDATE",
     )
     .bind(&command.installation_id)
@@ -284,6 +290,7 @@ async fn terminalize_prior_occurrences(
              next_attempt_at = NULL, last_error_code = 'installation_rebound', \
              failed_at = clock_timestamp() \
          WHERE push_installation_id = $1 AND installation_owner_epoch < $2 \
+           AND deleted_at IS NULL \
            AND ( \
                status IN ('pending', 'retryable') \
                OR (status = 'claimed' AND lease_expires_at <= clock_timestamp()) \
@@ -301,16 +308,57 @@ async fn delete_installation_state(
     connection: &mut PgConnection,
     installation_id: Uuid,
 ) -> Result<(), PushRepositoryError> {
-    sqlx::query("DELETE FROM push_delivery_intents WHERE push_installation_id = $1")
-        .bind(installation_id)
-        .execute(&mut *connection)
-        .await
-        .map_err(|error| database_error("push_occurrence_delete_installation", error))?;
-    let deleted = sqlx::query("DELETE FROM push_installations WHERE id = $1")
-        .bind(installation_id)
-        .execute(connection)
-        .await
-        .map_err(|error| database_error("push_installation_delete", error))?;
+    sqlx::query(
+        "WITH server_clock AS MATERIALIZED ( \
+             SELECT clock_timestamp() AS now \
+         ) \
+         UPDATE push_delivery_intents \
+         SET deleted_at = COALESCE(deleted_at, (SELECT now FROM server_clock)), \
+             status = CASE \
+                 WHEN status IN ('pending', 'claimed', 'retryable') THEN 'failed' \
+                 ELSE status \
+             END, \
+             claim_owner = CASE \
+                 WHEN status IN ('pending', 'claimed', 'retryable') THEN NULL \
+                 ELSE claim_owner \
+             END, \
+             lease_expires_at = CASE \
+                 WHEN status IN ('pending', 'claimed', 'retryable') THEN NULL \
+                 ELSE lease_expires_at \
+             END, \
+             next_attempt_at = CASE \
+                 WHEN status IN ('pending', 'claimed', 'retryable') THEN NULL \
+                 ELSE next_attempt_at \
+             END, \
+             source_message_id = NULL, \
+             payload = '{}'::jsonb, \
+             last_error_code = CASE \
+                 WHEN status IN ('pending', 'claimed', 'retryable') THEN 'installation_deleted' \
+                 ELSE last_error_code \
+             END, \
+             failed_at = CASE \
+                 WHEN status IN ('pending', 'claimed', 'retryable') \
+                 THEN COALESCE(failed_at, (SELECT now FROM server_clock)) \
+                 ELSE failed_at \
+             END \
+         WHERE push_installation_id = $1 AND deleted_at IS NULL",
+    )
+    .bind(installation_id)
+    .execute(&mut *connection)
+    .await
+    .map_err(|error| database_error("push_occurrence_delete_installation", error))?;
+    let deleted = sqlx::query(
+        "UPDATE push_installations \
+         SET deleted_at = COALESCE(deleted_at, clock_timestamp()), \
+             disabled_at = COALESCE(disabled_at, clock_timestamp()), \
+             installation_id = 'deleted-' || id::text, \
+             token = 'deleted-' || id::text \
+         WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(installation_id)
+    .execute(connection)
+    .await
+    .map_err(|error| database_error("push_installation_delete", error))?;
     if deleted.rows_affected() != 1 {
         return Err(PushRepositoryError::InstallationNotFound);
     }

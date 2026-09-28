@@ -3,6 +3,7 @@
 use serde_json::{Value, json};
 use utoipa::{Modify, OpenApi};
 
+use jamye_server::application::messaging::CURRENT_CONTRACT_VERSION;
 use jamye_server::transport::http::health::{
     DependencyCheck, DependencyChecks, DependencyStatus, LivenessResponse, LivenessStatus,
     ReadinessResponse, ReadinessStatus,
@@ -303,7 +304,10 @@ pub fn document_release_candidate() -> Result<Value, BoxError> {
             "title".to_owned(),
             Value::String("Jamye Server API".to_owned()),
         );
-        info.insert("version".to_owned(), Value::String("1".to_owned()));
+        info.insert(
+            "version".to_owned(),
+            Value::String(CURRENT_CONTRACT_VERSION.to_owned()),
+        );
         info.insert(
             "description".to_owned(),
             Value::String(

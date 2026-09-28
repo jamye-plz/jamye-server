@@ -99,7 +99,10 @@ use crate::{
             topics::{TopicsHttpState, router as topics_router},
             users::{UserHttpState, router as user_router},
         },
-        realtime::{LocalRealtimeHub, authorization::RealtimeControlConsumer},
+        realtime::{
+            LocalRealtimeHub,
+            authorization::{AuthorizedRealtimeDelivery, RealtimeControlConsumer},
+        },
     },
 };
 
@@ -272,7 +275,9 @@ pub fn router_with_runtime(
     let redis_control =
         Arc::new(RedisRealtimeControl::new(redis_url).map_err(|_| CompositionError::Redis)?);
     let hub = LocalRealtimeHub::default();
-    spawn_redis_forwarder(redis.clone(), hub.clone());
+    let realtime_delivery =
+        AuthorizedRealtimeDelivery::new(hub.clone(), realtime_revocations.clone());
+    spawn_redis_forwarder(redis.clone(), realtime_delivery);
     spawn_realtime_control_consumer(
         redis_control,
         RealtimeControlConsumer::new(hub.clone(), realtime_revocations.clone()),
@@ -636,7 +641,7 @@ fn with_platform_layers(router: Router) -> Router {
     router.layer(middleware)
 }
 
-fn spawn_redis_forwarder(redis: Arc<RedisRealtimeAdapter>, hub: LocalRealtimeHub) {
+fn spawn_redis_forwarder(redis: Arc<RedisRealtimeAdapter>, delivery: AuthorizedRealtimeDelivery) {
     tokio::spawn(async move {
         loop {
             let mut subscriber = match redis.event_subscriber().await {
@@ -656,13 +661,20 @@ fn spawn_redis_forwarder(redis: Arc<RedisRealtimeAdapter>, hub: LocalRealtimeHub
                             failure_kind = "realtime_decode",
                             "dropping unrecognized realtime envelope"
                         );
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                         continue;
                     }
                 };
                 let conversation_id = event.conversation_id();
                 match serde_json::to_string(&event) {
                     Ok(payload) => {
-                        hub.publish(conversation_id, payload).await;
+                        if delivery.publish(conversation_id, payload).await.is_err() {
+                            tracing::warn!(
+                                dependency = "postgres",
+                                failure_kind = "realtime_delivery_authorization",
+                                "realtime event delivery authorization failed"
+                            );
+                        }
                     }
                     Err(_) => tracing::warn!(
                         dependency = "serde_json",

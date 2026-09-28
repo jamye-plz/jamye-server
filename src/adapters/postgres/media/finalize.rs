@@ -29,6 +29,7 @@ const AUTHORIZED_UPLOAD_SQL: &str = "SELECT upload.id, upload.user_id, upload.ob
      WHERE upload.id = $1 \
        AND upload.user_id = $2 \
        AND upload.scope = 'chat' \
+       AND upload.deleted_at IS NULL \
        AND EXISTS ( \
            SELECT 1 \
            FROM chatrooms AS chatroom \
@@ -38,7 +39,11 @@ const AUTHORIZED_UPLOAD_SQL: &str = "SELECT upload.id, upload.user_id, upload.ob
            JOIN memberships AS actor_membership \
              ON actor_membership.group_id = chatroom.group_id \
             AND actor_membership.user_id = $2 \
+            AND actor_membership.deleted_at IS NULL \
+           LEFT JOIN topics topic ON topic.id = chatroom.topic_id \
            WHERE chatroom.id = upload.target_id \
+             AND chatroom.deleted_at IS NULL \
+             AND (chatroom.topic_id IS NULL OR topic.deleted_at IS NULL) \
            FOR SHARE OF chatroom, live_group, actor_membership \
        ) \
      FOR UPDATE OF upload";
@@ -55,9 +60,10 @@ const POSTER_CANDIDATE_SQL: &str = "SELECT poster.id, poster.user_id, poster.sco
             EXISTS ( \
                 SELECT 1 FROM media_uploads AS linked \
                 WHERE linked.poster_upload_id = poster.id \
+                  AND linked.deleted_at IS NULL \
             ) AS already_linked \
      FROM media_uploads AS poster \
-     WHERE poster.id = $1";
+     WHERE poster.id = $1 AND poster.deleted_at IS NULL";
 
 pub(super) async fn prepare_upload_finalize(
     pool: &PgPool,
@@ -175,6 +181,7 @@ pub(super) async fn finalize_upload(
              poster_upload_id = $3 \
          FROM stamped \
          WHERE upload.id = $1 AND upload.status = 'pending' \
+           AND upload.deleted_at IS NULL \
          RETURNING upload.confirmed_at",
     )
     .bind(upload.id)

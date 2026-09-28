@@ -1,3 +1,5 @@
+use std::fs;
+
 use jamye_server::transport::realtime::{
     LocalRealtimeHub,
     authorization::{AuthorizedRealtimeDelivery, DeliveryAuthorizationError},
@@ -9,6 +11,18 @@ use crate::{
     helpers::{create_group, harness, insert_member, insert_user},
     postgres_support::TestDatabase,
 };
+
+#[test]
+fn production_redis_forwarder_uses_authorized_delivery_with_decode_backoff() -> TestResult {
+    let source = fs::read_to_string("src/transport/http/composition.rs")?;
+    assert!(source.contains("let realtime_delivery ="));
+    assert!(source.contains("AuthorizedRealtimeDelivery::new"));
+    assert!(source.contains("fn spawn_redis_forwarder(redis: Arc<RedisRealtimeAdapter>, delivery: AuthorizedRealtimeDelivery)"));
+    assert!(source.contains("delivery.publish(conversation_id, payload).await"));
+    assert!(source.contains("Duration::from_millis(20)"));
+    assert!(!source.contains("hub.publish(conversation_id, payload)"));
+    Ok(())
+}
 
 #[tokio::test]
 async fn dropped_control_signal_cannot_bypass_final_authoritative_delivery_check() -> TestResult {

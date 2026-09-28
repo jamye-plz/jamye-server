@@ -54,6 +54,7 @@ pub(super) async fn list_topics(
                       AND event.cursor > COALESCE(( \
                           SELECT marker.last_read_cursor FROM chatroom_reads marker \
                           WHERE marker.user_id = $2 AND marker.chatroom_id = topic_chat.id \
+                            AND marker.deleted_at IS NULL \
                       ), 0) \
                 ) AS unread \
          FROM topics t \
@@ -168,6 +169,7 @@ pub(super) async fn get_topic(
                       AND event.cursor > COALESCE(( \
                           SELECT marker.last_read_cursor FROM chatroom_reads marker \
                           WHERE marker.user_id = $3 AND marker.chatroom_id = topic_chat.id \
+                            AND marker.deleted_at IS NULL \
                       ), 0) \
                 ) AS unread \
          FROM topics t \
@@ -215,12 +217,14 @@ pub(super) async fn list_tags(
         "SELECT id, topic_id, tag, source, confidence \
          FROM topic_tags \
          WHERE topic_id = $1 \
+           AND deleted_at IS NULL \
            AND ( \
              $2::uuid IS NULL \
              OR (tag, id) > ( \
                  SELECT cursor_tag.tag, cursor_tag.id \
                  FROM topic_tags cursor_tag \
                  WHERE cursor_tag.id = $2 AND cursor_tag.topic_id = $1 \
+                   AND cursor_tag.deleted_at IS NULL \
              ) \
            ) \
          ORDER BY tag, id \
@@ -297,7 +301,9 @@ async fn hydrate(
         .collect::<HashMap<_, _>>();
     let tags = sqlx::query_as::<_, TopicTagRow>(
         "SELECT id, topic_id, tag, source, confidence \
-         FROM topic_tags WHERE topic_id = ANY($1) ORDER BY tag, id",
+         FROM topic_tags \
+         WHERE topic_id = ANY($1) AND deleted_at IS NULL \
+         ORDER BY tag, id",
     )
     .bind(&topic_ids)
     .fetch_all(pool)

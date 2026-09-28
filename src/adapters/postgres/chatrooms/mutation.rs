@@ -50,7 +50,7 @@ pub(super) async fn mark_read(
         "INSERT INTO chatroom_reads \
              (id, user_id, chatroom_id, last_read_cursor) \
          VALUES ($1, $2, $3, $4) \
-         ON CONFLICT ON CONSTRAINT uq_chatroom_reads_user_chatroom \
+         ON CONFLICT (user_id, chatroom_id) WHERE deleted_at IS NULL \
          DO UPDATE SET \
              last_read_cursor = GREATEST( \
                  chatroom_reads.last_read_cursor, EXCLUDED.last_read_cursor \

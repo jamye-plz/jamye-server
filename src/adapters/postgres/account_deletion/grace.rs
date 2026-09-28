@@ -97,10 +97,12 @@ async fn disable_push_installations(
 ) -> Result<(), AccountDeletionRepositoryError> {
     sqlx::query(
         "UPDATE push_installations \
-         SET disabled_at = COALESCE(disabled_at, $2) \
+         SET disabled_at = COALESCE(disabled_at, $2), \
+             deleted_at = COALESCE(deleted_at, $2), \
+             installation_id = 'deleted-' || id::text, \
+             token = 'deleted-' || id::text \
          WHERE user_id = $1 \
-           AND deleted_at IS NULL \
-           AND disabled_at IS NULL",
+           AND deleted_at IS NULL",
     )
     .bind(user_id)
     .bind(deleted_at)

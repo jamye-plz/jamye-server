@@ -30,7 +30,9 @@ async fn lock_group_memberships(
     group_id: Uuid,
 ) -> Result<(), PushRepositoryError> {
     sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM memberships WHERE group_id = $1 ORDER BY id FOR UPDATE",
+        "SELECT id FROM memberships \
+         WHERE group_id = $1 AND deleted_at IS NULL \
+         ORDER BY id FOR UPDATE",
     )
     .bind(group_id)
     .fetch_all(connection)
@@ -49,6 +51,7 @@ async fn lock_member_notifications(
          FROM notifications notification \
          JOIN chatrooms conversation ON conversation.id = notification.conversation_id \
          WHERE conversation.group_id = $1 AND notification.user_id = $2 \
+           AND notification.deleted_at IS NULL \
          ORDER BY notification.id \
          FOR UPDATE OF notification",
     )
@@ -68,6 +71,7 @@ async fn lock_group_notifications(
          FROM notifications notification \
          JOIN chatrooms conversation ON conversation.id = notification.conversation_id \
          WHERE conversation.group_id = $1 \
+           AND notification.deleted_at IS NULL \
          ORDER BY notification.id \
          FOR UPDATE OF notification",
     )
@@ -100,7 +104,9 @@ async fn lock_installations(
              SELECT occurrence.push_installation_id \
              FROM push_delivery_intents occurrence \
              WHERE occurrence.notification_id = ANY($1::UUID[]) \
+               AND occurrence.deleted_at IS NULL \
          ) \
+           AND installation.deleted_at IS NULL \
          ORDER BY installation.id \
          FOR UPDATE",
     )
@@ -118,6 +124,7 @@ async fn lock_live_occurrences(
     sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM push_delivery_intents \
          WHERE notification_id = ANY($1::UUID[]) \
+           AND deleted_at IS NULL \
            AND status IN ('pending', 'claimed', 'retryable') \
          ORDER BY id \
          FOR UPDATE",
@@ -140,6 +147,7 @@ async fn terminalize_occurrences(
          SET status = 'failed', claim_owner = NULL, lease_expires_at = NULL, \
              next_attempt_at = NULL, last_error_code = $2, failed_at = clock_timestamp() \
          WHERE id = ANY($1::UUID[]) \
+           AND deleted_at IS NULL \
            AND status IN ('pending', 'claimed', 'retryable')",
     )
     .bind(occurrence_ids.to_vec())

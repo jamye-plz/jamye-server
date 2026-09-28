@@ -16,6 +16,7 @@ pub(super) async fn mark_notification_read(
         "UPDATE notifications \
          SET read_at = COALESCE(read_at, clock_timestamp()) \
          WHERE id = $1 AND user_id = $2 \
+           AND deleted_at IS NULL \
          RETURNING id, read_at",
     )
     .bind(command.notification_id)

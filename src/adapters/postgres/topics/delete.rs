@@ -158,23 +158,19 @@ async fn lock_announcement_messages(
     author_id: Uuid,
     main_chatroom_id: Uuid,
 ) -> Result<Vec<Uuid>, TopicsRepositoryError> {
-    let link = format!(
-        "%/groups/{}/topics/{}/chat)%",
-        command.group_id, command.topic_id
-    );
     sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM messages \
          WHERE chatroom_id = $1 \
            AND sender_id = $2 \
            AND type = 'user' \
            AND deleted_at IS NULL \
-           AND body LIKE $3 \
+           AND announcement_for_topic_id = $3 \
          ORDER BY created_at, id \
          FOR UPDATE",
     )
     .bind(main_chatroom_id)
     .bind(author_id)
-    .bind(link)
+    .bind(command.topic_id)
     .fetch_all(connection)
     .await
     .map_err(|error| database_error("topic_delete_announcement_lock", error))
@@ -410,7 +406,8 @@ async fn stop_push_occurrences(
 ) -> Result<(), TopicsRepositoryError> {
     sqlx::query(
         "UPDATE push_delivery_intents \
-         SET status = 'failed', \
+         SET deleted_at = COALESCE(deleted_at, $3), \
+             status = 'failed', \
              claim_owner = NULL, \
              lease_expires_at = NULL, \
              failed_at = COALESCE(failed_at, $3), \
@@ -418,6 +415,7 @@ async fn stop_push_occurrences(
              source_message_id = NULL, \
              payload = jsonb_set(payload, '{message_id}', 'null'::jsonb, true) \
          WHERE status IN ('pending', 'claimed', 'retryable') \
+           AND deleted_at IS NULL \
            AND (source_message_id = ANY($1) OR source_event_id = ANY($2))",
     )
     .bind(message_ids.to_vec())
@@ -469,17 +467,27 @@ async fn delete_topic_side_tables(
     topic_id: Uuid,
     topic_chatroom_id: Uuid,
 ) -> Result<(), TopicsRepositoryError> {
-    sqlx::query("DELETE FROM chatroom_reads WHERE chatroom_id = $1")
-        .bind(topic_chatroom_id)
-        .execute(&mut *connection)
-        .await
-        .map_err(|error| database_error("topic_delete_reads", error))?;
-    sqlx::query("DELETE FROM topic_tags WHERE topic_id = $1")
-        .bind(topic_id)
-        .execute(connection)
-        .await
-        .map(|_| ())
-        .map_err(|error| database_error("topic_delete_tags", error))
+    sqlx::query(
+        "UPDATE chatroom_reads \
+         SET deleted_at = COALESCE(deleted_at, clock_timestamp()) \
+         WHERE chatroom_id = $1 AND deleted_at IS NULL",
+    )
+    .bind(topic_chatroom_id)
+    .execute(&mut *connection)
+    .await
+    .map_err(|error| database_error("topic_delete_reads", error))?;
+    sqlx::query(
+        "UPDATE topic_tags \
+         SET deleted_at = COALESCE(deleted_at, clock_timestamp()), \
+             tag = 'deleted-' || replace(id::text, '-', ''), \
+             confidence = NULL \
+         WHERE topic_id = $1 AND deleted_at IS NULL",
+    )
+    .bind(topic_id)
+    .execute(connection)
+    .await
+    .map(|_| ())
+    .map_err(|error| database_error("topic_delete_tags", error))
 }
 
 async fn scrub_topic_row_and_chatroom(

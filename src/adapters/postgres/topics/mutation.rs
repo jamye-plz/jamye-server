@@ -144,8 +144,9 @@ pub(super) async fn create_topic(
         .map_err(|error| database_error("topic_announcement_order", error))?;
     let announcement_created_at = sqlx::query_scalar::<_, OffsetDateTime>(
         "INSERT INTO messages \
-             (id, chatroom_id, sender_id, client_msg_id, body, type, created_at) \
-         VALUES ($1, $2, $3, $4, $5, 'user', $6) \
+             (id, chatroom_id, sender_id, client_msg_id, body, type, created_at, \
+              announcement_for_topic_id) \
+         VALUES ($1, $2, $3, $4, $5, 'user', $6, $7) \
          RETURNING created_at",
     )
     .bind(command.announcement_message_id)
@@ -154,6 +155,7 @@ pub(super) async fn create_topic(
     .bind(command.announcement_client_msg_id)
     .bind(&command.announcement_body)
     .bind(announcement_timestamp)
+    .bind(command.topic_id)
     .fetch_one(&mut *connection)
     .await
     .map_err(|error| database_error("topic_announcement_insert", error))?;
@@ -317,11 +319,15 @@ pub(super) async fn replace_tags(
     if author_id != command.actor_id {
         return Err(TopicsRepositoryError::AuthorRequired);
     }
-    sqlx::query("DELETE FROM topic_tags WHERE topic_id = $1")
-        .bind(command.topic_id)
-        .execute(&mut *connection)
-        .await
-        .map_err(|error| database_error("topic_tag_delete", error))?;
+    sqlx::query(
+        "UPDATE topic_tags \
+         SET deleted_at = COALESCE(deleted_at, clock_timestamp()) \
+         WHERE topic_id = $1 AND deleted_at IS NULL",
+    )
+    .bind(command.topic_id)
+    .execute(&mut *connection)
+    .await
+    .map_err(|error| database_error("topic_tag_delete", error))?;
     let mut items = Vec::with_capacity(command.tags.len());
     for tag in &command.tags {
         sqlx::query(
@@ -432,6 +438,7 @@ async fn load_topic(
                       AND event.cursor > COALESCE(( \
                           SELECT marker.last_read_cursor FROM chatroom_reads marker \
                           WHERE marker.user_id = $2 AND marker.chatroom_id = topic_chat.id \
+                            AND marker.deleted_at IS NULL \
                       ), 0) \
                 ) AS unread \
          FROM topics t \
@@ -450,7 +457,9 @@ async fn load_topic(
     let mut topic = topic_from_row(row)?;
     let tags = sqlx::query_as::<_, TopicTagRow>(
         "SELECT id, topic_id, tag, source, confidence \
-         FROM topic_tags WHERE topic_id = $1 ORDER BY tag, id",
+         FROM topic_tags \
+         WHERE topic_id = $1 AND deleted_at IS NULL \
+         ORDER BY tag, id",
     )
     .bind(topic_id)
     .fetch_all(&mut *connection)

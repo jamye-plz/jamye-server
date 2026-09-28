@@ -253,6 +253,15 @@ async fn t1_through_t8_http_use_the_locked_authenticated_mobile_shapes() -> Test
         )?)
         .await?;
     assert_eq!(tags.status(), StatusCode::OK);
+    sqlx::query(
+        "INSERT INTO chatroom_reads (id, user_id, chatroom_id, last_read_cursor) \
+         VALUES ($1, $2, $3, 1)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(fixture.member_id)
+    .bind(topic_chatroom_id)
+    .execute(&pool)
+    .await?;
 
     for actor_id in [fixture.owner_id, fixture.member_id] {
         let denied = router
@@ -352,11 +361,23 @@ async fn t1_through_t8_http_use_the_locked_authenticated_mobile_shapes() -> Test
             .fetch_one(&pool)
             .await?;
     assert!(chatroom_deleted);
-    let tag_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM topic_tags WHERE topic_id = $1")
-        .bind(topic_id)
-        .fetch_one(&pool)
-        .await?;
-    assert_eq!(tag_count, 0);
+    let tag_state: (i64, i64, bool) = sqlx::query_as(
+        "SELECT count(*), count(*) FILTER (WHERE deleted_at IS NULL), \
+                bool_and(tag LIKE 'deleted-%') \
+         FROM topic_tags WHERE topic_id = $1",
+    )
+    .bind(topic_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(tag_state, (1, 0, true));
+    let read_counts: (i64, i64) = sqlx::query_as(
+        "SELECT count(*), count(*) FILTER (WHERE deleted_at IS NULL) \
+         FROM chatroom_reads WHERE chatroom_id = $1",
+    )
+    .bind(topic_chatroom_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(read_counts, (2, 0));
 
     let (topic_event_id, topic_payload) = sqlx::query_as::<_, (Uuid, Value)>(
         "SELECT id, payload FROM conversation_events \

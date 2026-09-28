@@ -81,13 +81,32 @@ const MIGRATIONS_0001_THROUGH_0015: &[&str] = &[
     "0015_delete_events_and_live_read_indexes.sql",
 ];
 
+const MIGRATIONS_0001_THROUGH_0016: &[&str] = &[
+    "0001_core_reliable_messaging.sql",
+    "0002_auth_sessions.sql",
+    "0003_invites.sql",
+    "0004_chatroom_reads.sql",
+    "0005_topics.sql",
+    "0006_media.sql",
+    "0007_notifications_push.sql",
+    "0008_account_deletion.sql",
+    "0009_message_anchor_index.sql",
+    "0010_media_posters.sql",
+    "0011_main_chat_notifications.sql",
+    "0012_remove_topic_media.sql",
+    "0013_https_avatar_urls.sql",
+    "0014_audit_columns_and_updated_at_triggers.sql",
+    "0015_delete_events_and_live_read_indexes.sql",
+    "0016_account_grace_period.sql",
+];
+
 #[tokio::test]
-async fn fresh_disposable_database_applies_the_canonical_0001_through_0016_chain() -> TestResult {
+async fn fresh_disposable_database_applies_the_canonical_0001_through_0017_chain() -> TestResult {
     let database = TestDatabase::migrated().await?;
     let mut connection = database.connection().await?;
     let result: TestResult = async {
         let applied: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM _sqlx_migrations WHERE success AND version BETWEEN 1 AND 16",
+            "SELECT count(*) FROM _sqlx_migrations WHERE success AND version BETWEEN 1 AND 17",
         )
         .fetch_one(&mut connection)
         .await?;
@@ -98,10 +117,10 @@ async fn fresh_disposable_database_applies_the_canonical_0001_through_0016_chain
         .await?;
         require_eq(
             applied,
-            16,
-            "fresh disposable chain did not apply 0001 through 0016",
+            17,
+            "fresh disposable chain did not apply 0001 through 0017",
         )?;
-        require_eq(latest, 16, "fresh disposable chain did not end at 0016")?;
+        require_eq(latest, 17, "fresh disposable chain did not end at 0017")?;
         Ok(())
     }
     .await;
@@ -664,6 +683,225 @@ async fn controlled_0016_failure_rolls_back_account_grace_schema() -> TestResult
     }
 }
 
+#[test]
+fn migration_0017_is_forward_only_remaining_soft_delete_metadata() -> TestResult {
+    let sql = migration_0017_source()?;
+    for required in [
+        "-- migration: 0017_remaining_soft_delete_live_uniqueness",
+        "-- prerequisite: 0016_account_grace_period.sql",
+        "-- reversibility: forward-only",
+        "-- recovery: docs/adr/0003-forward-only-sqlx-migrations.md",
+        "-- rationale:",
+        "-- lock impact:",
+        "CREATE UNIQUE INDEX uq_topic_tags_topic_tag",
+        "CREATE UNIQUE INDEX uq_push_installations_installation_id",
+        "CREATE UNIQUE INDEX uq_push_installations_destination",
+        "CREATE UNIQUE INDEX uq_chatroom_reads_user_chatroom",
+        "CREATE UNIQUE INDEX ux_notifications_user_dedup",
+        "CREATE UNIQUE INDEX uq_push_delivery_source_installation",
+        "ADD COLUMN announcement_for_topic_id UUID",
+        "announcement_for_topic_id IS NOT NULL AND deleted_at IS NULL",
+    ] {
+        require(
+            sql.contains(required),
+            &format!("0017 migration is missing remaining-soft-delete metadata or DDL: {required}"),
+        )?;
+    }
+    for forbidden in ["-- no-transaction", "DROP TABLE", "DROP COLUMN"] {
+        require(
+            !sql.contains(forbidden),
+            &format!("0017 migration crossed destructive migration scope: {forbidden}"),
+        )?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn migration_0017_upgrades_0016_with_live_row_uniqueness_and_announcements() -> TestResult {
+    let database = TestDatabase::migrated_to(16).await?;
+    let mut connection = database.connection().await?;
+    let result: TestResult = async {
+        require(
+            !column_exists(&mut connection, "messages", "announcement_for_topic_id").await?,
+            "exact 0016 predecessor already had messages.announcement_for_topic_id",
+        )?;
+        let user_id = Uuid::new_v4();
+        let group_id = Uuid::new_v4();
+        let main_chatroom_id = Uuid::new_v4();
+        let topic_id = Uuid::new_v4();
+        let topic_chatroom_id = Uuid::new_v4();
+        let announcement_message_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO users (id, nickname) VALUES ($1, 'phase2 user')")
+            .bind(user_id)
+            .execute(&mut connection)
+            .await?;
+        sqlx::query("INSERT INTO groups (id, name, owner_id) VALUES ($1, 'phase2 group', $2)")
+            .bind(group_id)
+            .bind(user_id)
+            .execute(&mut connection)
+            .await?;
+        sqlx::query(
+            "INSERT INTO chatrooms (id, group_id, type, topic_id) VALUES ($1, $2, 'main', NULL)",
+        )
+        .bind(main_chatroom_id)
+        .bind(group_id)
+        .execute(&mut connection)
+        .await?;
+        sqlx::query(
+            "INSERT INTO topics \
+                 (id, group_id, author_id, idempotency_key, request_fingerprint, title) \
+             VALUES ($1, $2, $3, $4, $5, 'phase2 topic')",
+        )
+        .bind(topic_id)
+        .bind(group_id)
+        .bind(user_id)
+        .bind(Uuid::new_v4())
+        .bind("0".repeat(64))
+        .execute(&mut connection)
+        .await?;
+        sqlx::query(
+            "INSERT INTO chatrooms (id, group_id, type, topic_id) VALUES ($1, $2, 'topic', $3)",
+        )
+        .bind(topic_chatroom_id)
+        .bind(group_id)
+        .bind(topic_id)
+        .execute(&mut connection)
+        .await?;
+        sqlx::query(
+            "INSERT INTO messages (id, chatroom_id, sender_id, client_msg_id, body, type) \
+             VALUES ($1, $2, $3, $4, $5, 'user')",
+        )
+        .bind(announcement_message_id)
+        .bind(main_chatroom_id)
+        .bind(user_id)
+        .bind(Uuid::new_v4())
+        .bind(format!(
+            "새로운 주제를 올렸어요: [phase2 topic](/groups/{group_id}/topics/{topic_id}/chat)"
+        ))
+        .execute(&mut connection)
+        .await?;
+
+        let migrator = sqlx::migrate::Migrator::new(Path::new("migrations")).await?;
+        migrator.run_to(17, &mut connection).await?;
+
+        require(
+            column_exists(&mut connection, "messages", "announcement_for_topic_id").await?,
+            "0017 did not add messages.announcement_for_topic_id",
+        )?;
+        let backfilled: Option<Uuid> =
+            sqlx::query_scalar("SELECT announcement_for_topic_id FROM messages WHERE id = $1")
+                .bind(announcement_message_id)
+                .fetch_one(&mut connection)
+                .await?;
+        require_eq(
+            backfilled,
+            Some(topic_id),
+            "0017 did not backfill the structural announcement reference",
+        )?;
+        for index_name in [
+            "uq_invites_code",
+            "uq_chatroom_reads_user_chatroom",
+            "uq_topic_tags_topic_tag",
+            "ux_notifications_user_dedup",
+            "uq_push_installations_installation_id",
+            "uq_push_installations_destination",
+            "uq_push_delivery_source_installation",
+        ] {
+            require(
+                index_predicate_mentions_deleted_at(&mut connection, index_name).await?,
+                &format!("0017 did not convert {index_name} to live-row uniqueness"),
+            )?;
+        }
+
+        assert_0017_live_unique_recreate_paths(&mut connection, user_id, group_id, topic_id)
+            .await?;
+        Ok(())
+    }
+    .await;
+
+    connection.close().await?;
+    database.dispose().await?;
+    result
+}
+
+#[tokio::test]
+async fn controlled_0017_failure_rolls_back_remaining_soft_delete_schema() -> TestResult {
+    let migration_sql = migration_0017_source()?;
+    let database = TestDatabase::migrated_to(16).await?;
+    let fixture_dir = env::temp_dir().join(format!(
+        "jamye-server-task-14b-forced-migration-{}",
+        Uuid::new_v4().simple()
+    ));
+    let result: TestResult = async {
+        fs::create_dir_all(&fixture_dir)?;
+        for migration in MIGRATIONS_0001_THROUGH_0016 {
+            fs::copy(
+                Path::new("migrations").join(migration),
+                fixture_dir.join(migration),
+            )?;
+        }
+        fs::write(
+            fixture_dir.join("0017_remaining_soft_delete_live_uniqueness.sql"),
+            format!("{migration_sql}\nSELECT 1 / 0;\n"),
+        )?;
+
+        let mut connection = database.connection().await?;
+        let migrator = sqlx::migrate::Migrator::new(fixture_dir.as_path()).await?;
+        require(
+            migrator.run(&mut connection).await.is_err(),
+            "forced 0017 migration unexpectedly passed",
+        )?;
+        require(
+            !column_exists(&mut connection, "messages", "announcement_for_topic_id").await?,
+            "failed 0017 left messages.announcement_for_topic_id behind",
+        )?;
+        require(
+            !index_predicate_mentions_deleted_at(&mut connection, "uq_invites_code").await?,
+            "failed 0017 left live invite uniqueness behind",
+        )?;
+        let applied: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations WHERE version = 17")
+                .fetch_one(&mut connection)
+                .await?;
+        require_eq(applied, 0, "failed 0017 recorded a successful migration")?;
+        connection.close().await?;
+        Ok(())
+    }
+    .await;
+
+    let fixture_cleanup = fs::remove_dir_all(&fixture_dir);
+    let database_cleanup = database.dispose().await;
+    match (result, fixture_cleanup, database_cleanup) {
+        (Ok(()), Ok(()), Ok(())) => Ok(()),
+        (Err(test_error), Ok(()), Ok(())) => Err(test_error),
+        (Ok(()), Err(fixture_error), Ok(())) => Err(format!(
+            "failed to remove forced 0017 fixture {}: {fixture_error}",
+            fixture_dir.display()
+        )
+        .into()),
+        (Ok(()), Ok(()), Err(database_error)) => Err(database_error),
+        (Err(test_error), Err(fixture_error), Ok(())) => Err(format!(
+            "migration test failed: {test_error}; fixture cleanup also failed for {}: {fixture_error}",
+            fixture_dir.display()
+        )
+        .into()),
+        (Err(test_error), Ok(()), Err(database_error)) => Err(format!(
+            "migration test failed: {test_error}; database cleanup also failed: {database_error}"
+        )
+        .into()),
+        (Ok(()), Err(fixture_error), Err(database_error)) => Err(format!(
+            "fixture cleanup failed for {}: {fixture_error}; database cleanup also failed: {database_error}",
+            fixture_dir.display()
+        )
+        .into()),
+        (Err(test_error), Err(fixture_error), Err(database_error)) => Err(format!(
+            "migration test failed: {test_error}; fixture cleanup failed for {}: {fixture_error}; database cleanup also failed: {database_error}",
+            fixture_dir.display()
+        )
+        .into()),
+    }
+}
+
 #[tokio::test]
 async fn migration_0005_adds_chatrooms_topic_id_fk_only_after_topics_exists() -> TestResult {
     let database = TestDatabase::migrated_to(4).await?;
@@ -794,6 +1032,203 @@ fn migration_0016_source() -> TestResult<String> {
     })
 }
 
+fn migration_0017_source() -> TestResult<String> {
+    fs::read_to_string("migrations/0017_remaining_soft_delete_live_uniqueness.sql").map_err(
+        |error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                io::Error::other(
+                    "RED: migrations/0017_remaining_soft_delete_live_uniqueness.sql is absent",
+                )
+                .into()
+            } else {
+                error.into()
+            }
+        },
+    )
+}
+
+async fn assert_0017_live_unique_recreate_paths(
+    connection: &mut PgConnection,
+    user_id: Uuid,
+    group_id: Uuid,
+    topic_id: Uuid,
+) -> TestResult {
+    let topic_chatroom_id: Uuid =
+        sqlx::query_scalar("SELECT id FROM chatrooms WHERE topic_id = $1")
+            .bind(topic_id)
+            .fetch_one(&mut *connection)
+            .await?;
+
+    sqlx::query("INSERT INTO invites (id, group_id, code, created_by) VALUES ($1, $2, $3, $4)")
+        .bind(Uuid::new_v4())
+        .bind(group_id)
+        .bind("task17-invite-code")
+        .bind(user_id)
+        .execute(&mut *connection)
+        .await?;
+    sqlx::query("UPDATE invites SET deleted_at = clock_timestamp() WHERE code = $1")
+        .bind("task17-invite-code")
+        .execute(&mut *connection)
+        .await?;
+    sqlx::query("INSERT INTO invites (id, group_id, code, created_by) VALUES ($1, $2, $3, $4)")
+        .bind(Uuid::new_v4())
+        .bind(group_id)
+        .bind("task17-invite-code")
+        .bind(user_id)
+        .execute(&mut *connection)
+        .await?;
+
+    sqlx::query(
+        "INSERT INTO chatroom_reads (id, user_id, chatroom_id, last_read_cursor) \
+         VALUES ($1, $2, $3, 10)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(user_id)
+    .bind(topic_chatroom_id)
+    .execute(&mut *connection)
+    .await?;
+    sqlx::query(
+        "UPDATE chatroom_reads SET deleted_at = clock_timestamp() \
+         WHERE user_id = $1 AND chatroom_id = $2",
+    )
+    .bind(user_id)
+    .bind(topic_chatroom_id)
+    .execute(&mut *connection)
+    .await?;
+    sqlx::query(
+        "INSERT INTO chatroom_reads (id, user_id, chatroom_id, last_read_cursor) \
+         VALUES ($1, $2, $3, 11)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(user_id)
+    .bind(topic_chatroom_id)
+    .execute(&mut *connection)
+    .await?;
+
+    sqlx::query("INSERT INTO topic_tags (id, topic_id, tag, source) VALUES ($1, $2, $3, 'user')")
+        .bind(Uuid::new_v4())
+        .bind(topic_id)
+        .bind("phase2-tag")
+        .execute(&mut *connection)
+        .await?;
+    sqlx::query("UPDATE topic_tags SET deleted_at = clock_timestamp() WHERE topic_id = $1")
+        .bind(topic_id)
+        .execute(&mut *connection)
+        .await?;
+    sqlx::query("INSERT INTO topic_tags (id, topic_id, tag, source) VALUES ($1, $2, $3, 'user')")
+        .bind(Uuid::new_v4())
+        .bind(topic_id)
+        .bind("phase2-tag")
+        .execute(&mut *connection)
+        .await?;
+
+    let notification_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO notifications (id, user_id, type, payload, dedup_key) \
+         VALUES ($1, $2, 'other', '{}'::jsonb, $3)",
+    )
+    .bind(notification_id)
+    .bind(user_id)
+    .bind("task17-dedup")
+    .execute(&mut *connection)
+    .await?;
+    sqlx::query("UPDATE notifications SET deleted_at = clock_timestamp() WHERE id = $1")
+        .bind(notification_id)
+        .execute(&mut *connection)
+        .await?;
+    let live_notification_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO notifications (id, user_id, type, payload, dedup_key) \
+         VALUES ($1, $2, 'other', '{}'::jsonb, $3)",
+    )
+    .bind(live_notification_id)
+    .bind(user_id)
+    .bind("task17-dedup")
+    .execute(&mut *connection)
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO push_installations \
+             (id, user_id, installation_id, platform, provider, token, environment) \
+         VALUES ($1, $2, $3, 'ios', 'expo', $4, 'development')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(user_id)
+    .bind("task17-device")
+    .bind("ExponentPushToken[task17]")
+    .execute(&mut *connection)
+    .await?;
+    sqlx::query(
+        "UPDATE push_installations SET deleted_at = clock_timestamp() \
+         WHERE installation_id = $1",
+    )
+    .bind("task17-device")
+    .execute(&mut *connection)
+    .await?;
+    let live_installation_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO push_installations \
+             (id, user_id, installation_id, platform, provider, token, environment) \
+         VALUES ($1, $2, $3, 'ios', 'expo', $4, 'development')",
+    )
+    .bind(live_installation_id)
+    .bind(user_id)
+    .bind("task17-device")
+    .bind("ExponentPushToken[task17]")
+    .execute(&mut *connection)
+    .await?;
+
+    let source_event_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO conversation_events \
+             (id, conversation_id, event_type, event_version, payload) \
+         VALUES ($1, $2, 'message.created', 1, '{}'::jsonb)",
+    )
+    .bind(source_event_id)
+    .bind(topic_chatroom_id)
+    .execute(&mut *connection)
+    .await?;
+    sqlx::query(
+        "INSERT INTO push_delivery_intents \
+             (id, notification_id, source_event_id, recipient_user_id, \
+              push_installation_id, installation_owner_epoch, \
+              message_preview_enabled_snapshot, payload) \
+         VALUES ($1, $2, $3, $4, $5, 1, false, '{}'::jsonb)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(live_notification_id)
+    .bind(source_event_id)
+    .bind(user_id)
+    .bind(live_installation_id)
+    .execute(&mut *connection)
+    .await?;
+    sqlx::query(
+        "UPDATE push_delivery_intents \
+         SET deleted_at = clock_timestamp() \
+         WHERE source_event_id = $1 AND push_installation_id = $2",
+    )
+    .bind(source_event_id)
+    .bind(live_installation_id)
+    .execute(&mut *connection)
+    .await?;
+    sqlx::query(
+        "INSERT INTO push_delivery_intents \
+             (id, notification_id, source_event_id, recipient_user_id, \
+              push_installation_id, installation_owner_epoch, \
+              message_preview_enabled_snapshot, payload) \
+         VALUES ($1, $2, $3, $4, $5, 1, false, '{}'::jsonb)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(live_notification_id)
+    .bind(source_event_id)
+    .bind(user_id)
+    .bind(live_installation_id)
+    .execute(&mut *connection)
+    .await?;
+
+    Ok(())
+}
+
 async fn topic_title_constraint_mentions_deleted_at(
     connection: &mut PgConnection,
 ) -> TestResult<bool> {
@@ -821,7 +1256,7 @@ async fn index_predicate_mentions_deleted_at(
     connection: &mut PgConnection,
     index_name: &str,
 ) -> TestResult<bool> {
-    let predicate: Option<String> = sqlx::query_scalar(
+    let predicate: Option<Option<String>> = sqlx::query_scalar(
         "SELECT pg_get_expr(index_entry.indpred, index_entry.indrelid) \
          FROM pg_index index_entry \
          JOIN pg_class index_class ON index_class.oid = index_entry.indexrelid \
@@ -830,7 +1265,9 @@ async fn index_predicate_mentions_deleted_at(
     .bind(index_name)
     .fetch_optional(connection)
     .await?;
-    Ok(predicate.is_some_and(|predicate| predicate.contains("deleted_at IS NULL")))
+    Ok(predicate
+        .flatten()
+        .is_some_and(|predicate| predicate.contains("deleted_at IS NULL")))
 }
 
 async fn trigger_count(connection: &mut PgConnection) -> TestResult<i64> {

@@ -226,6 +226,61 @@ async fn invalid_claim_requests_are_rejected_without_mutating_the_occurrence() -
     database.dispose().await
 }
 
+#[tokio::test]
+async fn soft_deleted_occurrences_are_not_claimed_completed_or_retried() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let topology = pending_topology(&pool).await?;
+    let repository = PostgresPushRepository::new(pool.clone());
+    sqlx::query("UPDATE push_delivery_intents SET deleted_at = clock_timestamp() WHERE id = $1")
+        .bind(topology.occurrence_id)
+        .execute(&pool)
+        .await?;
+
+    assert!(
+        repository
+            .claim_deliveries(claim_request("deleted-owner", 500))
+            .await?
+            .is_empty()
+    );
+    assert!(
+        !repository
+            .mark_delivery_succeeded(&jamye_server::ports::push::ClaimedPushDelivery {
+                claim: topology.claim.clone(),
+                claim_expires_at: time::OffsetDateTime::now_utc() + time::Duration::minutes(5),
+                attempt_count: 0,
+            })
+            .await?
+    );
+    assert_eq!(
+        repository
+            .record_delivery_failure(
+                &jamye_server::ports::push::ClaimedPushDelivery {
+                    claim: topology.claim,
+                    claim_expires_at: time::OffsetDateTime::now_utc() + time::Duration::minutes(5),
+                    attempt_count: 0,
+                },
+                PushDeliveryFailureCode::ExpoUnavailable,
+                Duration::from_millis(1),
+                2,
+            )
+            .await?,
+        PushDeliveryFailureDisposition::StaleClaim
+    );
+
+    let state = sqlx::query_as::<_, (String, i64, bool)>(
+        "SELECT status, claim_generation, deleted_at IS NOT NULL \
+         FROM push_delivery_intents WHERE id = $1",
+    )
+    .bind(topology.occurrence_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(state, ("pending".to_owned(), 0, true));
+
+    pool.close().await;
+    database.dispose().await
+}
+
 async fn pending_topology(pool: &PgPool) -> TestResult<SendTopology> {
     let topology = SendTopology::new(pool).await?;
     sqlx::query(

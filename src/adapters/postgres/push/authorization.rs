@@ -87,6 +87,7 @@ async fn delivery_topology(
          JOIN chatrooms conversation ON conversation.id = notification.conversation_id \
          LEFT JOIN topics topic ON topic.id = conversation.topic_id \
          WHERE intent.id = $1 \
+           AND intent.deleted_at IS NULL \
            AND notification.deleted_at IS NULL \
            AND conversation.deleted_at IS NULL \
            AND (conversation.topic_id IS NULL OR topic.deleted_at IS NULL)",
@@ -215,6 +216,7 @@ async fn lock_occurrence(
            AND push_installation_id = $4 AND installation_owner_epoch = $5 \
            AND provider = 'expo' AND status = 'claimed' AND claim_owner = $6 \
            AND claim_generation = $7 AND lease_expires_at > clock_timestamp() \
+           AND deleted_at IS NULL \
          FOR UPDATE",
     )
     .bind(claim.occurrence_id)

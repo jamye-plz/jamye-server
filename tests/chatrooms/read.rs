@@ -230,6 +230,66 @@ async fn stale_duplicate_and_newer_reads_return_one_monotonic_canonical_marker()
 }
 
 #[tokio::test]
+async fn soft_deleted_read_marker_is_hidden_and_does_not_block_recreation() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let fixture = topology(&pool).await?;
+    let service = harness(pool.clone()).service;
+    let first_cursor = insert_event(&pool, fixture.chatroom_id).await?;
+    let second_cursor = insert_event(&pool, fixture.chatroom_id).await?;
+
+    let first = service
+        .mark_read(
+            fixture.owner_id,
+            fixture.chatroom_id,
+            ReadCursorInput {
+                cursor: first_cursor.to_string(),
+            },
+        )
+        .await?;
+    sqlx::query("UPDATE chatroom_reads SET deleted_at = clock_timestamp() WHERE id = $1")
+        .bind(first.id)
+        .execute(&pool)
+        .await?;
+    assert_eq!(
+        service
+            .read_marker(fixture.owner_id, fixture.chatroom_id)
+            .await?,
+        None
+    );
+
+    let recreated = service
+        .mark_read(
+            fixture.owner_id,
+            fixture.chatroom_id,
+            ReadCursorInput {
+                cursor: second_cursor.to_string(),
+            },
+        )
+        .await?;
+    assert_ne!(recreated.id, first.id);
+    assert_eq!(recreated.last_read_cursor, second_cursor);
+    assert_eq!(
+        service
+            .read_marker(fixture.owner_id, fixture.chatroom_id)
+            .await?,
+        Some(recreated)
+    );
+    let counts: (i64, i64) = sqlx::query_as(
+        "SELECT count(*), count(*) FILTER (WHERE deleted_at IS NULL) \
+         FROM chatroom_reads WHERE user_id = $1 AND chatroom_id = $2",
+    )
+    .bind(fixture.owner_id)
+    .bind(fixture.chatroom_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(counts, (2, 1));
+
+    pool.close().await;
+    database.dispose().await
+}
+
+#[tokio::test]
 async fn concurrent_reads_converge_on_the_highest_cursor_and_one_row() -> TestResult {
     let database = TestDatabase::migrated().await?;
     let pool = database.pool()?;
