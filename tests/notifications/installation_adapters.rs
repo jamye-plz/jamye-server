@@ -294,7 +294,69 @@ async fn postgres_p3_preserves_omitted_preview_and_p4_is_current_owner_scoped() 
         )
         .await?;
     transactions.commit(owner_transaction).await?;
-    assert_eq!(installation_count(&pool).await?, 0);
+    assert_eq!(live_installation_count(&pool).await?, 0);
+    assert_eq!(installation_count(&pool).await?, 1);
+
+    pool.close().await;
+    database.dispose().await
+}
+
+#[tokio::test]
+async fn postgres_p2_recreates_after_soft_delete_without_reusing_the_deleted_row() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let owner_id = insert_user(&pool, "재등록 설치 소유자").await?;
+    let repository = PostgresPushRepository::new(pool.clone());
+    let transactions = SqlxTransactionManager::new(pool.clone());
+
+    let created = committed_upsert(
+        &repository,
+        &transactions,
+        upsert_command(
+            owner_id,
+            INSTALLATION_A,
+            TOKEN_SHARED,
+            PushEnvironment::Development,
+            true,
+        ),
+    )
+    .await?;
+    committed_delete(
+        &repository,
+        &transactions,
+        DeletePushInstallationCommand {
+            user_id: owner_id,
+            installation_id: INSTALLATION_A.to_owned(),
+        },
+    )
+    .await?;
+
+    let recreated = committed_upsert(
+        &repository,
+        &transactions,
+        upsert_command(
+            owner_id,
+            INSTALLATION_A,
+            TOKEN_SHARED,
+            PushEnvironment::Development,
+            false,
+        ),
+    )
+    .await?;
+    assert!(recreated.created);
+    assert_ne!(recreated.installation.id, created.installation.id);
+    assert_eq!(recreated.installation.owner_epoch, 1);
+    assert!(!recreated.installation.message_preview_enabled);
+    assert_eq!(live_installation_count(&pool).await?, 1);
+    assert_eq!(installation_count(&pool).await?, 2);
+
+    let live_token: String = sqlx::query_scalar(
+        "SELECT token FROM push_installations WHERE deleted_at IS NULL AND installation_id = $1",
+    )
+    .bind(INSTALLATION_A)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(live_token, TOKEN_SHARED);
 
     pool.close().await;
     database.dispose().await
@@ -394,6 +456,19 @@ async fn committed_update(
     Ok(installation)
 }
 
+async fn committed_delete(
+    repository: &PostgresPushRepository,
+    transactions: &SqlxTransactionManager,
+    command: DeletePushInstallationCommand,
+) -> TestResult {
+    let mut transaction = transactions.begin().await?;
+    repository
+        .delete_installation(transaction.as_mut(), &command)
+        .await?;
+    transactions.commit(transaction).await?;
+    Ok(())
+}
+
 fn upsert_command(
     user_id: Uuid,
     installation_id: &str,
@@ -434,6 +509,14 @@ async fn mark_user_deleted(pool: &PgPool, user_id: Uuid) -> TestResult {
 async fn installation_count(pool: &PgPool) -> TestResult<i64> {
     Ok(
         sqlx::query_scalar("SELECT count(*) FROM push_installations")
+            .fetch_one(pool)
+            .await?,
+    )
+}
+
+async fn live_installation_count(pool: &PgPool) -> TestResult<i64> {
+    Ok(
+        sqlx::query_scalar("SELECT count(*) FROM push_installations WHERE deleted_at IS NULL")
             .fetch_one(pool)
             .await?,
     )

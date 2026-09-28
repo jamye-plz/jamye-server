@@ -353,6 +353,52 @@ async fn p3_and_p4_are_current_owner_scoped_and_keep_the_public_response_shape()
     database.dispose().await
 }
 
+#[tokio::test]
+async fn p2_and_p3_return_authentication_required_for_grace_deleted_actor() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let actor_id = Uuid::new_v4();
+    sqlx::query("INSERT INTO users (id, nickname, deleted_at) VALUES ($1, $2, clock_timestamp())")
+        .bind(actor_id)
+        .bind("삭제 유예 푸시 사용자")
+        .execute(&pool)
+        .await?;
+    let router = task_9_router(pool.clone());
+
+    let created = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/v1/push/installations",
+            Some(actor_id),
+            json!({
+                "platform": "ios",
+                "environment": "development",
+                "installation_id": INSTALLATION_ID,
+                "expo_token": EXPO_TOKEN,
+            }),
+        )?)
+        .await?;
+    assert_error(created, StatusCode::UNAUTHORIZED, "authentication_required").await?;
+    let updated = router
+        .oneshot(json_request(
+            "PUT",
+            &format!("/api/v1/push/installations/{INSTALLATION_ID}"),
+            Some(actor_id),
+            json!({"expo_token": EXPO_TOKEN}),
+        )?)
+        .await?;
+    assert_error(updated, StatusCode::UNAUTHORIZED, "authentication_required").await?;
+    let live_installations: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM push_installations WHERE deleted_at IS NULL")
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(live_installations, 0);
+
+    pool.close().await;
+    database.dispose().await
+}
+
 fn task_9_router(pool: PgPool) -> Router {
     let verifier: Arc<dyn AccessTokenVerifier> = Arc::new(TestAccessVerifier);
     let notifications = Arc::new(NotificationsService::new(NotificationsDependencies {

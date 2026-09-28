@@ -10,6 +10,8 @@ use jamye_server::{
         transactions::TransactionManager,
     },
 };
+use serde_json::{Value, json};
+use uuid::Uuid;
 
 use crate::{TestResult, postgres_support::TestDatabase};
 
@@ -141,6 +143,67 @@ async fn committed_privacy_mutations_remove_all_old_attempt_material() -> TestRe
     .await?;
     assert!(
         committed_authorize(&repository, &transactions, &deleted_installation.claim)
+            .await?
+            .is_none()
+    );
+
+    pool.close().await;
+    database.dispose().await
+}
+
+#[tokio::test]
+async fn soft_deleted_push_material_scrubs_private_values_and_is_never_authorized() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let topology = SendTopology::new(&pool).await?;
+    let repository = PostgresPushRepository::new(pool.clone());
+    let transactions = SqlxTransactionManager::new(pool.clone());
+
+    committed_delete(
+        &repository,
+        &transactions,
+        DeletePushInstallationCommand {
+            user_id: topology.recipient_id,
+            installation_id: topology.public_installation_id.clone(),
+        },
+    )
+    .await?;
+    let scrubbed_installation = sqlx::query_as::<_, (String, String)>(
+        "SELECT installation_id, token \
+         FROM push_installations WHERE id = $1 AND deleted_at IS NOT NULL",
+    )
+    .bind(topology.installation_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_ne!(scrubbed_installation.0, topology.public_installation_id);
+    assert_ne!(scrubbed_installation.1, topology.expo_token);
+    assert!(scrubbed_installation.0.starts_with("deleted-"));
+    assert!(scrubbed_installation.1.starts_with("deleted-"));
+    let scrubbed_occurrence = sqlx::query_as::<_, (Option<Uuid>, Value)>(
+        "SELECT source_message_id, payload \
+         FROM push_delivery_intents WHERE id = $1 AND deleted_at IS NOT NULL",
+    )
+    .bind(topology.occurrence_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(scrubbed_occurrence, (None, json!({})));
+    assert!(
+        committed_authorize(&repository, &transactions, &topology.claim)
+            .await?
+            .is_none()
+    );
+
+    let occurrence_only = SendTopology::new(&pool).await?;
+    sqlx::query(
+        "UPDATE push_delivery_intents \
+         SET deleted_at = clock_timestamp(), source_message_id = NULL, payload = '{}'::jsonb \
+         WHERE id = $1",
+    )
+    .bind(occurrence_only.occurrence_id)
+    .execute(&pool)
+    .await?;
+    assert!(
+        committed_authorize(&repository, &transactions, &occurrence_only.claim)
             .await?
             .is_none()
     );

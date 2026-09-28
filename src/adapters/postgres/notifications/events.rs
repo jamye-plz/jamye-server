@@ -88,7 +88,12 @@ pub(super) async fn clear_topic_notifications(
     command: &ClearTopicNotificationsCommand,
 ) -> Result<NotificationClearReport, NotificationsRepositoryError> {
     let target = sqlx::query_as::<_, (Uuid, Option<Uuid>)>(
-        "SELECT group_id, topic_id FROM chatrooms WHERE id = $1",
+        "SELECT chatroom.group_id, chatroom.topic_id \
+         FROM chatrooms chatroom \
+         LEFT JOIN topics topic ON topic.id = chatroom.topic_id \
+         WHERE chatroom.id = $1 \
+           AND chatroom.deleted_at IS NULL \
+           AND (chatroom.topic_id IS NULL OR topic.deleted_at IS NULL)",
     )
     .bind(command.conversation_id)
     .fetch_optional(&mut *connection)
@@ -101,6 +106,7 @@ pub(super) async fn clear_topic_notifications(
     let read_cursor = sqlx::query_scalar::<_, i64>(
         "SELECT last_read_cursor FROM chatroom_reads \
          WHERE user_id = $1 AND chatroom_id = $2 \
+           AND deleted_at IS NULL \
          FOR SHARE",
     )
     .bind(command.user_id)
@@ -119,7 +125,8 @@ pub(super) async fn clear_topic_notifications(
          WHERE user_id = $1 AND topic_id IS NOT DISTINCT FROM $2 \
            AND conversation_id = $3 \
            AND type IN ('new_topic', 'chat_unread') \
-           AND source_cursor <= $4 AND read_at IS NULL",
+           AND source_cursor <= $4 AND read_at IS NULL \
+           AND deleted_at IS NULL",
     )
     .bind(command.user_id)
     .bind(target.1)
@@ -439,7 +446,8 @@ async fn insert_occurrence(
               recipient_user_id, push_installation_id, installation_owner_epoch, \
               message_preview_enabled_snapshot, payload) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) \
-         ON CONFLICT ON CONSTRAINT uq_push_delivery_source_installation DO NOTHING",
+         ON CONFLICT (source_event_id, push_installation_id) WHERE deleted_at IS NULL \
+         DO NOTHING",
     )
     .bind(Uuid::new_v4())
     .bind(notification_id)
@@ -467,7 +475,7 @@ async fn upsert_notification(
         "INSERT INTO notifications \
              (id, user_id, topic_id, conversation_id, source_cursor, type, payload, dedup_key) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
-         ON CONFLICT (user_id, dedup_key) WHERE dedup_key IS NOT NULL \
+         ON CONFLICT (user_id, dedup_key) WHERE dedup_key IS NOT NULL AND deleted_at IS NULL \
          DO UPDATE SET \
              source_cursor = GREATEST(notifications.source_cursor, EXCLUDED.source_cursor), \
              payload = CASE \
@@ -485,6 +493,7 @@ async fn upsert_notification(
          WHERE notifications.type = EXCLUDED.type \
            AND notifications.topic_id IS NOT DISTINCT FROM EXCLUDED.topic_id \
            AND notifications.conversation_id = EXCLUDED.conversation_id \
+           AND notifications.deleted_at IS NULL \
          RETURNING id",
     )
     .bind(Uuid::new_v4())

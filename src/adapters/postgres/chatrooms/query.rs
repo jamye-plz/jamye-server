@@ -297,7 +297,9 @@ pub(super) async fn chatroom_media(
              JOIN messages message ON message.id = media.message_id \
              JOIN chatrooms chatroom ON chatroom.id = message.chatroom_id \
              LEFT JOIN topics topic ON topic.id = chatroom.topic_id \
-             LEFT JOIN media_uploads upload ON upload.id = media.media_upload_id \
+             JOIN media_uploads upload \
+               ON upload.id = media.media_upload_id \
+              AND upload.deleted_at IS NULL \
              CROSS JOIN actor_access \
              WHERE message.chatroom_id = $1 \
                AND actor_access.member \
@@ -371,7 +373,9 @@ async fn hydrate_message_media(
                 media.filename, media.position, upload.poster_upload_id \
          FROM message_media AS media \
          JOIN messages AS message ON message.id = media.message_id \
-         LEFT JOIN media_uploads AS upload ON upload.id = media.media_upload_id \
+         JOIN media_uploads AS upload \
+           ON upload.id = media.media_upload_id \
+          AND upload.deleted_at IS NULL \
          WHERE media.message_id = ANY($1) \
            AND message.deleted_at IS NULL \
            AND media.deleted_at IS NULL \
@@ -499,7 +503,10 @@ pub(super) async fn read_marker(
                 marker.last_read_cursor, marker.updated_at \
          FROM actor_access \
          LEFT JOIN chatroom_reads marker \
-           ON marker.chatroom_id = $1 AND marker.user_id = $2 AND actor_access.member",
+           ON marker.chatroom_id = $1 \
+          AND marker.user_id = $2 \
+          AND marker.deleted_at IS NULL \
+          AND actor_access.member",
     )
     .bind(query.chatroom_id)
     .bind(query.user_id)

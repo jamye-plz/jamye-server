@@ -332,6 +332,8 @@ D14·D15·D18·D19(모두 2026-09-22 locked)를 materialize한다(앱 M15 소프
 - **C. 삭제 API + 이벤트**: 메시지 삭제(가칭 C6)·주제 삭제(가칭 T8) REST endpoint, D18에 따른 realtime `message.deleted`/`topic.deleted` 이벤트, 삭제된 메시지/주제에 결합된 미디어 object 정리 규칙을 구현한다.
 - **D. 계정 삭제 유예·복구**: D15(30일 유예, 유예 중 같은 provider 재로그인 시 부활)를 endpoint/worker로 구현하고, 유예 만료 시 기존 D10 tombstone 전이 로직을 재사용하는 purge worker를 추가한다.
 
+구현 기록: 2026-09-28 task-14 서버 1차는 migration `0014`-`0016`과 함께 운영 배포됐다. 2차(`task-srv-14b`)는 남은 B 대상(`push_installations`, push delivery intents/occurrences, `notifications`, `chatroom_reads`, `invites`, `media_uploads`, `topic_tags`, 1차 밖 경로의 refresh/auth 연계)을 live-row partial unique와 `deleted_at IS NULL` 조회 필터로 전환하고, topic 공지 메시지 삭제 대상을 본문 LIKE가 아닌 `messages.announcement_for_topic_id` 구조 참조로 고정한다. 일반 사용자 동작(P4, T6/T8, C3 재생성 등)은 soft delete/live filter를 따른다. 단, 30일 유예 만료 뒤 purge는 기존 D10 의미를 유지해 unbound upload, push token/installation, refresh session, auth identity, invite, read marker, notification, target user row 같은 개인 상태를 실제 삭제한다. 계약 operation·응답 필드·realtime discriminant는 추가하지 않으며, 이 2차 구현 자체는 아직 운영 배포 기록이 아니다.
+
 시작 조건: task-13 완료(충족) + D14/D15/D18/D19 확정(충족). 별도 승인: 각 forward-only migration 적용, C3 계약 publication, homelab 배포.
 
 ### task-15 — Sign in with Apple (M13)

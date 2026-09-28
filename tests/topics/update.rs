@@ -403,6 +403,46 @@ async fn t6_replaces_tags_for_author_only_and_t7_paginates_for_members() -> Test
         .await?;
     assert_eq!(before, after);
 
+    let replaced_again = topics
+        .service
+        .replace_tags(
+            fixture.author_id,
+            fixture.group_id,
+            topic.id,
+            TopicTagsInput {
+                tags: vec![TopicTagInput {
+                    tag: "AI".to_owned(),
+                    source: "ai".to_owned(),
+                    confidence: Some(0.8),
+                }],
+            },
+        )
+        .await?;
+    assert_eq!(replaced_again.items.len(), 1);
+    assert_eq!(replaced_again.items[0].tag, "AI");
+    let counts: (i64, i64) = sqlx::query_as(
+        "SELECT count(*), count(*) FILTER (WHERE deleted_at IS NULL) \
+         FROM topic_tags WHERE topic_id = $1",
+    )
+    .bind(topic.id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(counts, (3, 1));
+    let visible = topics
+        .service
+        .list_tags(
+            fixture.member_id,
+            fixture.group_id,
+            topic.id,
+            TopicTagPageInput {
+                after: None,
+                limit: Some(10),
+            },
+        )
+        .await?;
+    assert_eq!(visible.items.len(), 1);
+    assert_eq!(visible.items[0].id, replaced_again.items[0].id);
+
     pool.close().await;
     database.dispose().await
 }

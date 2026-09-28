@@ -90,11 +90,13 @@ async fn t1_is_atomic_idempotent_and_emits_distinct_bootstrap_and_announcement_e
     .fetch_one(&pool)
     .await?;
     assert_eq!(marker, (topic.chatroom_id, events[0].1));
-    let announcement: (Uuid, String, String) =
-        sqlx::query_as("SELECT sender_id, type, body FROM messages WHERE chatroom_id = $1")
-            .bind(fixture.main_chatroom_id)
-            .fetch_one(&pool)
-            .await?;
+    let announcement: (Uuid, String, String, Option<Uuid>) = sqlx::query_as(
+        "SELECT sender_id, type, body, announcement_for_topic_id \
+         FROM messages WHERE chatroom_id = $1",
+    )
+    .bind(fixture.main_chatroom_id)
+    .fetch_one(&pool)
+    .await?;
     assert_eq!(announcement.0, fixture.author_id);
     assert_eq!(announcement.1, "user");
     assert_eq!(
@@ -104,6 +106,7 @@ async fn t1_is_atomic_idempotent_and_emits_distinct_bootstrap_and_announcement_e
             fixture.group_id, topic.id
         )
     );
+    assert_eq!(announcement.3, Some(topic.id));
 
     let retried = harness
         .service

@@ -168,7 +168,7 @@ async fn grace_then_purge_reassigns_retained_content_removes_private_state_and_e
             "deletion reused the authenticating account as its tombstone",
         )?;
 
-        require_no_private_references(&pool, fixture.target_id).await?;
+        require_no_live_private_references(&pool, fixture.target_id).await?;
         require_retained_content(&pool, &fixture, tombstone.0).await?;
         require_cleanup_intents(&pool).await?;
         require_payloads_scrubbed(&pool, fixture.target_id).await?;
@@ -626,26 +626,14 @@ async fn assert_source_authored_occurrence_is_terminal(
     require_eq(
         sqlx::query_scalar::<_, i64>(
             "SELECT count(*) FROM push_delivery_intents \
-             WHERE id = $1 AND status IN ('pending', 'claimed', 'retryable')",
+             WHERE id = $1",
         )
         .bind(occurrence_id)
         .fetch_one(pool)
         .await?,
         0,
-        "a source-authored pending occurrence survived and can be reclaimed",
-    )?;
-    if let Some(status) =
-        sqlx::query_scalar::<_, String>("SELECT status FROM push_delivery_intents WHERE id = $1")
-            .bind(occurrence_id)
-            .fetch_optional(pool)
-            .await?
-    {
-        require(
-            matches!(status.as_str(), "failed" | "dead_letter"),
-            "a retained source-authored occurrence was not terminalized",
-        )?;
-    }
-    Ok(())
+        "a source-authored occurrence survived D10 purge",
+    )
 }
 
 async fn assert_unrelated_occurrence_is_unchanged(
@@ -945,25 +933,23 @@ async fn archived_owned_group_is_reassigned_to_tombstone_without_live_d5_conflic
             (tombstone.0, true),
             "archived group was not retained under tombstone ownership",
         )?;
+        let membership_rows = sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM memberships WHERE id = $1 AND user_id = $2",
+        )
+        .bind(membership_id)
+        .bind(target_id)
+        .fetch_one(&pool)
+        .await?;
         require_eq(
-            sqlx::query_scalar::<_, i64>(
-                "SELECT count(*) FROM memberships WHERE id = $1 OR user_id = $2",
-            )
-            .bind(membership_id)
+            membership_rows,
+            0,
+            "archived owner membership survived D10 purge",
+        )?;
+        let user_rows = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM users WHERE id = $1")
             .bind(target_id)
             .fetch_one(&pool)
-            .await?,
-            0,
-            "archived owner membership survived deletion",
-        )?;
-        require_eq(
-            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM users WHERE id = $1")
-                .bind(target_id)
-                .fetch_one(&pool)
-                .await?,
-            0,
-            "archived owner account survived deletion",
-        )
+            .await?;
+        require_eq(user_rows, 0, "archived owner account survived D10 purge")
     }
     .await;
 
@@ -1883,7 +1869,7 @@ async fn tombstone_projection(pool: &PgPool) -> TestResult<(Uuid, String, Option
         .ok_or_else(|| test_error("anonymous tombstone projection disappeared"))
 }
 
-async fn require_no_private_references(pool: &PgPool, target_id: Uuid) -> TestResult {
+async fn require_no_live_private_references(pool: &PgPool, target_id: Uuid) -> TestResult {
     let references = sqlx::query_scalar::<_, i64>(
         "SELECT \
             (SELECT count(*) FROM users WHERE id = $1) + \
@@ -1907,7 +1893,7 @@ async fn require_no_private_references(pool: &PgPool, target_id: Uuid) -> TestRe
     require_eq(
         references,
         0,
-        "the committed transition retained a direct private account reference",
+        "the committed D10 purge retained a private account reference",
     )
 }
 

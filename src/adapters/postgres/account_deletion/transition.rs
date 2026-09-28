@@ -167,14 +167,13 @@ async fn ensure_no_live_memberships_remain(
     connection: &mut PgConnection,
     user_id: Uuid,
 ) -> Result<(), AccountDeletionRepositoryError> {
-    let remaining =
-        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM memberships WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_one(connection)
-            .await
-            .map_err(|error| {
-                database_error("account_deletion_remaining_membership_check", error)
-            })?;
+    let remaining = sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM memberships WHERE user_id = $1 AND deleted_at IS NULL",
+    )
+    .bind(user_id)
+    .fetch_one(connection)
+    .await
+    .map_err(|error| database_error("account_deletion_remaining_membership_check", error))?;
     if remaining == 0 {
         Ok(())
     } else {
@@ -279,7 +278,7 @@ async fn delete_private_account_rows(
             .map_err(|error| database_error(operation, error))?;
     }
 
-    let result = sqlx::query("DELETE FROM users WHERE id = $1")
+    let result = sqlx::query("DELETE FROM users WHERE id = $1 AND deleted_at IS NOT NULL")
         .bind(user_id)
         .execute(connection)
         .await

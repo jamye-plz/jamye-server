@@ -32,7 +32,7 @@ type NotificationAccessRow = (
 const LIST_NOTIFICATIONS_SQL: &str = "\
     WITH cursor_row AS ( \
         SELECT created_at, id FROM notifications \
-        WHERE id = $2 AND user_id = $1 \
+        WHERE id = $2 AND user_id = $1 AND deleted_at IS NULL \
     ), state AS ( \
         SELECT \
             ($2::uuid IS NULL OR EXISTS (SELECT 1 FROM cursor_row)) AS cursor_valid, \

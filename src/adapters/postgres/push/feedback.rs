@@ -79,7 +79,7 @@ async fn occurrence_topology(
 ) -> Result<Option<OccurrenceTopology>, PushRepositoryError> {
     let row = sqlx::query_as::<_, (Uuid, Uuid, i64)>(
         "SELECT recipient_user_id, push_installation_id, installation_owner_epoch \
-         FROM push_delivery_intents WHERE id = $1",
+         FROM push_delivery_intents WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(occurrence_id)
     .fetch_optional(connection)
@@ -109,7 +109,7 @@ async fn lock_exact_installation(
         "SELECT id FROM push_installations \
          WHERE id = $1 AND user_id = $2 AND owner_epoch = $3 \
            AND provider = 'expo' AND environment = $4 AND token = $5 \
-           AND disabled_at IS NULL \
+           AND disabled_at IS NULL AND deleted_at IS NULL \
          FOR UPDATE",
     )
     .bind(topology.installation_id)
@@ -139,7 +139,8 @@ async fn terminalize_live_claim(
          WHERE id = $1 AND recipient_user_id = $2 AND push_installation_id = $3 \
            AND installation_owner_epoch = $4 AND provider = 'expo' \
            AND status = 'claimed' AND claim_owner = $5 AND claim_generation = $6 \
-           AND lease_expires_at > (SELECT now FROM server_clock)",
+           AND lease_expires_at > (SELECT now FROM server_clock) \
+           AND deleted_at IS NULL",
     )
     .bind(claim.occurrence_id)
     .bind(topology.recipient_id)
@@ -163,7 +164,7 @@ async fn disable_installation(
         "UPDATE push_installations SET disabled_at = clock_timestamp() \
          WHERE id = $1 AND user_id = $2 AND owner_epoch = $3 \
            AND provider = 'expo' AND environment = $4 AND token = $5 \
-           AND disabled_at IS NULL",
+           AND disabled_at IS NULL AND deleted_at IS NULL",
     )
     .bind(topology.installation_id)
     .bind(topology.recipient_id)

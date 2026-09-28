@@ -27,7 +27,8 @@ pub(super) async fn claim_deliveries(
          ), candidates AS ( \
              SELECT occurrence.id \
              FROM push_delivery_intents occurrence, server_clock clock \
-             WHERE ( \
+             WHERE occurrence.deleted_at IS NULL \
+               AND ( \
                  (occurrence.status IN ('pending', 'retryable') \
                   AND COALESCE(occurrence.next_attempt_at, occurrence.created_at) <= clock.now) \
                  OR (occurrence.status = 'claimed' \
@@ -83,6 +84,7 @@ pub(super) async fn mark_delivery_succeeded(
              last_error_code = NULL, \
              succeeded_at = (SELECT now FROM server_clock) \
          WHERE id = $1 \
+           AND deleted_at IS NULL \
            AND status = 'claimed' \
            AND claim_owner = $2 \
            AND claim_generation = $3 \
@@ -145,6 +147,7 @@ pub(super) async fn record_delivery_failure(
              END, \
              last_error_code = $4 \
          WHERE id = $1 \
+           AND deleted_at IS NULL \
            AND status = 'claimed' \
            AND claim_owner = $2 \
            AND claim_generation = $3 \

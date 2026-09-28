@@ -201,6 +201,7 @@ async fn lock_uploads_in_request_order(
            AND upload.user_id = $2 \
            AND upload.scope = 'chat' \
            AND upload.target_id = $3 \
+           AND upload.deleted_at IS NULL \
          ORDER BY upload.id \
          FOR UPDATE OF upload",
     )
@@ -255,6 +256,7 @@ async fn bind_confirmed_uploads(
                AND upload.scope = 'chat' \
                AND upload.target_id = $5 \
                AND upload.status = 'confirmed' \
+               AND upload.deleted_at IS NULL \
                AND upload.bound_message_id IS NULL \
                AND upload.consumed_at IS NULL \
                AND upload.expires_at > $3 \
@@ -327,6 +329,7 @@ async fn bind_linked_poster(
            AND upload.scope = 'chat' \
            AND upload.target_id = $5 \
            AND upload.status = 'confirmed' \
+           AND upload.deleted_at IS NULL \
            AND upload.bound_message_id IS NULL \
            AND upload.consumed_at IS NULL \
            AND upload.expires_at > $3 \
@@ -354,7 +357,7 @@ async fn bind_linked_poster(
     );
     sqlx::query(
         "UPDATE media_uploads SET poster_upload_id = NULL \
-         WHERE id = $1 AND poster_upload_id = $2",
+         WHERE id = $1 AND poster_upload_id = $2 AND deleted_at IS NULL",
     )
     .bind(video_upload_id)
     .bind(poster_upload_id)
@@ -404,6 +407,7 @@ async fn lock_existing_attachments(
                 media.filename, media.position \
          FROM message_media AS media \
          WHERE media.message_id = $1 \
+           AND media.deleted_at IS NULL \
          ORDER BY media.position \
          FOR SHARE OF media",
     )

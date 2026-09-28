@@ -195,12 +195,14 @@ pub(super) async fn redeem_invite(
     command: &RedeemInviteCommand,
 ) -> Result<InviteJoinRecord, GroupsRepositoryError> {
     require_live_account(connection, command.actor_id).await?;
-    let group_id = sqlx::query_scalar::<_, Uuid>("SELECT group_id FROM invites WHERE code = $1")
-        .bind(&command.code)
-        .fetch_optional(&mut *connection)
-        .await
-        .map_err(|error| database_error("invite_lookup", error))?
-        .ok_or(GroupsRepositoryError::InviteNotFound)?;
+    let group_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT group_id FROM invites WHERE code = $1 AND deleted_at IS NULL",
+    )
+    .bind(&command.code)
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(|error| database_error("invite_lookup", error))?
+    .ok_or(GroupsRepositoryError::InviteNotFound)?;
 
     let group = lock_live_group(connection, group_id).await?;
     if membership(connection, group_id, command.actor_id)
@@ -216,7 +218,7 @@ pub(super) async fn redeem_invite(
 
     let invite = sqlx::query_as::<_, InviteRow>(
         "SELECT id, group_id, code, created_by, expires_at, max_uses, used_count, created_at \
-         FROM invites WHERE code = $1 FOR UPDATE",
+         FROM invites WHERE code = $1 AND deleted_at IS NULL FOR UPDATE",
     )
     .bind(&command.code)
     .fetch_optional(&mut *connection)
@@ -268,7 +270,8 @@ pub(super) async fn redeem_invite(
     .map_err(|error| database_error("invite_membership_insert", error))?;
     let consumed = sqlx::query_scalar::<_, i32>(
         "UPDATE invites SET used_count = used_count + 1 \
-         WHERE id = $1 AND (max_uses IS NULL OR used_count < max_uses) \
+         WHERE id = $1 AND deleted_at IS NULL \
+           AND (max_uses IS NULL OR used_count < max_uses) \
          RETURNING used_count",
     )
     .bind(invite.0)
