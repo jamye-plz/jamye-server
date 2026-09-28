@@ -22,13 +22,13 @@ fn assert_release_candidate_path_partition() -> TestResult {
     )?;
     require_eq(
         release_candidate_paths.len(),
-        21,
+        23,
         "Task-12 release-candidate artifact count changed",
     )?;
     require_eq(
         release_candidate_only,
         expected_release_candidate_only,
-        "Task-12 release candidate must add exactly the five selected C2 artifacts",
+        "Task-12 release candidate must add exactly the seven selected C2/C6/T8 artifacts",
     )
 }
 
@@ -49,7 +49,7 @@ fn assert_release_candidate_artifact_allowlist(manifest: &Value, label: &str) ->
     require_eq(
         actual,
         EXPECTED_RELEASE_CANDIDATE_ARTIFACTS.to_vec(),
-        &format!("Task-12 {label} manifest must declare the exact 21 release-candidate artifacts"),
+        &format!("Task-12 {label} manifest must declare the exact 23 release-candidate artifacts"),
     )?;
     require_eq(
         manifest.get("stage").and_then(Value::as_str),

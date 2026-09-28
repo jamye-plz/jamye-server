@@ -37,11 +37,20 @@ pub(super) async fn list_topics(
     let fetch_limit = i64::from(query.limit) + 1;
     let rows = sqlx::query_as::<_, TopicBaseRow>(
         "SELECT t.id, t.group_id, t.author_id, t.title, t.body, t.status, \
-                t.created_at, t.updated_at, topic_chat.id, author.nickname, \
-                author.avatar_url, \
+                t.created_at, t.updated_at, topic_chat.id, \
+                CASE \
+                    WHEN author.deleted_at IS NOT NULL THEN '탈퇴한 사용자' \
+                    ELSE author.nickname \
+                END, \
+                CASE \
+                    WHEN author.deleted_at IS NOT NULL THEN NULL \
+                    ELSE author.avatar_url \
+                END, \
                 EXISTS ( \
                     SELECT 1 FROM conversation_events event \
                     WHERE event.conversation_id = topic_chat.id \
+                      AND event.event_type IN ('message.created', 'topic.created') \
+                      AND event.deleted_at IS NULL \
                       AND event.cursor > COALESCE(( \
                           SELECT marker.last_read_cursor FROM chatroom_reads marker \
                           WHERE marker.user_id = $2 AND marker.chatroom_id = topic_chat.id \
@@ -50,14 +59,17 @@ pub(super) async fn list_topics(
          FROM topics t \
          JOIN chatrooms topic_chat \
            ON topic_chat.topic_id = t.id AND topic_chat.type = 'topic' \
+          AND topic_chat.deleted_at IS NULL \
          JOIN users author ON author.id = t.author_id \
          WHERE t.group_id = $1 \
+           AND t.deleted_at IS NULL \
            AND ( \
              $3::uuid IS NULL \
              OR (t.created_at, t.id) < ( \
                  SELECT cursor_topic.created_at, cursor_topic.id \
                  FROM topics cursor_topic \
                  WHERE cursor_topic.id = $3 AND cursor_topic.group_id = $1 \
+                   AND cursor_topic.deleted_at IS NULL \
              ) \
            ) \
            AND ( \
@@ -104,7 +116,7 @@ pub(super) async fn list_topic_dates(
     let mut dates = sqlx::query_scalar::<_, Date>(
         "WITH days AS ( \
              SELECT DISTINCT timezone('Asia/Seoul', created_at)::date AS day \
-             FROM topics WHERE group_id = $1 \
+             FROM topics WHERE group_id = $1 AND deleted_at IS NULL \
              UNION SELECT timezone('Asia/Seoul', clock_timestamp())::date \
          ) \
          SELECT day FROM days \
@@ -139,11 +151,20 @@ pub(super) async fn get_topic(
     require_group_access(pool, query.group_id, query.actor_id).await?;
     let row = sqlx::query_as::<_, TopicBaseRow>(
         "SELECT t.id, t.group_id, t.author_id, t.title, t.body, t.status, \
-                t.created_at, t.updated_at, topic_chat.id, author.nickname, \
-                author.avatar_url, \
+                t.created_at, t.updated_at, topic_chat.id, \
+                CASE \
+                    WHEN author.deleted_at IS NOT NULL THEN '탈퇴한 사용자' \
+                    ELSE author.nickname \
+                END, \
+                CASE \
+                    WHEN author.deleted_at IS NOT NULL THEN NULL \
+                    ELSE author.avatar_url \
+                END, \
                 EXISTS ( \
                     SELECT 1 FROM conversation_events event \
                     WHERE event.conversation_id = topic_chat.id \
+                      AND event.event_type IN ('message.created', 'topic.created') \
+                      AND event.deleted_at IS NULL \
                       AND event.cursor > COALESCE(( \
                           SELECT marker.last_read_cursor FROM chatroom_reads marker \
                           WHERE marker.user_id = $3 AND marker.chatroom_id = topic_chat.id \
@@ -152,8 +173,9 @@ pub(super) async fn get_topic(
          FROM topics t \
          JOIN chatrooms topic_chat \
            ON topic_chat.topic_id = t.id AND topic_chat.type = 'topic' \
+          AND topic_chat.deleted_at IS NULL \
          JOIN users author ON author.id = t.author_id \
-         WHERE t.id = $1 AND t.group_id = $2",
+         WHERE t.id = $1 AND t.group_id = $2 AND t.deleted_at IS NULL",
     )
     .bind(query.topic_id)
     .bind(query.group_id)
@@ -175,7 +197,10 @@ pub(super) async fn list_tags(
 ) -> Result<TopicTagPage, TopicsRepositoryError> {
     require_group_access(pool, query.group_id, query.actor_id).await?;
     let exists = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS (SELECT 1 FROM topics WHERE id = $1 AND group_id = $2)",
+        "SELECT EXISTS ( \
+             SELECT 1 FROM topics \
+             WHERE id = $1 AND group_id = $2 AND deleted_at IS NULL \
+         )",
     )
     .bind(query.topic_id)
     .bind(query.group_id)
@@ -232,8 +257,11 @@ async fn require_group_access(
              EXISTS ( \
                  SELECT 1 FROM groups g \
                  JOIN memberships membership ON membership.group_id = g.id \
+                 JOIN users account ON account.id = membership.user_id \
                  WHERE g.id = $1 AND g.deleted_at IS NULL \
                    AND membership.user_id = $2 \
+                   AND membership.deleted_at IS NULL \
+                   AND account.deleted_at IS NULL \
              )",
     )
     .bind(group_id)

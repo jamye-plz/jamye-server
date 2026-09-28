@@ -166,6 +166,11 @@ struct PushHttpError {
 impl IntoResponse for PushHttpError {
     fn into_response(self) -> Response {
         let (status, code, message) = match self.error {
+            PushError::AuthenticationRequired => (
+                StatusCode::UNAUTHORIZED,
+                "authentication_required",
+                "인증이 필요합니다.",
+            ),
             PushError::RequestValidation => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "request_validation_failed",

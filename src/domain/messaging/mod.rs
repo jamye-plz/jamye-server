@@ -4,6 +4,8 @@ mod model;
 
 pub use model::{
     CanonicalMessage, ConversationEvent, DeltaItem, EventPage, MessageAttachment,
-    MessageCreatedEvent, MessageCreatedType, MessageKind, ReconcileScope, SendMessageCommand,
-    UnsupportedEventMarker,
+    MessageCreatedEvent, MessageCreatedType, MessageDeletedData, MessageDeletedEvent,
+    MessageDeletedType, MessageKind, RealtimeServerEvent, ReconcileScope, SendMessageCommand,
+    TopicCreatedData, TopicCreatedEvent, TopicCreatedType, TopicDeletedData, TopicDeletedEvent,
+    TopicDeletedType, UnsupportedEventMarker,
 };

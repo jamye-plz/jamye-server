@@ -8,7 +8,7 @@ use axum::{
     extract::{FromRef, Path, RawQuery, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use serde::Deserialize;
 use url::form_urlencoded;
@@ -16,8 +16,8 @@ use uuid::Uuid;
 
 use crate::{
     application::messaging::{
-        DEFAULT_DELTA_LIMIT, DeltaInput, MAX_DELTA_LIMIT, MessagingError, MessagingService,
-        SendMessageInput, SendMessageOutcome,
+        DEFAULT_DELTA_LIMIT, DeleteMessageInput, DeltaInput, MAX_DELTA_LIMIT, MessagingError,
+        MessagingService, SendMessageInput, SendMessageOutcome,
     },
     application::transactions::TransactionCompositions,
     transport::http::auth::{AuthVerifierState, AuthenticatedAccess, error_response, request_id},
@@ -62,6 +62,10 @@ pub fn router(state: MessagingHttpState) -> Router {
             post(create_message),
         )
         .route(
+            "/api/v1/chatrooms/{chatroom_id}/messages/{message_id}",
+            delete(delete_message),
+        )
+        .route(
             "/api/v1/conversations/{conversation_id}/events",
             get(events),
         )
@@ -94,6 +98,25 @@ async fn create_message(
     }
 }
 
+async fn delete_message(
+    State(state): State<MessagingHttpState>,
+    AuthenticatedAccess(identity): AuthenticatedAccess,
+    Path((chatroom_id, message_id)): Path<(String, String)>,
+    request: Request,
+) -> Response {
+    let (parts, _) = request.into_parts();
+    let request_id = request_id(&parts);
+    let ids = parse_delete_message_input(chatroom_id, message_id);
+    let result = match ids {
+        Ok(input) => state.service.delete_message(&identity, input).await,
+        Err(error) => Err(error),
+    };
+    match result {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => MessagingHttpError { error, request_id }.into_response(),
+    }
+}
+
 async fn events(
     State(state): State<MessagingHttpState>,
     AuthenticatedAccess(identity): AuthenticatedAccess,
@@ -117,6 +140,17 @@ async fn events(
         Ok((version, page)) => event_page_response(version, page),
         Err(error) => MessagingHttpError { error, request_id }.into_response(),
     }
+}
+
+fn parse_delete_message_input(
+    chatroom_id: String,
+    message_id: String,
+) -> Result<DeleteMessageInput, MessagingError> {
+    Ok(DeleteMessageInput {
+        chatroom_id: Uuid::try_parse(&chatroom_id)
+            .map_err(|_| MessagingError::RequestValidation)?,
+        message_id: Uuid::try_parse(&message_id).map_err(|_| MessagingError::RequestValidation)?,
+    })
 }
 
 async fn parse_message_request(
@@ -293,6 +327,16 @@ fn error_profile(error: MessagingError) -> (StatusCode, &'static str, &'static s
             StatusCode::FORBIDDEN,
             "membership_required",
             "이 그룹에 접근할 수 없습니다.",
+        ),
+        MessagingError::MessageNotFound => (
+            StatusCode::NOT_FOUND,
+            "message_not_found",
+            "메시지를 찾을 수 없습니다.",
+        ),
+        MessagingError::MessageAuthorRequired => (
+            StatusCode::FORBIDDEN,
+            "message_author_required",
+            "메시지 작성자만 삭제할 수 있습니다.",
         ),
         MessagingError::IdempotencyConflict => (
             StatusCode::CONFLICT,

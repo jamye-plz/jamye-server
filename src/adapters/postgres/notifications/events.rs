@@ -140,10 +140,14 @@ async fn lock_live_recipients(
 ) -> Result<Vec<Uuid>, NotificationsRepositoryError> {
     lock_live_group(connection, group_id).await?;
     let members = sqlx::query_scalar::<_, Uuid>(
-        "SELECT user_id FROM memberships \
-         WHERE group_id = $1 \
-         ORDER BY user_id \
-         FOR SHARE",
+        "SELECT membership.user_id \
+         FROM memberships membership \
+         JOIN users account ON account.id = membership.user_id \
+         WHERE membership.group_id = $1 \
+           AND membership.deleted_at IS NULL \
+           AND account.deleted_at IS NULL \
+         ORDER BY membership.user_id \
+         FOR SHARE OF membership, account",
     )
     .bind(group_id)
     .fetch_all(connection)
@@ -183,9 +187,14 @@ async fn lock_member(
     user_id: Uuid,
 ) -> Result<(), NotificationsRepositoryError> {
     let membership = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM memberships \
-         WHERE group_id = $1 AND user_id = $2 \
-         FOR SHARE",
+        "SELECT membership.id \
+         FROM memberships membership \
+         JOIN users account ON account.id = membership.user_id \
+         WHERE membership.group_id = $1 \
+           AND membership.user_id = $2 \
+           AND membership.deleted_at IS NULL \
+           AND account.deleted_at IS NULL \
+         FOR SHARE OF membership, account",
     )
     .bind(group_id)
     .bind(user_id)
@@ -215,6 +224,8 @@ async fn topic_source_cursor(
           AND event.event_type = 'topic.created' \
           AND event.event_version = 1 \
          WHERE topic.group_id = $1 AND topic.id = $2 AND conversation.id = $3 \
+           AND topic.deleted_at IS NULL \
+           AND conversation.deleted_at IS NULL \
            AND event.payload ->> 'topic_id' = $2::uuid::text",
     )
     .bind(command.group_id)
@@ -250,6 +261,9 @@ async fn message_source_cursor(
               AND event.event_type = 'message.created' \
               AND event.event_version = 1 \
              WHERE topic.group_id = $1 AND topic.id = $2 AND conversation.id = $3 \
+               AND topic.deleted_at IS NULL \
+               AND conversation.deleted_at IS NULL \
+               AND message.deleted_at IS NULL \
                AND event.payload ->> 'id' = $5::uuid::text"
         }
         // Main chatroom: the conversation belongs to the group directly and
@@ -269,6 +283,8 @@ async fn message_source_cursor(
               AND event.event_version = 1 \
              WHERE conversation.group_id = $1 AND conversation.id = $3 \
                AND conversation.type = 'main' AND conversation.topic_id IS NULL \
+               AND conversation.deleted_at IS NULL \
+               AND message.deleted_at IS NULL \
                AND $2::uuid IS NULL \
                AND event.payload ->> 'id' = $5::uuid::text"
         }
@@ -302,7 +318,8 @@ async fn notification_context(
     let topic_title = match topic_id {
         Some(topic_id) => Some(
             sqlx::query_scalar::<_, String>(
-                "SELECT title FROM topics WHERE id = $1 AND group_id = $2",
+                "SELECT title FROM topics \
+                 WHERE id = $1 AND group_id = $2 AND deleted_at IS NULL",
             )
             .bind(topic_id)
             .bind(group_id)
@@ -492,6 +509,7 @@ async fn lock_installations(
         "SELECT id, user_id, owner_epoch, message_preview_enabled \
          FROM push_installations \
          WHERE user_id = ANY($1::UUID[]) AND disabled_at IS NULL \
+           AND deleted_at IS NULL \
          ORDER BY user_id, id \
          FOR SHARE",
     )

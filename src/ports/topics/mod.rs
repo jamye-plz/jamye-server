@@ -40,6 +40,14 @@ pub trait TopicsRepository: Send + Sync {
 
     fn list_tags(&self, query: ListTopicTagsQuery) -> TopicsRepositoryFuture<'_, TopicTagPage>;
 
+    fn delete_topic<'a>(
+        &'a self,
+        _transaction: &'a mut dyn TransactionHandle,
+        _command: &'a DeleteTopicCommand,
+    ) -> TopicsRepositoryFuture<'a, ()> {
+        Box::pin(async { Err(TopicsRepositoryError::Unavailable) })
+    }
+
     /// Resolves the immutable canonical `topic.created` identity from the
     /// persisted topic before the caller-owned transaction is committed.
     fn notification_context<'a>(
@@ -150,6 +158,13 @@ pub struct ListTopicTagsQuery {
     pub actor_id: Uuid,
     pub after: Option<Uuid>,
     pub limit: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DeleteTopicCommand {
+    pub group_id: Uuid,
+    pub topic_id: Uuid,
+    pub actor_id: Uuid,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

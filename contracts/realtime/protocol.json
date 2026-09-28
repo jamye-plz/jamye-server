@@ -5,8 +5,8 @@
     "ping"
   ],
   "contract_versions": {
-    "current": "1",
-    "previous": "0",
+    "current": "2",
+    "previous": "1",
     "request_header": "X-Jamye-Contract-Version",
     "unsupported": {
       "automatic_retry": false,
@@ -41,7 +41,9 @@
   "join_ack": "subscribed is emitted only after authoritative membership validation and local registration",
   "known_event_discriminants": [
     "message.created",
-    "topic.created"
+    "topic.created",
+    "message.deleted",
+    "topic.deleted"
   ],
   "selected_D13_A": {
     "deadline_cleanup": "remove every local subscription and registry entry before close",

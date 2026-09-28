@@ -1,5 +1,6 @@
 //! PostgreSQL messaging repository.
 
+mod delete;
 mod delta;
 mod send;
 
@@ -10,8 +11,8 @@ use crate::{
     domain::messaging::{CanonicalMessage, EventPage, SendMessageCommand},
     ports::{
         messaging::{
-            DeltaQuery, MessageDeliveryContext, MessagingFuture, MessagingRepository,
-            MessagingRepositoryError, PersistMessageOutcome, PersistedMessage,
+            DeleteMessageCommand, DeltaQuery, MessageDeliveryContext, MessagingFuture,
+            MessagingRepository, MessagingRepositoryError, PersistMessageOutcome, PersistedMessage,
         },
         transactions::TransactionHandle,
     },
@@ -59,5 +60,13 @@ impl MessagingRepository for PostgresMessagingRepository {
         message: &'a CanonicalMessage,
     ) -> MessagingFuture<'a, PersistedMessage> {
         Box::pin(send::record_created_event(handle, message))
+    }
+
+    fn delete_message<'a>(
+        &'a self,
+        handle: &'a mut dyn TransactionHandle,
+        command: &'a DeleteMessageCommand,
+    ) -> MessagingFuture<'a, ()> {
+        Box::pin(delete::delete_message(handle, command))
     }
 }

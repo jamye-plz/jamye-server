@@ -10,16 +10,17 @@ use jamye_server::transport::http::health::{
 
 use super::model::{
     CanonicalMessage, DeltaItem, ErrorBody, ErrorEnvelope, EventPage, MediaRef, MessageAttachment,
-    MessageCreate, MessageCreatedEvent, MessageCreatedType, MessageKind, RealtimeTicket,
-    ReconcileScope, UnsupportedEventMarker,
+    MessageCreate, MessageCreatedEvent, MessageCreatedType, MessageDeletedData,
+    MessageDeletedEvent, MessageDeletedType, MessageKind, RealtimeTicket, ReconcileScope,
+    TopicDeletedData, TopicDeletedEvent, TopicDeletedType, UnsupportedEventMarker,
 };
 use super::{BoxError, invalid_data, selected};
 
 pub const C0_OPERATION_IDS: &[&str] = &["H1", "H2", "C4", "S1", "R1"];
 pub const OPERATION_IDS: &[&str] = &[
     "H1", "H2", "A1", "A2", "A3", "A4", "A5", "U1", "U2", "U3", "G1", "G2", "G3", "G4", "G5", "G6",
-    "G7", "G8", "I1", "I2", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "MD1", "MD2", "C1", "C2",
-    "C3", "C4", "C5", "MD4", "MD5", "S1", "R1", "P2", "P3", "P4", "N1", "N2",
+    "G7", "G8", "I1", "I2", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "MD1", "MD2", "C1",
+    "C2", "C3", "C4", "C5", "C6", "MD4", "MD5", "S1", "R1", "P2", "P3", "P4", "N1", "N2",
 ];
 
 struct OwnerOperationContribution {
@@ -220,6 +221,12 @@ fn realtime_ticket_contract() {}
         UnsupportedEventMarker,
         MessageCreatedType,
         MessageCreatedEvent,
+        MessageDeletedType,
+        MessageDeletedData,
+        MessageDeletedEvent,
+        TopicDeletedType,
+        TopicDeletedData,
+        TopicDeletedEvent,
         DeltaItem,
         EventPage,
         RealtimeTicket
@@ -754,6 +761,17 @@ fn success_and_error_responses(operation_id: &str) -> Result<Value, BoxError> {
                 }),
             );
         }
+        if operation_id == "A2" {
+            response.insert(
+                "headers".to_owned(),
+                json!({
+                    "X-Jamye-Account-Restored": {
+                        "description": "Present with value true when A2 restored an account inside the deletion grace period; TokenPair body is unchanged",
+                        "schema": {"const": "true", "type": "string"}
+                    }
+                }),
+            );
+        }
         if operation_id == "A5" {
             response.insert(
                 "headers".to_owned(),
@@ -804,7 +822,7 @@ fn success_statuses(operation_id: &str) -> Result<&'static [&'static str], BoxEr
         }
         "G1" | "I1" | "MD1" => Ok(&["201"]),
         "T1" | "P2" => Ok(&["200", "201"]),
-        "A4" | "U3" | "G6" | "G7" | "G8" | "P4" | "N2" => Ok(&["204"]),
+        "A4" | "U3" | "G6" | "G7" | "G8" | "T8" | "C6" | "P4" | "N2" => Ok(&["204"]),
         "A5" => Ok(&["302"]),
         "MD5" => Ok(&["307"]),
         _ => Err(invalid_data(format!(
@@ -833,8 +851,8 @@ fn operation_tag(operation_id: &str) -> Result<&'static str, BoxError> {
         "G1" | "G2" | "G3" | "G4" | "G5" | "G6" | "G7" | "G8" => Ok("groups"),
         "I1" | "I2" => Ok("invites"),
         "C1" | "C2" | "C3" | "C5" => Ok("chatrooms"),
-        "C4" => Ok("messages"),
-        "T1" | "T2" | "T3" | "T4" | "T5" | "T6" | "T7" => Ok("topics"),
+        "C4" | "C6" => Ok("messages"),
+        "T1" | "T2" | "T3" | "T4" | "T5" | "T6" | "T7" | "T8" => Ok("topics"),
         "MD1" | "MD2" | "MD4" | "MD5" => Ok("media"),
         "S1" => Ok("sync"),
         "R1" => Ok("realtime"),
@@ -876,6 +894,7 @@ fn operation_summary(operation_id: &str) -> Result<&'static str, BoxError> {
         "T5" => Ok("Update a topic"),
         "T6" => Ok("Replace topic tags"),
         "T7" => Ok("List topic tags"),
+        "T8" => Ok("Delete a topic"),
         "MD1" => Ok("Create a media upload intent"),
         "MD2" => Ok("Finalize a media upload"),
         "C1" => Ok("List group chatrooms"),
@@ -883,6 +902,7 @@ fn operation_summary(operation_id: &str) -> Result<&'static str, BoxError> {
         "C3" => Ok("Advance a chatroom read marker"),
         "C4" => Ok("Send an idempotent chat message"),
         "C5" => Ok("List chatroom image and video attachments"),
+        "C6" => Ok("Delete a message"),
         "MD4" => Ok("Issue a short-lived media view URL"),
         "MD5" => Ok("Redirect to a media download URL"),
         "S1" => Ok("Recover conversation events after a cursor"),
@@ -986,7 +1006,7 @@ fn enforce_contract_version_headers(openapi: &mut Value) -> Result<(), BoxError>
             version_header.insert("required".to_owned(), Value::Bool(true));
             version_header.insert(
                 "schema".to_owned(),
-                serde_json::json!({"type": "string", "enum": ["1", "0"]}),
+                serde_json::json!({"type": "string", "enum": ["2", "1"]}),
             );
         }
     }

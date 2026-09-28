@@ -6,7 +6,9 @@ use uuid::Uuid;
 use crate::{
     domain::messaging::{
         CanonicalMessage, ConversationEvent, DeltaItem, EventPage, MessageCreatedEvent,
-        MessageCreatedType, ReconcileScope, UnsupportedEventMarker,
+        MessageCreatedType, MessageDeletedData, MessageDeletedEvent, MessageDeletedType,
+        ReconcileScope, TopicDeletedData, TopicDeletedEvent, TopicDeletedType,
+        UnsupportedEventMarker,
     },
     ports::messaging::{ContractProjection, DeltaQuery, MessagingRepositoryError},
 };
@@ -57,13 +59,38 @@ async fn fetch_rows(
         "WITH membership_access AS MATERIALIZED ( \
              SELECT EXISTS ( \
                  SELECT 1 FROM chatrooms c \
+                 LEFT JOIN topics topic ON topic.id = c.topic_id \
                  JOIN groups g ON g.id = c.group_id AND g.deleted_at IS NULL \
                  JOIN memberships m ON m.group_id = g.id AND m.user_id = $2 \
+                   AND m.deleted_at IS NULL \
+                 JOIN users account ON account.id = m.user_id \
                  WHERE c.id = $1 \
+                   AND c.deleted_at IS NULL \
+                   AND (c.topic_id IS NULL OR topic.deleted_at IS NULL) \
+                   AND account.deleted_at IS NULL \
              ) AS allowed \
          ), page AS ( \
-             SELECT e.id, e.cursor, e.event_type, e.event_version, e.payload, e.occurred_at \
+             SELECT e.id, e.cursor, e.event_type, e.event_version, \
+                    CASE \
+                        WHEN e.event_type = 'message.created' \
+                         AND e.event_version = 1 \
+                         AND sender.deleted_at IS NOT NULL \
+                        THEN jsonb_set( \
+                            jsonb_set( \
+                                e.payload, \
+                                '{sender_nickname}', \
+                                to_jsonb('탈퇴한 사용자'::TEXT), \
+                                true \
+                            ), \
+                            '{sender_avatar_url}', \
+                            'null'::jsonb, \
+                            true \
+                        ) \
+                        ELSE e.payload \
+                    END, \
+                    e.occurred_at \
              FROM conversation_events e \
+             LEFT JOIN users sender ON sender.id::TEXT = e.payload ->> 'sender_id' \
              WHERE e.conversation_id = $1 \
                AND e.cursor > COALESCE($3::BIGINT, 0::BIGINT) \
                AND (SELECT allowed FROM membership_access) \
@@ -101,8 +128,43 @@ fn project_event(
     projection: ContractProjection,
 ) -> Result<DeltaItem, MessagingRepositoryError> {
     match projection {
-        ContractProjection::Current | ContractProjection::Previous => project_v1_event(event),
+        ContractProjection::Current => project_v2_event(event),
+        ContractProjection::Previous => project_v1_event(event),
     }
+}
+
+fn project_v2_event(event: ConversationEvent) -> Result<DeltaItem, MessagingRepositoryError> {
+    if event.event_type == "message.deleted"
+        && event.event_version == 1
+        && let Ok(data) = serde_json::from_value::<MessageDeletedData>(event.payload.clone())
+        && data.chatroom_id == event.conversation_id
+    {
+        return Ok(DeltaItem::MessageDeleted(MessageDeletedEvent {
+            version: 1,
+            event_type: MessageDeletedType::MessageDeleted,
+            event_id: event.id,
+            conversation_id: event.conversation_id,
+            cursor: event.cursor.to_string(),
+            occurred_at: event.occurred_at,
+            data,
+        }));
+    }
+    if event.event_type == "topic.deleted"
+        && event.event_version == 1
+        && let Ok(data) = serde_json::from_value::<TopicDeletedData>(event.payload.clone())
+        && data.topic_chatroom_id == event.conversation_id
+    {
+        return Ok(DeltaItem::TopicDeleted(TopicDeletedEvent {
+            version: 1,
+            event_type: TopicDeletedType::TopicDeleted,
+            event_id: event.id,
+            conversation_id: event.conversation_id,
+            cursor: event.cursor.to_string(),
+            occurred_at: event.occurred_at,
+            data,
+        }));
+    }
+    project_v1_event(event)
 }
 
 fn project_v1_event(event: ConversationEvent) -> Result<DeltaItem, MessagingRepositoryError> {

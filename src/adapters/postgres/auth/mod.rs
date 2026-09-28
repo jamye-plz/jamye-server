@@ -34,7 +34,13 @@ impl PostgresAuthRepository {
     ) -> Result<IssuedSession, AuthRepositoryError> {
         let connection = connection(transaction).map_err(|_| AuthRepositoryError::InvalidData)?;
         let existing = sqlx::query_scalar::<_, Uuid>(
-            "SELECT user_id FROM auth_identities WHERE provider = $1 AND provider_id = $2",
+            "SELECT identity.user_id \
+             FROM auth_identities identity \
+             JOIN users account ON account.id = identity.user_id \
+             WHERE identity.provider = $1 \
+               AND identity.provider_id = $2 \
+               AND identity.deleted_at IS NULL \
+               AND account.deleted_at IS NULL",
         )
         .bind(&identity.provider)
         .bind(&identity.provider_id)
@@ -55,7 +61,7 @@ impl PostgresAuthRepository {
                 let claimed = sqlx::query_scalar::<_, Uuid>(
                     "INSERT INTO auth_identities (id, user_id, provider, provider_id) \
                      VALUES ($1, $2, $3, $4) \
-                     ON CONFLICT (provider, provider_id) DO NOTHING \
+                     ON CONFLICT (provider, provider_id) WHERE deleted_at IS NULL DO NOTHING \
                      RETURNING user_id",
                 )
                 .bind(Uuid::new_v4())
@@ -69,8 +75,13 @@ impl PostgresAuthRepository {
                     Some(user_id) => user_id,
                     None => {
                         let canonical_user_id = sqlx::query_scalar::<_, Uuid>(
-                            "SELECT user_id FROM auth_identities \
-                             WHERE provider = $1 AND provider_id = $2",
+                            "SELECT identity.user_id \
+                             FROM auth_identities identity \
+                             JOIN users account ON account.id = identity.user_id \
+                             WHERE identity.provider = $1 \
+                               AND identity.provider_id = $2 \
+                               AND identity.deleted_at IS NULL \
+                               AND account.deleted_at IS NULL",
                         )
                         .bind(&identity.provider)
                         .bind(&identity.provider_id)
@@ -103,6 +114,90 @@ impl PostgresAuthRepository {
         })
     }
 
+    async fn restore_deleted_identity_record(
+        &self,
+        transaction: &mut dyn TransactionHandle,
+        identity: &NewProviderIdentity,
+        session: &NewRefreshSession,
+    ) -> Result<Option<IssuedSession>, AuthRepositoryError> {
+        let connection = connection(transaction).map_err(|_| AuthRepositoryError::InvalidData)?;
+        let deleted = sqlx::query_as::<_, (Uuid, Uuid)>(
+            "SELECT identity.id, identity.user_id \
+             FROM auth_identities identity \
+             JOIN users account ON account.id = identity.user_id \
+             WHERE identity.provider = $1 \
+               AND identity.provider_id = $2 \
+               AND identity.deleted_at IS NOT NULL \
+               AND account.deleted_at IS NOT NULL \
+             ORDER BY identity.deleted_at DESC, identity.id \
+             LIMIT 1 \
+             FOR UPDATE OF identity, account",
+        )
+        .bind(&identity.provider)
+        .bind(&identity.provider_id)
+        .fetch_optional(&mut *connection)
+        .await
+        .map_err(|_| database_failure("identity_restore_lookup"))?;
+        let Some((identity_id, user_id)) = deleted else {
+            return Ok(None);
+        };
+        sqlx::query(
+            "UPDATE users \
+             SET deleted_at = NULL, \
+                 account_purge_claim_owner = NULL, \
+                 account_purge_claim_expires_at = NULL \
+             WHERE id = $1",
+        )
+        .bind(user_id)
+        .execute(&mut *connection)
+        .await
+        .map_err(|_| database_failure("user_restore"))?;
+        sqlx::query(
+            "UPDATE auth_identities \
+             SET deleted_at = NULL \
+             WHERE id = $1",
+        )
+        .bind(identity_id)
+        .execute(&mut *connection)
+        .await
+        .map_err(|_| database_failure("identity_restore"))?;
+        sqlx::query(
+            "UPDATE memberships membership \
+             SET deleted_at = NULL, \
+                 account_deleted_at = NULL \
+             FROM groups group_entry \
+             WHERE membership.group_id = group_entry.id \
+               AND membership.user_id = $1 \
+               AND membership.deleted_at IS NOT NULL \
+               AND membership.account_deleted_at IS NOT NULL \
+               AND group_entry.deleted_at IS NULL \
+               AND NOT EXISTS ( \
+                   SELECT 1 FROM memberships live_membership \
+                   WHERE live_membership.group_id = membership.group_id \
+                     AND live_membership.user_id = membership.user_id \
+                     AND live_membership.deleted_at IS NULL \
+               )",
+        )
+        .bind(user_id)
+        .execute(&mut *connection)
+        .await
+        .map_err(|_| database_failure("membership_restore"))?;
+        insert_refresh_session(
+            &mut *connection,
+            session.id,
+            user_id,
+            session.family_id,
+            session.parent_session_id,
+            &session.token_hash,
+            session.expires_at,
+        )
+        .await?;
+        Ok(Some(IssuedSession {
+            user_id,
+            session_id: session.id,
+        }))
+    }
+
     async fn rotate_session_record(
         &self,
         transaction: &mut dyn TransactionHandle,
@@ -112,9 +207,14 @@ impl PostgresAuthRepository {
     ) -> Result<RotationOutcome, AuthRepositoryError> {
         let connection = connection(transaction).map_err(|_| AuthRepositoryError::InvalidData)?;
         let parent = sqlx::query_as::<_, (Uuid, Uuid, Uuid, OffsetDateTime, bool, bool)>(
-            "SELECT id, user_id, family_id, expires_at, \
-                    consumed_at IS NOT NULL, revoked_at IS NOT NULL \
-             FROM refresh_sessions WHERE token_hash = $1 FOR UPDATE",
+            "SELECT session.id, session.user_id, session.family_id, session.expires_at, \
+                    session.consumed_at IS NOT NULL, session.revoked_at IS NOT NULL \
+             FROM refresh_sessions session \
+             JOIN users account ON account.id = session.user_id \
+             WHERE session.token_hash = $1 \
+               AND session.deleted_at IS NULL \
+               AND account.deleted_at IS NULL \
+             FOR UPDATE OF session",
         )
         .bind(token_hash.as_bytes().as_slice())
         .fetch_optional(&mut *connection)
@@ -173,7 +273,10 @@ impl PostgresAuthRepository {
         let connection = connection(transaction).map_err(|_| AuthRepositoryError::InvalidData)?;
         sqlx::query(
             "UPDATE refresh_sessions \
-             SET revoked_at = COALESCE(revoked_at, GREATEST($2, created_at)) WHERE id = $1",
+             SET revoked_at = COALESCE(revoked_at, GREATEST($2, created_at)), \
+                 deleted_at = COALESCE(deleted_at, GREATEST($2, created_at)) \
+             WHERE id = $1 \
+               AND deleted_at IS NULL",
         )
         .bind(session_id)
         .bind(now)
@@ -192,15 +295,32 @@ impl PostgresAuthRepository {
              FROM users u \
              JOIN LATERAL ( \
                  SELECT provider FROM auth_identities \
-                 WHERE user_id = u.id ORDER BY created_at, id LIMIT 1 \
+                 WHERE user_id = u.id AND deleted_at IS NULL \
+                 ORDER BY created_at, id LIMIT 1 \
              ) identity ON TRUE \
-             WHERE u.id = $1",
+             WHERE u.id = $1 \
+               AND u.deleted_at IS NULL",
         )
         .bind(user_id)
         .fetch_optional(&self.pool)
         .await
         .map(|row| row.map(profile_from_row))
         .map_err(|_| database_failure("profile_load"))
+    }
+
+    async fn account_is_active_record(&self, user_id: Uuid) -> Result<bool, AuthRepositoryError> {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS ( \
+                 SELECT 1 \
+                 FROM users account \
+                 WHERE account.id = $1 \
+                   AND account.deleted_at IS NULL \
+             )",
+        )
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_| database_failure("account_active_lookup"))
     }
 
     async fn update_profile_record(
@@ -221,6 +341,7 @@ impl PostgresAuthRepository {
                  SET nickname = COALESCE($2, nickname), \
                      avatar_url = CASE WHEN $3 THEN $4 ELSE avatar_url END \
                  WHERE id = $1 \
+                   AND deleted_at IS NULL \
                  RETURNING id, nickname, avatar_url, created_at \
              ) \
              SELECT updated.id, identity.provider, updated.nickname, \
@@ -228,7 +349,8 @@ impl PostgresAuthRepository {
              FROM updated \
              JOIN LATERAL ( \
                  SELECT provider FROM auth_identities \
-                 WHERE user_id = updated.id ORDER BY created_at, id LIMIT 1 \
+                 WHERE user_id = updated.id AND deleted_at IS NULL \
+                 ORDER BY created_at, id LIMIT 1 \
              ) identity ON TRUE",
         )
         .bind(user_id)
@@ -252,6 +374,15 @@ impl AuthRepository for PostgresAuthRepository {
         Box::pin(self.create_session_record(transaction, identity, session))
     }
 
+    fn restore_deleted_identity<'a>(
+        &'a self,
+        transaction: &'a mut dyn TransactionHandle,
+        identity: &'a NewProviderIdentity,
+        session: &'a NewRefreshSession,
+    ) -> AuthRepositoryFuture<'a, Option<IssuedSession>> {
+        Box::pin(self.restore_deleted_identity_record(transaction, identity, session))
+    }
+
     fn rotate_session<'a>(
         &'a self,
         transaction: &'a mut dyn TransactionHandle,
@@ -269,6 +400,10 @@ impl AuthRepository for PostgresAuthRepository {
         now: OffsetDateTime,
     ) -> AuthRepositoryFuture<'a, ()> {
         Box::pin(self.revoke_session_record(transaction, session_id, now))
+    }
+
+    fn account_is_active(&self, user_id: Uuid) -> AuthRepositoryFuture<'_, bool> {
+        Box::pin(self.account_is_active_record(user_id))
     }
 
     fn profile(&self, user_id: Uuid) -> AuthRepositoryFuture<'_, Option<UserProfile>> {

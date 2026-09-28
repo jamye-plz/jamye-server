@@ -6,7 +6,6 @@ use crate::ports::account_deletion::{AccountDeletionReport, AccountDeletionRepos
 use super::{
     database_error,
     payload_scrub::{scrub_retained_notification_profiles, scrub_retained_payloads},
-    preparation::lock_authentic_account,
 };
 
 type LockedUploadRow = (Uuid, String);
@@ -15,7 +14,7 @@ pub(super) async fn finalize_deletion(
     connection: &mut PgConnection,
     user_id: Uuid,
 ) -> Result<AccountDeletionReport, AccountDeletionRepositoryError> {
-    lock_authentic_account(connection, user_id).await?;
+    lock_purgeable_account(connection, user_id).await?;
     let tombstone_user_id = Uuid::new_v4();
     create_tombstone(connection, tombstone_user_id).await?;
 
@@ -24,7 +23,7 @@ pub(super) async fn finalize_deletion(
     scrub_retained_notification_profiles(connection, user_id).await?;
     scrub_retained_payloads(connection, user_id, tombstone_user_id).await?;
     reassign_archived_group_owners(connection, user_id, tombstone_user_id).await?;
-    let archived_memberships_removed = delete_archived_memberships(connection, user_id).await?;
+    let archived_memberships_removed = delete_purgeable_memberships(connection, user_id).await?;
     ensure_no_live_memberships_remain(connection, user_id).await?;
 
     let cleanup_intents_enqueued = enqueue_and_delete_unbound_uploads(connection, user_id).await?;
@@ -34,6 +33,24 @@ pub(super) async fn finalize_deletion(
         memberships_removed: archived_memberships_removed,
         cleanup_intents_enqueued,
     })
+}
+
+async fn lock_purgeable_account(
+    connection: &mut PgConnection,
+    user_id: Uuid,
+) -> Result<(), AccountDeletionRepositoryError> {
+    let locked = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM users \
+         WHERE id = $1 AND deleted_at IS NOT NULL \
+         FOR UPDATE",
+    )
+    .bind(user_id)
+    .fetch_optional(connection)
+    .await
+    .map_err(|error| database_error("account_deletion_purge_account_lock", error))?;
+    locked
+        .map(|_| ())
+        .ok_or(AccountDeletionRepositoryError::AccountNotFound)
 }
 
 async fn create_tombstone(
@@ -128,7 +145,7 @@ async fn reassign_archived_group_owners(
     Ok(())
 }
 
-async fn delete_archived_memberships(
+async fn delete_purgeable_memberships(
     connection: &mut PgConnection,
     user_id: Uuid,
 ) -> Result<u64, AccountDeletionRepositoryError> {
@@ -137,12 +154,12 @@ async fn delete_archived_memberships(
          USING groups group_entry \
          WHERE membership.user_id = $1 \
            AND membership.group_id = group_entry.id \
-           AND group_entry.deleted_at IS NOT NULL",
+           AND (membership.deleted_at IS NOT NULL OR group_entry.deleted_at IS NOT NULL)",
     )
     .bind(user_id)
     .execute(connection)
     .await
-    .map_err(|error| database_error("account_deletion_archived_membership_delete", error))?;
+    .map_err(|error| database_error("account_deletion_purgeable_membership_delete", error))?;
     Ok(result.rows_affected())
 }
 

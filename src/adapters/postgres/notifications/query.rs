@@ -5,9 +5,12 @@ use sqlx::PgPool;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::ports::push::{
-    ListNotificationsQuery, NotificationPage, NotificationRecord, NotificationType,
-    NotificationsRepositoryError,
+use crate::ports::{
+    account_deletion::ANONYMOUS_AUTHOR_NICKNAME,
+    push::{
+        ListNotificationsQuery, NotificationPage, NotificationRecord, NotificationType,
+        NotificationsRepositoryError,
+    },
 };
 
 use super::database_error;
@@ -23,53 +26,102 @@ type NotificationAccessRow = (
     Option<i64>,
     Option<OffsetDateTime>,
     Option<OffsetDateTime>,
+    bool,
 );
+
+const LIST_NOTIFICATIONS_SQL: &str = "\
+    WITH cursor_row AS ( \
+        SELECT created_at, id FROM notifications \
+        WHERE id = $2 AND user_id = $1 \
+    ), state AS ( \
+        SELECT \
+            ($2::uuid IS NULL OR EXISTS (SELECT 1 FROM cursor_row)) AS cursor_valid, \
+            ( \
+                SELECT count(*) FROM notifications notification \
+                WHERE user_id = $1 AND read_at IS NULL \
+                  AND notification.deleted_at IS NULL \
+                  AND ( \
+                      notification.topic_id IS NULL \
+                      OR EXISTS ( \
+                          SELECT 1 FROM topics topic \
+                          WHERE topic.id = notification.topic_id \
+                            AND topic.deleted_at IS NULL \
+                      ) \
+                  ) \
+                  AND ( \
+                      notification.conversation_id IS NULL \
+                      OR EXISTS ( \
+                          SELECT 1 FROM chatrooms chatroom \
+                          LEFT JOIN topics topic ON topic.id = chatroom.topic_id \
+                          WHERE chatroom.id = notification.conversation_id \
+                            AND chatroom.deleted_at IS NULL \
+                            AND (chatroom.topic_id IS NULL OR topic.deleted_at IS NULL) \
+                      ) \
+                  ) \
+            ) AS unread_count \
+    ), page AS ( \
+        SELECT notification.id, notification.type, notification.payload, \
+               notification.topic_id, notification.conversation_id, \
+               notification.source_cursor, notification.read_at, \
+               notification.created_at \
+        FROM notifications notification \
+        CROSS JOIN state \
+        WHERE notification.user_id = $1 AND state.cursor_valid \
+          AND notification.deleted_at IS NULL \
+          AND ( \
+              notification.topic_id IS NULL \
+              OR EXISTS ( \
+                  SELECT 1 FROM topics topic \
+                  WHERE topic.id = notification.topic_id \
+                    AND topic.deleted_at IS NULL \
+              ) \
+          ) \
+          AND ( \
+              notification.conversation_id IS NULL \
+              OR EXISTS ( \
+                  SELECT 1 FROM chatrooms chatroom \
+                  LEFT JOIN topics topic ON topic.id = chatroom.topic_id \
+                  WHERE chatroom.id = notification.conversation_id \
+                    AND chatroom.deleted_at IS NULL \
+                    AND (chatroom.topic_id IS NULL OR topic.deleted_at IS NULL) \
+              ) \
+          ) \
+          AND ( \
+              $2::uuid IS NULL \
+              OR (notification.created_at, notification.id) < ( \
+                  SELECT created_at, id FROM cursor_row \
+              ) \
+          ) \
+        ORDER BY notification.created_at DESC, notification.id DESC \
+        LIMIT $3 \
+    ) \
+    SELECT state.cursor_valid, state.unread_count, page.id, page.type, page.payload, \
+           page.topic_id, page.conversation_id, page.source_cursor, page.read_at, \
+           page.created_at, \
+           COALESCE(source_user.deleted_at IS NOT NULL, false) \
+    FROM state LEFT JOIN page ON TRUE \
+    LEFT JOIN conversation_events source_event \
+      ON source_event.conversation_id = page.conversation_id \
+     AND source_event.cursor = page.source_cursor \
+    LEFT JOIN users source_user \
+      ON source_user.id::TEXT = COALESCE( \
+          source_event.payload ->> 'sender_id', \
+          source_event.payload ->> 'author_id' \
+      ) \
+    ORDER BY page.created_at DESC, page.id DESC";
 
 pub(super) async fn list_notifications(
     pool: &PgPool,
     query: ListNotificationsQuery,
 ) -> Result<NotificationPage, NotificationsRepositoryError> {
     let fetch_limit = i64::from(query.limit) + 1;
-    let rows = sqlx::query_as::<_, NotificationAccessRow>(
-        "WITH cursor_row AS ( \
-             SELECT created_at, id FROM notifications \
-             WHERE id = $2 AND user_id = $1 \
-         ), state AS ( \
-             SELECT \
-                 ($2::uuid IS NULL OR EXISTS (SELECT 1 FROM cursor_row)) AS cursor_valid, \
-                 ( \
-                     SELECT count(*) FROM notifications \
-                     WHERE user_id = $1 AND read_at IS NULL \
-                 ) AS unread_count \
-         ), page AS ( \
-             SELECT notification.id, notification.type, notification.payload, \
-                    notification.topic_id, notification.conversation_id, \
-                    notification.source_cursor, notification.read_at, \
-                    notification.created_at \
-             FROM notifications notification \
-             CROSS JOIN state \
-             WHERE notification.user_id = $1 AND state.cursor_valid \
-               AND ( \
-                   $2::uuid IS NULL \
-                   OR (notification.created_at, notification.id) < ( \
-                       SELECT created_at, id FROM cursor_row \
-                   ) \
-               ) \
-             ORDER BY notification.created_at DESC, notification.id DESC \
-             LIMIT $3 \
-         ) \
-         SELECT state.cursor_valid, state.unread_count, page.id, page.type, page.payload, \
-                page.topic_id, page.conversation_id, page.source_cursor, page.read_at, \
-                page.created_at \
-         FROM state LEFT JOIN page ON TRUE \
-         ORDER BY page.created_at DESC, page.id DESC",
-    )
-    .bind(query.user_id)
-    .bind(query.after)
-    .bind(fetch_limit)
-    .fetch_all(pool)
-    .await
-    .map_err(|error| database_error("notification_list", error))?;
+    let rows = sqlx::query_as::<_, NotificationAccessRow>(LIST_NOTIFICATIONS_SQL)
+        .bind(query.user_id)
+        .bind(query.after)
+        .bind(fetch_limit)
+        .fetch_all(pool)
+        .await
+        .map_err(|error| database_error("notification_list", error))?;
 
     let first = rows
         .first()
@@ -108,7 +160,10 @@ fn notification_from_row(
             .ok_or(NotificationsRepositoryError::InvalidData)?,
     )
     .ok_or(NotificationsRepositoryError::InvalidData)?;
-    let args = notification_args(row.4.ok_or(NotificationsRepositoryError::InvalidData)?)?;
+    let args = notification_args(
+        row.4.ok_or(NotificationsRepositoryError::InvalidData)?,
+        row.10,
+    )?;
     if row.7.is_some_and(|cursor| cursor <= 0) {
         return Err(NotificationsRepositoryError::InvalidData);
     }
@@ -126,6 +181,7 @@ fn notification_from_row(
 
 fn notification_args(
     payload: Value,
+    source_user_deleted: bool,
 ) -> Result<BTreeMap<String, Value>, NotificationsRepositoryError> {
     let object = payload
         .as_object()
@@ -137,10 +193,21 @@ fn notification_args(
     {
         return Err(NotificationsRepositoryError::InvalidData);
     }
-    Ok(object
+    let mut args = object
         .iter()
         .map(|(key, value)| (key.clone(), value.clone()))
-        .collect())
+        .collect::<BTreeMap<_, _>>();
+    if source_user_deleted {
+        for key in ["author_display_name", "sender_display_name"] {
+            if args.contains_key(key) {
+                args.insert(
+                    key.to_owned(),
+                    Value::String(ANONYMOUS_AUTHOR_NICKNAME.to_owned()),
+                );
+            }
+        }
+    }
+    Ok(args)
 }
 
 fn valid_arg_key(key: &str) -> bool {

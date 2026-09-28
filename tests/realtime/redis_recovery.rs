@@ -10,8 +10,8 @@ use futures_util::{SinkExt, StreamExt};
 use jamye_server::{
     adapters::{
         postgres::{
-            messaging::PostgresMessagingRepository, realtime::PostgresRealtimeRepository,
-            transactions::SqlxTransactionManager,
+            auth::PostgresAuthRepository, messaging::PostgresMessagingRepository,
+            realtime::PostgresRealtimeRepository, transactions::SqlxTransactionManager,
         },
         redis::realtime::{OsTicketCredentialSource, RedisRealtimeAdapter},
     },
@@ -19,6 +19,7 @@ use jamye_server::{
         auth::{AccessIdentity, AccessTokenVerifier, AuthenticationError},
         messaging::MessagingService,
         realtime::{OutboxWorker, OutboxWorkerConfig, RealtimeTicketService, SystemClock},
+        users::UserService,
     },
     domain::messaging::{CanonicalMessage, EventPage, MessageCreatedEvent},
     transport::{
@@ -57,6 +58,10 @@ async fn redis_stop_restart_keeps_postgres_correctness_and_same_router_recovery(
     let identity = AccessIdentity::new(fixture.user_id, Uuid::new_v4(), "task-4b-recovery")
         .with_access_token_expiry(OffsetDateTime::now_utc() + time::Duration::minutes(5));
     let auth = AuthVerifierState::new(Arc::new(StaticVerifier(identity)));
+    let users = Arc::new(UserService::new(
+        Arc::new(SqlxTransactionManager::new(pool.clone())),
+        Arc::new(PostgresAuthRepository::new(pool.clone())),
+    ));
     let messaging = Arc::new(MessagingService::new(
         Arc::new(SqlxTransactionManager::new(pool.clone())),
         Arc::new(PostgresMessagingRepository::new(pool.clone())),
@@ -79,6 +84,7 @@ async fn redis_stop_restart_keeps_postgres_correctness_and_same_router_recovery(
             hub.clone(),
             postgres_realtime.clone(),
             auth,
+            users,
         )));
     let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
     let address = listener.local_addr()?;
@@ -129,7 +135,7 @@ async fn redis_stop_restart_keeps_postgres_correctness_and_same_router_recovery(
     let unavailable_ticket = client
         .post(format!("{base_url}/api/v1/realtime/tickets"))
         .bearer_auth(TEST_BEARER)
-        .header("x-jamye-contract-version", "1")
+        .header("x-jamye-contract-version", "2")
         .send()
         .await?;
     assert_safe_realtime_unavailable(unavailable_ticket).await?;
@@ -198,7 +204,7 @@ async fn redis_stop_restart_keeps_postgres_correctness_and_same_router_recovery(
             .await
             .map_err(io::Error::other)?
             .ok_or_else(|| io::Error::other("Redis subscriber ended during recovery"))?;
-        let conversation_id = event.conversation_id;
+        let conversation_id = event.conversation_id();
         let payload = serde_json::to_string(&event).map_err(io::Error::other)?;
         forward_hub.publish(conversation_id, payload).await;
         Ok::<(), io::Error>(())
@@ -233,12 +239,12 @@ async fn issue_ticket(client: &reqwest::Client, base_url: &str) -> TestResult<Ti
     let response = client
         .post(format!("{base_url}/api/v1/realtime/tickets"))
         .bearer_auth(TEST_BEARER)
-        .header("x-jamye-contract-version", "1")
+        .header("x-jamye-contract-version", "2")
         .send()
         .await?;
     assert_eq!(response.status(), reqwest::StatusCode::CREATED);
     let ticket: TicketResponse = serde_json::from_slice(&response.bytes().await?)?;
-    assert_eq!(ticket.contract_version, "1");
+    assert_eq!(ticket.contract_version, "2");
     assert!(!ticket.expires_at.is_empty());
     Ok(ticket)
 }
@@ -281,7 +287,7 @@ async fn delta_page(
             "{base_url}/api/v1/conversations/{conversation_id}/events?limit=10"
         ))
         .bearer_auth(TEST_BEARER)
-        .header("x-jamye-contract-version", "1")
+        .header("x-jamye-contract-version", "2")
         .send()
         .await?;
     assert_eq!(response.status(), reqwest::StatusCode::OK);

@@ -5,7 +5,7 @@ mod service;
 
 pub use access_identity::{AccessIdentity, AccessTokenVerifier, AuthenticationError};
 pub use service::{
-    AuthDependencies, AuthError, AuthLifetimePolicy, AuthRateLimitPolicy, AuthService,
-    AuthorizeInput, AuthorizeOutput, EndpointRateLimit, ExchangeInput, OAUTH_ATTEMPT_TTL,
-    OAuthProviderSlot, SystemAuthClock, TokenPair,
+    AuthDependencies, AuthError, AuthExchangeOutput, AuthLifetimePolicy, AuthRateLimitPolicy,
+    AuthService, AuthorizeInput, AuthorizeOutput, EndpointRateLimit, ExchangeInput,
+    OAUTH_ATTEMPT_TTL, OAuthProviderSlot, SystemAuthClock, TokenPair,
 };

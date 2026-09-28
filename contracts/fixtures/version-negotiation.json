@@ -1,12 +1,12 @@
 {
   "accepted": [
     {
-      "echoed": "1",
-      "requested": "1"
+      "echoed": "2",
+      "requested": "2"
     },
     {
-      "echoed": "0",
-      "requested": "0"
+      "echoed": "1",
+      "requested": "1"
     }
   ],
   "fixture": "current_previous_version_negotiation",

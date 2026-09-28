@@ -186,6 +186,7 @@ pub async fn exchange(
             "ip:127.0.0.1",
         )
         .await
+        .map(|output| output.token_pair)
 }
 
 #[derive(Default)]

@@ -536,6 +536,7 @@ pub struct UpsertPushInstallationOutcome {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PushRepositoryError {
+    AccountNotFound,
     InstallationNotFound,
     InvalidData,
     Unavailable,

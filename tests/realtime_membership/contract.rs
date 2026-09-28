@@ -20,7 +20,12 @@ fn internal_control_types_never_enter_the_public_realtime_event_union() -> TestR
     let manifest: Value = serde_json::from_str(&fs::read_to_string("contracts/manifest.json")?)?;
     assert_eq!(
         manifest["realtime_discriminants"],
-        serde_json::json!(["message.created", "topic.created"])
+        serde_json::json!([
+            "message.created",
+            "topic.created",
+            "message.deleted",
+            "topic.deleted"
+        ])
     );
     for path in [
         "contracts/manifest.json",

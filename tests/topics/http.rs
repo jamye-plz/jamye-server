@@ -214,6 +214,190 @@ async fn t1_through_t7_http_use_the_locked_authenticated_mobile_shapes() -> Test
     database.dispose().await
 }
 
+#[tokio::test]
+async fn t1_through_t8_http_use_the_locked_authenticated_mobile_shapes() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let fixture = topology(&pool).await?;
+    let harness = harness(pool.clone());
+    let router = topics_router(TopicsHttpState::new(
+        harness.service,
+        Arc::new(TestAccessVerifier),
+    ));
+    let create_uri = format!("/api/v1/groups/{}/topics", fixture.group_id);
+    let create_key = Uuid::new_v4();
+    let created = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &create_uri,
+            Some(fixture.author_id),
+            Some(create_key),
+            json!({"title": "삭제 주제"}),
+        )?)
+        .await?;
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let created = response_json(created).await?;
+    let topic_id = uuid_field(&created, "id")?;
+    let topic_chatroom_id = uuid_field(&created, "chatroom_id")?;
+    let topic_uri = format!("{create_uri}/{topic_id}");
+    let tags_uri = format!("{topic_uri}/tags");
+    let tags = router
+        .clone()
+        .oneshot(json_request(
+            "PUT",
+            &tags_uri,
+            Some(fixture.author_id),
+            None,
+            json!({"tags": [{"tag": "삭제확인", "source": "user", "confidence": null}]}),
+        )?)
+        .await?;
+    assert_eq!(tags.status(), StatusCode::OK);
+
+    for actor_id in [fixture.owner_id, fixture.member_id] {
+        let denied = router
+            .clone()
+            .oneshot(empty_request("DELETE", &topic_uri, Some(actor_id))?)
+            .await?;
+        assert_error(denied, StatusCode::FORBIDDEN, "topic_author_required").await?;
+    }
+
+    let deleted = router
+        .clone()
+        .oneshot(empty_request(
+            "DELETE",
+            &topic_uri,
+            Some(fixture.author_id),
+        )?)
+        .await?;
+    assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
+    let retry = router
+        .clone()
+        .oneshot(empty_request(
+            "DELETE",
+            &topic_uri,
+            Some(fixture.author_id),
+        )?)
+        .await?;
+    assert_eq!(retry.status(), StatusCode::NO_CONTENT);
+    let hidden_from_nonauthor = router
+        .clone()
+        .oneshot(empty_request(
+            "DELETE",
+            &topic_uri,
+            Some(fixture.member_id),
+        )?)
+        .await?;
+    assert_error(
+        hidden_from_nonauthor,
+        StatusCode::NOT_FOUND,
+        "topic_not_found",
+    )
+    .await?;
+    let idempotent_resend = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &create_uri,
+            Some(fixture.author_id),
+            Some(create_key),
+            json!({"title": "삭제 주제"}),
+        )?)
+        .await?;
+    assert_error(
+        idempotent_resend,
+        StatusCode::CONFLICT,
+        "topic_idempotency_conflict",
+    )
+    .await?;
+
+    let detail = router
+        .clone()
+        .oneshot(empty_request("GET", &topic_uri, Some(fixture.member_id))?)
+        .await?;
+    assert_error(detail, StatusCode::NOT_FOUND, "topic_not_found").await?;
+    let tags_after_delete = router
+        .clone()
+        .oneshot(empty_request("GET", &tags_uri, Some(fixture.member_id))?)
+        .await?;
+    assert_error(tags_after_delete, StatusCode::NOT_FOUND, "topic_not_found").await?;
+    let list = router
+        .clone()
+        .oneshot(empty_request(
+            "GET",
+            &format!("{create_uri}?limit=10"),
+            Some(fixture.member_id),
+        )?)
+        .await?;
+    assert_eq!(list.status(), StatusCode::OK);
+    let list = response_json(list).await?;
+    assert!(
+        !list["items"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item["id"] == topic_id.to_string()))
+    );
+
+    let (title, body_is_null, topic_deleted) = sqlx::query_as::<_, (String, bool, bool)>(
+        "SELECT title, body IS NULL, deleted_at IS NOT NULL FROM topics WHERE id = $1",
+    )
+    .bind(topic_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(title, "");
+    assert!(body_is_null);
+    assert!(topic_deleted);
+    let chatroom_deleted: bool =
+        sqlx::query_scalar("SELECT deleted_at IS NOT NULL FROM chatrooms WHERE id = $1")
+            .bind(topic_chatroom_id)
+            .fetch_one(&pool)
+            .await?;
+    assert!(chatroom_deleted);
+    let tag_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM topic_tags WHERE topic_id = $1")
+        .bind(topic_id)
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(tag_count, 0);
+
+    let (topic_event_id, topic_payload) = sqlx::query_as::<_, (Uuid, Value)>(
+        "SELECT id, payload FROM conversation_events \
+         WHERE conversation_id = $1 AND event_type = 'topic.deleted'",
+    )
+    .bind(topic_chatroom_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(topic_payload["topic_id"], topic_id.to_string());
+    assert_eq!(
+        topic_payload["topic_chatroom_id"],
+        topic_chatroom_id.to_string()
+    );
+    assert_eq!(topic_payload["deleted_by"], fixture.author_id.to_string());
+    let topic_outbox_payload: Value = sqlx::query_scalar(
+        "SELECT payload FROM outbox_events \
+         WHERE event_type = 'topic.deleted' AND conversation_event_id = $1",
+    )
+    .bind(topic_event_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(topic_outbox_payload["type"], "topic.deleted");
+    assert_eq!(
+        topic_outbox_payload["data"]["topic_id"],
+        topic_id.to_string()
+    );
+    let announcement_deleted_events: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM conversation_events \
+         WHERE conversation_id = $1 \
+           AND event_type = 'message.deleted' \
+           AND payload ->> 'reason' = 'topic_deleted'",
+    )
+    .bind(fixture.main_chatroom_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(announcement_deleted_events, 1);
+
+    pool.close().await;
+    database.dispose().await
+}
+
 fn json_request(
     method: &str,
     uri: &str,

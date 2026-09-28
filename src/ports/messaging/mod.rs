@@ -44,6 +44,14 @@ pub trait MessagingRepository: Send + Sync {
     ) -> MessagingFuture<'a, PersistedMessage> {
         Box::pin(async { Err(MessagingRepositoryError::DatabaseUnavailable) })
     }
+
+    fn delete_message<'a>(
+        &'a self,
+        _handle: &'a mut dyn TransactionHandle,
+        _command: &'a DeleteMessageCommand,
+    ) -> MessagingFuture<'a, ()> {
+        Box::pin(async { Err(MessagingRepositoryError::DatabaseUnavailable) })
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -111,6 +119,13 @@ pub struct DeltaQuery {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DeleteMessageCommand {
+    pub chatroom_id: Uuid,
+    pub message_id: Uuid,
+    pub actor_id: Uuid,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContractProjection {
     Current,
     Previous,
@@ -119,6 +134,8 @@ pub enum ContractProjection {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MessagingRepositoryError {
     MembershipRequired,
+    MessageNotFound,
+    MessageAuthorRequired,
     IdempotencyConflict,
     ContractUpgradeRequired,
     DatabaseUnavailable,

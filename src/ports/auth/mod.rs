@@ -18,6 +18,15 @@ pub trait AuthRepository: Send + Sync {
         session: &'a NewRefreshSession,
     ) -> AuthRepositoryFuture<'a, IssuedSession>;
 
+    fn restore_deleted_identity<'a>(
+        &'a self,
+        _transaction: &'a mut dyn TransactionHandle,
+        _identity: &'a NewProviderIdentity,
+        _session: &'a NewRefreshSession,
+    ) -> AuthRepositoryFuture<'a, Option<IssuedSession>> {
+        Box::pin(async { Ok(None) })
+    }
+
     fn rotate_session<'a>(
         &'a self,
         transaction: &'a mut dyn TransactionHandle,
@@ -32,6 +41,10 @@ pub trait AuthRepository: Send + Sync {
         session_id: Uuid,
         now: OffsetDateTime,
     ) -> AuthRepositoryFuture<'a, ()>;
+
+    fn account_is_active(&self, _user_id: Uuid) -> AuthRepositoryFuture<'_, bool> {
+        Box::pin(async { Err(AuthRepositoryError::Unavailable) })
+    }
 
     fn profile(&self, user_id: Uuid) -> AuthRepositoryFuture<'_, Option<UserProfile>>;
 

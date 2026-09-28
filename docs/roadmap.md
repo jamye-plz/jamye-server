@@ -6,6 +6,12 @@
 > 진행률: Task 1-13·17-18 구현·배포 완료, task-14-16은 등록(planned_unapproved) 단계
 > 기계 SSOT: .agents/results/plan-20260822-200110.json (task-1-13) · .agents/results/plan-20260926-181036.json (task-17) · .agents/results/plan-20260927-120934.json (task-18) · task-14 이후는 착수 시 새 plan JSON 생성
 
+## 0. 2026-09-28 task-14 1차 서버 구현 기록
+
+task-14a 서버 1차는 구현 중이며 운영 배포 전 상태다. 1차 범위는 계정 삭제를 즉시 D10 hard delete로 처리하지 않고 `users.deleted_at` 기반 30일 유예로 시작하며, refresh session 폐기, push installation 비활성화, membership soft delete(`account_deleted_at`)와 기존 realtime control eviction 경로를 결합한다. retained author link(`sender_id`/`author_id`)는 유예 동안 보존하고, C2/C4/S1/T3/T4/G4/N1 조회 투영에서만 `탈퇴한 사용자`/`null`로 익명화한다.
+
+A2 OAuth exchange는 유예 중 soft-deleted identity를 별도 복구 경로에서만 되살리고, 복구 시 `X-Jamye-Account-Restored: true` 응답 헤더를 추가한다. `TokenPair` 본문은 바꾸지 않는다. 30일 이후 purge worker는 DB clock 기준 lease/batch claim으로 기존 D10 전이를 실행한다. 계약 v2 협상과 삭제 이벤트는 task-14 base/delete 단계에서 추가됐고, 이 1차 grace 단계는 복구 헤더와 soft-delete schema를 더한다.
+
 ## 1. 목표와 범위
 
 이번 작업의 목표는 기존 PWA + FastAPI monorepo에서 서버를 분리해 Rust/Axum 기반 jamye-server로 재설계하고, 동시에 개발되는 React Native 앱이 사용할 계약을 C2 release candidate까지 제공하는 것이다.

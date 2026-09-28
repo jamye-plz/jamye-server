@@ -17,6 +17,24 @@
       "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
       "schema": "contracts/realtime/topic.created.schema.json",
       "version": 1
+    },
+    {
+      "event_type": "message.deleted",
+      "feature_behavior_test": "tests/messaging/http.rs::c6_deletes_author_messages_scrubs_content_and_is_idempotent",
+      "fixture": "contracts/contributions/task-6b/fixtures/chatroom-history-read.json",
+      "handler": "src/adapters/postgres/messaging/delete.rs::delete_message",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "schema": "contracts/realtime/message.deleted.schema.json",
+      "version": 1
+    },
+    {
+      "event_type": "topic.deleted",
+      "feature_behavior_test": "tests/topics/http.rs::t1_through_t8_http_use_the_locked_authenticated_mobile_shapes",
+      "fixture": "contracts/contributions/task-7/fixtures/topic-flow.json",
+      "handler": "src/adapters/postgres/topics/delete.rs::delete_topic",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "schema": "contracts/realtime/topic.deleted.schema.json",
+      "version": 1
     }
   ],
   "rest_operations": [
@@ -264,6 +282,15 @@
       "path": "/api/v1/groups/{group_id}/topics/{topic_id}/tags"
     },
     {
+      "feature_behavior_test": "tests/topics/http.rs::t1_through_t8_http_use_the_locked_authenticated_mobile_shapes",
+      "fixture": "contracts/contributions/task-7/fixtures/topic-flow.json",
+      "handler": "src/transport/http/topics/mod.rs::delete_topic",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "delete",
+      "operation_id": "T8",
+      "path": "/api/v1/groups/{group_id}/topics/{topic_id}"
+    },
+    {
       "feature_behavior_test": "tests/media/upload_finalize_http.rs::md1_returns_a_server_minted_intent_and_constrained_put",
       "fixture": "contracts/contributions/task-8/fixtures/media-flow.json",
       "handler": "src/transport/http/media/mod.rs::create_upload_intent",
@@ -325,6 +352,15 @@
       "method": "get",
       "operation_id": "C5",
       "path": "/api/v1/chatrooms/{chatroom_id}/media"
+    },
+    {
+      "feature_behavior_test": "tests/messaging/http.rs::c6_deletes_author_messages_scrubs_content_and_is_idempotent",
+      "fixture": "contracts/contributions/task-6b/fixtures/chatroom-history-read.json",
+      "handler": "src/transport/http/messaging/mod.rs::delete_message",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "delete",
+      "operation_id": "C6",
+      "path": "/api/v1/chatrooms/{chatroom_id}/messages/{message_id}"
     },
     {
       "feature_behavior_test": "tests/media/access_http.rs::md4_returns_only_public_metadata_and_the_short_reissued_url",

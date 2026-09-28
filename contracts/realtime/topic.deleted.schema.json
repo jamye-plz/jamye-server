@@ -1,0 +1,91 @@
+{
+  "$defs": {
+    "TopicDeletedData": {
+      "additionalProperties": false,
+      "properties": {
+        "announcement_message_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "deleted_at": {
+          "type": "string"
+        },
+        "deleted_by": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "group_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "topic_chatroom_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "topic_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "topic_id",
+        "topic_chatroom_id",
+        "group_id",
+        "deleted_at",
+        "deleted_by"
+      ],
+      "type": "object"
+    },
+    "TopicDeletedType": {
+      "enum": [
+        "topic.deleted"
+      ],
+      "type": "string"
+    }
+  },
+  "$id": "https://contracts.jamye.local/realtime/topic.deleted.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "conversation_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "cursor": {
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/TopicDeletedData"
+    },
+    "event_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "occurred_at": {
+      "type": "string"
+    },
+    "type": {
+      "$ref": "#/$defs/TopicDeletedType"
+    },
+    "version": {
+      "format": "uint8",
+      "maximum": 1,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "version",
+    "type",
+    "event_id",
+    "conversation_id",
+    "cursor",
+    "occurred_at",
+    "data"
+  ],
+  "title": "Jamye topic.deleted event v1",
+  "type": "object"
+}

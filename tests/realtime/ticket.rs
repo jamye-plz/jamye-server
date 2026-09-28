@@ -13,9 +13,11 @@ use axum::{
     http::{Request, StatusCode},
 };
 use jamye_server::{
+    adapters::postgres::{auth::PostgresAuthRepository, transactions::SqlxTransactionManager},
     application::{
         auth::{AccessIdentity, AccessTokenVerifier, AuthenticationError},
         realtime::{RealtimeTicketError, RealtimeTicketService},
+        users::UserService,
     },
     platform::logging::build_json_subscriber,
     ports::realtime::{
@@ -33,7 +35,7 @@ use tower::ServiceExt;
 use tracing_subscriber::fmt::MakeWriter;
 use uuid::Uuid;
 
-use crate::TestResult;
+use crate::{TestResult, postgres_support::TestDatabase};
 
 #[tokio::test]
 async fn unsupported_versions_create_no_ticket_material() -> TestResult {
@@ -42,7 +44,7 @@ async fn unsupported_versions_create_no_ticket_material() -> TestResult {
         .service
         .issue(
             &identity(OffsetDateTime::UNIX_EPOCH + time::Duration::minutes(1)),
-            "2",
+            "0",
         )
         .await;
     assert_eq!(result, Err(RealtimeTicketError::ContractUpgradeRequired));
@@ -56,7 +58,7 @@ async fn ticket_is_capped_by_access_expiry_and_consumed_exactly_once() -> TestRe
     let now = OffsetDateTime::UNIX_EPOCH;
     let expires_at = now + time::Duration::seconds(1);
     let harness = Harness::new(now);
-    let issued = harness.service.issue(&identity(expires_at), "1").await?;
+    let issued = harness.service.issue(&identity(expires_at), "2").await?;
     assert_eq!(issued.expires_at, expires_at);
     assert_eq!(harness.store.last_ttl()?, Some(Duration::from_secs(1)));
 
@@ -73,7 +75,7 @@ async fn ticket_is_capped_by_access_expiry_and_consumed_exactly_once() -> TestRe
 #[tokio::test]
 async fn ticket_lifetime_is_capped_at_thirty_seconds_for_both_supported_versions() -> TestResult {
     let now = OffsetDateTime::UNIX_EPOCH;
-    for contract_version in ["1", "0"] {
+    for contract_version in ["2", "1"] {
         let harness = Harness::new(now);
         let issued = harness
             .service
@@ -97,7 +99,7 @@ async fn non_positive_access_lifetime_creates_no_ticket_material() -> TestResult
     let now = OffsetDateTime::UNIX_EPOCH;
     let harness = Harness::new(now);
     assert_eq!(
-        harness.service.issue(&identity(now), "1").await,
+        harness.service.issue(&identity(now), "2").await,
         Err(RealtimeTicketError::AuthenticationRequired)
     );
     assert_eq!(harness.credentials.generate_calls.load(Ordering::SeqCst), 0);
@@ -110,7 +112,7 @@ async fn consumed_after_the_bound_expiry_is_indistinguishable_from_missing() -> 
     let now = OffsetDateTime::UNIX_EPOCH;
     let expires_at = now + time::Duration::seconds(5);
     let harness = Harness::new(now);
-    let issued = harness.service.issue(&identity(expires_at), "0").await?;
+    let issued = harness.service.issue(&identity(expires_at), "1").await?;
     harness.clock.set(expires_at);
     assert_eq!(
         harness.service.consume(&issued.ticket).await,
@@ -139,6 +141,16 @@ fn ticket_secret_and_digest_debug_output_is_redacted() {
 async fn structured_ticket_logs_exclude_raw_and_digest_credentials() -> TestResult {
     let harness = Harness::new(OffsetDateTime::UNIX_EPOCH);
     let identity = identity(OffsetDateTime::UNIX_EPOCH + time::Duration::minutes(1));
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    sqlx::query("INSERT INTO users (id, nickname) VALUES ($1, 'ticket log user')")
+        .bind(identity.user_id)
+        .execute(&pool)
+        .await?;
+    let users = Arc::new(UserService::new(
+        Arc::new(SqlxTransactionManager::new(pool.clone())),
+        Arc::new(PostgresAuthRepository::new(pool.clone())),
+    ));
     let raw_ticket = format!("{:064x}", 1);
     let digest = format!("digest:{raw_ticket}");
     let writer = SharedWriter::default();
@@ -150,12 +162,13 @@ async fn structured_ticket_logs_exclude_raw_and_digest_credentials() -> TestResu
         LocalRealtimeHub::default(),
         Arc::new(AlwaysAuthorized),
         AuthVerifierState::new(Arc::new(StaticVerifier(identity))),
+        users,
     );
     let response = jamye_server::transport::http::realtime::router(state)
         .oneshot(
             Request::post("/api/v1/realtime/tickets")
                 .header("authorization", "Bearer opaque-test-token")
-                .header("x-jamye-contract-version", "1")
+                .header("x-jamye-contract-version", "2")
                 .body(Body::empty())?,
         )
         .await?;
@@ -166,7 +179,59 @@ async fn structured_ticket_logs_exclude_raw_and_digest_credentials() -> TestResu
     for forbidden in [raw_ticket.as_str(), digest.as_str(), "opaque-test-token"] {
         assert!(!logs.contains(forbidden), "logs leaked {forbidden}");
     }
+    pool.close().await;
+    database.dispose().await?;
     Ok(())
+}
+
+#[tokio::test]
+async fn ticket_rejects_missing_and_grace_deleted_accounts_before_materializing() -> TestResult {
+    for account_state in [AccountState::Missing, AccountState::GraceDeleted] {
+        let harness = Harness::new(OffsetDateTime::UNIX_EPOCH);
+        let identity = identity(OffsetDateTime::UNIX_EPOCH + time::Duration::minutes(1));
+        let database = TestDatabase::migrated().await?;
+        let pool = database.pool()?;
+        if account_state == AccountState::GraceDeleted {
+            sqlx::query(
+                "INSERT INTO users (id, nickname, deleted_at) \
+                 VALUES ($1, 'deleted ticket user', clock_timestamp())",
+            )
+            .bind(identity.user_id)
+            .execute(&pool)
+            .await?;
+        }
+        let users = Arc::new(UserService::new(
+            Arc::new(SqlxTransactionManager::new(pool.clone())),
+            Arc::new(PostgresAuthRepository::new(pool.clone())),
+        ));
+        let state = RealtimeHttpState::new(
+            Arc::new(harness.service.clone()),
+            LocalRealtimeHub::default(),
+            Arc::new(AlwaysAuthorized),
+            AuthVerifierState::new(Arc::new(StaticVerifier(identity))),
+            users,
+        );
+        let response = jamye_server::transport::http::realtime::router(state)
+            .oneshot(
+                Request::post("/api/v1/realtime/tickets")
+                    .header("authorization", "Bearer opaque-test-token")
+                    .header("x-jamye-contract-version", "2")
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(harness.credentials.generate_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(harness.store.len()?, 0);
+        pool.close().await;
+        database.dispose().await?;
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AccountState {
+    Missing,
+    GraceDeleted,
 }
 
 struct Harness {

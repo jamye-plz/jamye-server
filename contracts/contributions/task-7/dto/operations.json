@@ -74,6 +74,16 @@
       "request": null,
       "response": "TagPage",
       "success_status": 200
+    },
+    {
+      "auth": "author",
+      "errors": "E8 topic_author_required + 404 deleted/missing target + 204 author retry",
+      "id": "T8",
+      "method": "DELETE",
+      "path": "/api/v1/groups/{group_id}/topics/{topic_id}",
+      "request": null,
+      "response": null,
+      "success_status": 204
     }
   ]
 }

@@ -2,7 +2,7 @@
   "stage": "release_candidate",
   "server_tag": null,
   "server_commit": "dirty",
-  "contract_version": "1",
+  "contract_version": "2",
   "server_version": "0.1.0",
   "checksum_algorithm": "sha256 over lexicographic path,NUL,decimal-length,NUL,bytes entries; manifest.json uses recursively key-sorted compact JSON without sha256; v1",
   "artifacts": [
@@ -24,9 +24,11 @@
     "openapi.json",
     "realtime/client-frame.schema.json",
     "realtime/message.created.schema.json",
+    "realtime/message.deleted.schema.json",
     "realtime/protocol.json",
     "realtime/server-frame.schema.json",
-    "realtime/topic.created.schema.json"
+    "realtime/topic.created.schema.json",
+    "realtime/topic.deleted.schema.json"
   ],
   "operation_ids": [
     "H1",
@@ -56,6 +58,7 @@
     "T5",
     "T6",
     "T7",
+    "T8",
     "MD1",
     "MD2",
     "C1",
@@ -63,6 +66,7 @@
     "C3",
     "C4",
     "C5",
+    "C6",
     "MD4",
     "MD5",
     "S1",
@@ -75,7 +79,9 @@
   ],
   "realtime_discriminants": [
     "message.created",
-    "topic.created"
+    "topic.created",
+    "message.deleted",
+    "topic.deleted"
   ],
-  "sha256": "867a1a86fea84d4cad7e2a5c14600f0aa79c01a723fad077a4f504dea03f4c4a"
+  "sha256": "92bf7b34552c0e7a9abf8994d610479b41444529ec3c39522ad77532dfa996d9"
 }

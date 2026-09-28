@@ -55,6 +55,13 @@ fn task_6b_contract_contribution_is_the_exact_selected_chatroom_wire() -> TestRe
                 Some(200),
                 Some("before+limit")
             ),
+            (
+                Some("C6"),
+                Some("DELETE"),
+                Some("/api/v1/chatrooms/{chatroom_id}/messages/{message_id}"),
+                Some(204),
+                None
+            ),
         ]
     );
     let c3 = operations

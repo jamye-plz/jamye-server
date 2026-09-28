@@ -8,8 +8,8 @@ use uuid::Uuid;
 
 use crate::ports::{
     topics::{
-        CreateTopicCommand, CreateTopicOutcome, GetTopicQuery, ListTopicDatesQuery,
-        ListTopicTagsQuery, ListTopicsQuery, NewTopicTag, PatchTopicCommand,
+        CreateTopicCommand, CreateTopicOutcome, DeleteTopicCommand, GetTopicQuery,
+        ListTopicDatesQuery, ListTopicTagsQuery, ListTopicsQuery, NewTopicTag, PatchTopicCommand,
         ReplaceTopicTagsCommand, TopicDatePage, TopicNotificationContext, TopicPage, TopicRecord,
         TopicTagPage, TopicTagSource, TopicsRepository, TopicsRepositoryError,
     },
@@ -227,6 +227,27 @@ impl TopicsService {
             })
             .await
             .map_err(TopicsError::from)
+    }
+
+    pub async fn delete_topic(
+        &self,
+        actor_id: Uuid,
+        group_id: Uuid,
+        topic_id: Uuid,
+    ) -> Result<(), TopicsError> {
+        let command = DeleteTopicCommand {
+            group_id,
+            topic_id,
+            actor_id,
+        };
+        let mut transaction = self.begin().await?;
+        let result = self
+            .dependencies
+            .repository
+            .delete_topic(transaction.as_mut(), &command)
+            .await
+            .map_err(TopicsError::from);
+        self.finish(transaction, result).await
     }
 
     async fn begin(&self) -> Result<BoxTransactionHandle, TopicsError> {

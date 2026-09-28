@@ -6,48 +6,122 @@ use uuid::Uuid;
 
 use crate::{
     adapters::{
-        postgres::{realtime::PostgresRealtimeRepository, runtime_pool},
-        redis::realtime::RedisRealtimeAdapter,
+        postgres::{
+            realtime::PostgresRealtimeRepository,
+            realtime_revocations::PostgresRealtimeRevocations, runtime_pool,
+        },
+        redis::{
+            realtime::RedisRealtimeAdapter,
+            realtime_control::{
+                RealtimeControlWorker, RealtimeControlWorkerConfig, RedisRealtimeControl,
+            },
+        },
     },
     application::realtime::{OutboxWorker, OutboxWorkerConfig},
     config::{AppConfig, realtime::RedisPublishTiming},
 };
 
 pub struct WorkerRuntime {
-    worker: OutboxWorker,
+    outbox: OutboxWorker,
+    control: RealtimeControlWorker,
 }
 
 impl WorkerRuntime {
     pub async fn run_until<F>(self, shutdown: F)
     where
-        F: Future<Output = ()> + Send,
+        F: Future<Output = ()> + Send + 'static,
     {
+        let WorkerRuntime { outbox, control } = self;
+        let (stop, receiver) = tokio::sync::watch::channel(());
+        let outbox_stop = receiver.clone();
+        let control_stop = receiver;
+        let mut runners = tokio::task::JoinSet::new();
+        runners.spawn(async move {
+            run_outbox_until(outbox, async move {
+                let mut receiver = outbox_stop;
+                let _ = receiver.changed().await;
+            })
+            .await;
+        });
+        runners.spawn(async move {
+            run_control_until(control, async move {
+                let mut receiver = control_stop;
+                let _ = receiver.changed().await;
+            })
+            .await;
+        });
         tokio::pin!(shutdown);
-        loop {
-            match self.worker.run_once().await {
-                Ok(report) if report.claimed > 0 => {
-                    tracing::info!(
-                        claimed = report.claimed,
-                        published = report.published,
-                        retries = report.retries,
-                        dead_lettered = report.dead_lettered,
-                        stale_claims = report.stale_claims,
-                        "outbox worker batch completed"
-                    );
-                }
-                Ok(_) => {}
-                Err(_) => {
-                    tracing::warn!(
-                        dependency = "postgres",
-                        failure_kind = "worker_poll",
-                        "outbox worker poll failed"
-                    );
-                }
+        tokio::select! {
+            () = &mut shutdown => {},
+            _ = runners.join_next() => {},
+        }
+        let _ = stop.send(());
+        while runners.join_next().await.is_some() {}
+    }
+}
+
+async fn run_outbox_until<F>(worker: OutboxWorker, shutdown: F)
+where
+    F: Future<Output = ()> + Send,
+{
+    tokio::pin!(shutdown);
+    loop {
+        match worker.run_once().await {
+            Ok(report) if report.claimed > 0 => {
+                tracing::info!(
+                    claimed = report.claimed,
+                    published = report.published,
+                    retries = report.retries,
+                    dead_lettered = report.dead_lettered,
+                    stale_claims = report.stale_claims,
+                    "outbox worker batch completed"
+                );
             }
-            tokio::select! {
-                () = &mut shutdown => break,
-                () = tokio::time::sleep(self.worker.poll_interval()) => {}
+            Ok(_) => {}
+            Err(_) => {
+                tracing::warn!(
+                    dependency = "postgres",
+                    failure_kind = "worker_poll",
+                    "outbox worker poll failed"
+                );
             }
+        }
+        tokio::select! {
+            () = &mut shutdown => break,
+            () = tokio::time::sleep(worker.poll_interval()) => {}
+        }
+    }
+}
+
+async fn run_control_until<F>(worker: RealtimeControlWorker, shutdown: F)
+where
+    F: Future<Output = ()> + Send,
+{
+    tokio::pin!(shutdown);
+    loop {
+        match worker.run_once().await {
+            Ok(report) if report.claimed > 0 => {
+                tracing::info!(
+                    claimed = report.claimed,
+                    published = report.published,
+                    retries = report.retries,
+                    dead_lettered = report.dead_lettered,
+                    stale_claims = report.stale_claims,
+                    "realtime control worker batch completed"
+                );
+            }
+            Ok(_) => {}
+            Err(_) => {
+                tracing::warn!(
+                    dependency = "postgres",
+                    failure_kind = "worker_poll",
+                    "realtime control worker poll failed"
+                );
+            }
+        }
+        tokio::select! {
+            () = &mut shutdown => break,
+            () = tokio::time::sleep(Duration::from_millis(250)) => {}
         }
     }
 }
@@ -88,14 +162,22 @@ impl ProductionWorkerFactory {
         let redis = Arc::new(
             RedisRealtimeAdapter::new(redis_url).map_err(|_| WorkerCompositionError::Redis)?,
         );
-        let repository = Arc::new(PostgresRealtimeRepository::new(pool));
-        let worker = OutboxWorker::new(
+        let redis_control =
+            RedisRealtimeControl::new(redis_url).map_err(|_| WorkerCompositionError::Redis)?;
+        let repository = Arc::new(PostgresRealtimeRepository::new(pool.clone()));
+        let outbox = OutboxWorker::new(
             repository,
             redis,
             outbox_worker_config(timing, format!("worker-{}", Uuid::new_v4())),
         )
         .map_err(|_| WorkerCompositionError::Worker)?;
-        Ok(WorkerRuntime { worker })
+        let control = RealtimeControlWorker::new(
+            PostgresRealtimeRevocations::new(pool),
+            redis_control,
+            control_worker_config(timing, format!("control-{}", Uuid::new_v4())),
+        )
+        .map_err(|_| WorkerCompositionError::Worker)?;
+        Ok(WorkerRuntime { outbox, control })
     }
 }
 
@@ -108,6 +190,21 @@ fn outbox_worker_config(timing: RedisPublishTiming, claim_owner: String) -> Outb
         lease_safety_margin: timing.lease_safety_margin,
         retry_delay: Duration::from_secs(1),
         poll_interval: Duration::from_millis(250),
+        max_attempts: 8,
+    }
+}
+
+fn control_worker_config(
+    timing: RedisPublishTiming,
+    claim_owner: String,
+) -> RealtimeControlWorkerConfig {
+    RealtimeControlWorkerConfig {
+        claim_owner,
+        batch_size: 50,
+        lease_duration: timing.lease_duration,
+        publish_timeout: timing.publish_timeout,
+        lease_safety_margin: timing.lease_safety_margin,
+        retry_delay: Duration::from_secs(1),
         max_attempts: 8,
     }
 }

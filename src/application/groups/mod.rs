@@ -468,6 +468,7 @@ pub struct InviteCreateInput {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GroupsError {
+    AuthenticationRequired,
     RequestValidation,
     GroupNotFound,
     MembershipRequired,
@@ -489,6 +490,7 @@ pub enum GroupsError {
 impl From<GroupsRepositoryError> for GroupsError {
     fn from(error: GroupsRepositoryError) -> Self {
         match error {
+            GroupsRepositoryError::AccountNotFound => Self::AuthenticationRequired,
             GroupsRepositoryError::GroupNotFound => Self::GroupNotFound,
             GroupsRepositoryError::MembershipRequired => Self::MembershipRequired,
             GroupsRepositoryError::OwnerRequired => Self::OwnerRequired,

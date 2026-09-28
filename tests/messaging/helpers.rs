@@ -69,6 +69,15 @@ impl TestApp {
         send_to(&self.router, token, chatroom_id, payload, idempotency_key).await
     }
 
+    pub async fn delete_message(
+        &self,
+        token: Option<&str>,
+        chatroom_id: Uuid,
+        message_id: Uuid,
+    ) -> TestResult<Response<Body>> {
+        delete_message_from(&self.router, token, chatroom_id, message_id).await
+    }
+
     pub async fn events(
         &self,
         token: Option<&str>,
@@ -163,6 +172,21 @@ pub async fn send_to(
         .clone()
         .oneshot(request.body(Body::from(serde_json::to_vec(&payload)?))?)
         .await?)
+}
+
+pub async fn delete_message_from(
+    router: &Router,
+    token: Option<&str>,
+    chatroom_id: Uuid,
+    message_id: Uuid,
+) -> TestResult<Response<Body>> {
+    let mut request = Request::delete(format!(
+        "/api/v1/chatrooms/{chatroom_id}/messages/{message_id}"
+    ));
+    if let Some(token) = token {
+        request = request.header(AUTHORIZATION, format!("Bearer {token}"));
+    }
+    Ok(router.clone().oneshot(request.body(Body::empty())?).await?)
 }
 
 pub async fn events_from(

@@ -111,6 +111,45 @@ async fn worker_root_constructs_the_fixed_realtime_push_and_cleanup_runner_set()
     )
 }
 
+#[test]
+fn production_composition_wires_membership_revocation_and_realtime_control() -> TestResult {
+    let api = std::fs::read_to_string("src/transport/http/composition.rs")?;
+    let groups = std::fs::read_to_string("src/transport/http/groups/mod.rs")?;
+    let realtime_worker = std::fs::read_to_string("src/transport/realtime/composition.rs")?;
+
+    for required in [
+        "MembershipRevocationService::new",
+        ".with_membership_revocations(membership_revocations)",
+        "spawn_realtime_control_consumer",
+        "RealtimeControlConsumer::new",
+    ] {
+        require(
+            api.contains(required),
+            &format!("S4 production API composition is missing {required}"),
+        )?;
+    }
+    for required in [
+        "membership_revocations: Option<Arc<MembershipRevocationService>>",
+        "groups_error_from_revocation",
+    ] {
+        require(
+            groups.contains(required),
+            &format!("G6/G7 HTTP state is missing MembershipRevocationService path: {required}"),
+        )?;
+    }
+    for required in [
+        "RealtimeControlWorker::new",
+        "PostgresRealtimeRevocations::new(pool)",
+        "run_control_until",
+    ] {
+        require(
+            realtime_worker.contains(required),
+            &format!("worker composition is missing realtime control runner: {required}"),
+        )?;
+    }
+    Ok(())
+}
+
 struct ObservedResponse {
     status: StatusCode,
     body: String,
@@ -309,6 +348,12 @@ fn selected_surfaces() -> Vec<Surface> {
             protected,
         ),
         (
+            "messages.delete",
+            Method::DELETE,
+            format!("/api/v1/chatrooms/{ID}/messages/{ID}"),
+            protected,
+        ),
+        (
             "topics.list",
             Method::GET,
             format!("/api/v1/groups/{ID}/topics"),
@@ -335,6 +380,12 @@ fn selected_surfaces() -> Vec<Surface> {
         (
             "topics.patch",
             Method::PATCH,
+            format!("/api/v1/groups/{ID}/topics/{ID}"),
+            protected,
+        ),
+        (
+            "topics.delete",
+            Method::DELETE,
             format!("/api/v1/groups/{ID}/topics/{ID}"),
             protected,
         ),

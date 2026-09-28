@@ -257,6 +257,14 @@ pub(crate) const REST_SURFACES: &[RestSurface] = &[
         "contracts/contributions/task-7/fixtures/topic-flow.json"
     ),
     row!(
+        "T8",
+        "delete",
+        "/api/v1/groups/{group_id}/topics/{topic_id}",
+        "src/transport/http/topics/mod.rs::delete_topic",
+        "tests/topics/http.rs::t1_through_t8_http_use_the_locked_authenticated_mobile_shapes",
+        "contracts/contributions/task-7/fixtures/topic-flow.json"
+    ),
+    row!(
         "MD1",
         "post",
         "/api/v1/media/uploads",
@@ -310,6 +318,14 @@ pub(crate) const REST_SURFACES: &[RestSurface] = &[
         "/api/v1/chatrooms/{chatroom_id}/media",
         "src/transport/http/chatrooms/mod.rs::chatroom_media",
         "tests/chatrooms/media.rs::c5_lists_image_and_video_attachments_with_item_cursor_pagination",
+        "contracts/contributions/task-6b/fixtures/chatroom-history-read.json"
+    ),
+    row!(
+        "C6",
+        "delete",
+        "/api/v1/chatrooms/{chatroom_id}/messages/{message_id}",
+        "src/transport/http/messaging/mod.rs::delete_message",
+        "tests/messaging/http.rs::c6_deletes_author_messages_scrubs_content_and_is_idempotent",
         "contracts/contributions/task-6b/fixtures/chatroom-history-read.json"
     ),
     row!(
@@ -402,5 +418,21 @@ pub(crate) const REALTIME_SURFACES: &[RealtimeSurface] = &[
         feature_behavior_test: "tests/topics/create.rs::t1_is_atomic_idempotent_and_emits_distinct_bootstrap_and_announcement_events",
         fixture: "contracts/contributions/task-7/fixtures/topic-flow.json",
         schema: "contracts/realtime/topic.created.schema.json",
+    },
+    RealtimeSurface {
+        event_type: "message.deleted",
+        version: 1,
+        handler: "src/adapters/postgres/messaging/delete.rs::delete_message",
+        feature_behavior_test: "tests/messaging/http.rs::c6_deletes_author_messages_scrubs_content_and_is_idempotent",
+        fixture: "contracts/contributions/task-6b/fixtures/chatroom-history-read.json",
+        schema: "contracts/realtime/message.deleted.schema.json",
+    },
+    RealtimeSurface {
+        event_type: "topic.deleted",
+        version: 1,
+        handler: "src/adapters/postgres/topics/delete.rs::delete_topic",
+        feature_behavior_test: "tests/topics/http.rs::t1_through_t8_http_use_the_locked_authenticated_mobile_shapes",
+        fixture: "contracts/contributions/task-7/fixtures/topic-flow.json",
+        schema: "contracts/realtime/topic.deleted.schema.json",
     },
 ];

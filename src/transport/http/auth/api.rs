@@ -5,7 +5,7 @@ use axum::{
     body::{Body, to_bytes},
     extract::{ConnectInfo, FromRef, Path, Request, State},
     http::{
-        HeaderValue, StatusCode,
+        HeaderName, HeaderValue, StatusCode,
         header::{CACHE_CONTROL, LOCATION, REFERRER_POLICY, RETRY_AFTER, X_CONTENT_TYPE_OPTIONS},
     },
     response::{IntoResponse, Response},
@@ -17,7 +17,8 @@ use uuid::Uuid;
 
 use crate::{
     application::auth::{
-        AccessTokenVerifier, AuthError, AuthService, AuthorizeInput, ExchangeInput, TokenPair,
+        AccessTokenVerifier, AuthError, AuthExchangeOutput, AuthService, AuthorizeInput,
+        ExchangeInput, TokenPair,
     },
     transport::http::auth::{AuthVerifierState, AuthenticatedAccess, error_response, request_id},
 };
@@ -29,6 +30,7 @@ const MAX_CALLBACK_CODE_BYTES: usize = 4096;
 const MAX_CALLBACK_METADATA_BYTES: usize = 1024;
 const KAKAO_APP_RETURN_URI: &str = "jamye://oauth/kakao";
 const GOOGLE_APP_RETURN_URI: &str = "jamye://oauth/google";
+const ACCOUNT_RESTORED_HEADER: &str = "x-jamye-account-restored";
 
 #[derive(Clone)]
 pub struct AuthHttpState {
@@ -303,7 +305,7 @@ async fn exchange(
         }
         Err(error) => Err(error),
     };
-    token_pair_result(result, request_id)
+    exchange_result(result, request_id)
 }
 
 async fn refresh(State(state): State<AuthHttpState>, request: Request) -> Response {
@@ -355,6 +357,26 @@ fn network_subject(parts: &axum::http::request::Parts) -> String {
 fn token_pair_result(result: Result<TokenPair, AuthError>, request_id: Uuid) -> Response {
     match result {
         Ok(pair) => (StatusCode::OK, Json(TokenPairResponse::from(pair))).into_response(),
+        Err(error) => AuthHttpError { error, request_id }.into_response(),
+    }
+}
+
+fn exchange_result(result: Result<AuthExchangeOutput, AuthError>, request_id: Uuid) -> Response {
+    match result {
+        Ok(output) => {
+            let mut response = (
+                StatusCode::OK,
+                Json(TokenPairResponse::from(output.token_pair)),
+            )
+                .into_response();
+            if output.account_restored {
+                response.headers_mut().insert(
+                    HeaderName::from_static(ACCOUNT_RESTORED_HEADER),
+                    HeaderValue::from_static("true"),
+                );
+            }
+            response
+        }
         Err(error) => AuthHttpError { error, request_id }.into_response(),
     }
 }

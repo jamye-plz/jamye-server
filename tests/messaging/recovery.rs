@@ -67,7 +67,7 @@ async fn postgres_unavailability_keeps_liveness_and_returns_safe_503() -> TestRe
         chatroom_id,
         None,
         10,
-        Some("1"),
+        Some("2"),
     )
     .await?;
     assert_error(
@@ -127,7 +127,7 @@ async fn postgres_stop_restart_keeps_the_same_router_alive_and_recovers() -> Tes
         "database_unavailable",
     )
     .await?;
-    let delta = events_from(&app, Some(&access_token), chatroom_id, None, 10, Some("1")).await?;
+    let delta = events_from(&app, Some(&access_token), chatroom_id, None, 10, Some("2")).await?;
     assert_error(
         delta,
         StatusCode::SERVICE_UNAVAILABLE,

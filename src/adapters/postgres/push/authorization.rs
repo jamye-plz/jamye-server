@@ -85,10 +85,14 @@ async fn delivery_topology(
          FROM push_delivery_intents intent \
          JOIN notifications notification ON notification.id = intent.notification_id \
          JOIN chatrooms conversation ON conversation.id = notification.conversation_id \
-         WHERE intent.id = $1",
+         LEFT JOIN topics topic ON topic.id = conversation.topic_id \
+         WHERE intent.id = $1 \
+           AND notification.deleted_at IS NULL \
+           AND conversation.deleted_at IS NULL \
+           AND (conversation.topic_id IS NULL OR topic.deleted_at IS NULL)",
     )
     .bind(occurrence_id)
-    .fetch_optional(connection)
+    .fetch_optional(&mut *connection)
     .await
     .map_err(|error| database_error("push_send_topology", error))?;
     Ok(row.map(
@@ -125,7 +129,7 @@ async fn lock_membership(
 ) -> Result<bool, PushRepositoryError> {
     sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM memberships \
-         WHERE group_id = $1 AND user_id = $2 \
+         WHERE group_id = $1 AND user_id = $2 AND deleted_at IS NULL \
          FOR SHARE",
     )
     .bind(group_id)
@@ -142,7 +146,9 @@ async fn lock_notification(
 ) -> Result<Option<LockedNotification>, PushRepositoryError> {
     let row = sqlx::query_as::<_, (Uuid, String, Option<Uuid>)>(
         "SELECT user_id, type, conversation_id \
-         FROM notifications WHERE id = $1 FOR SHARE",
+         FROM notifications \
+         WHERE id = $1 AND deleted_at IS NULL \
+         FOR SHARE",
     )
     .bind(topology.notification_id)
     .fetch_optional(connection)
@@ -170,7 +176,9 @@ async fn lock_installation(
     let row = sqlx::query_as::<_, (Uuid, i64, String, String, String, bool, bool)>(
         "SELECT user_id, owner_epoch, provider, token, environment, \
                 message_preview_enabled, disabled_at IS NULL \
-         FROM push_installations WHERE id = $1 FOR SHARE",
+         FROM push_installations \
+         WHERE id = $1 AND deleted_at IS NULL \
+         FOR SHARE",
     )
     .bind(topology.installation_id)
     .fetch_optional(connection)
@@ -216,15 +224,31 @@ async fn lock_occurrence(
     .bind(installation.owner_epoch)
     .bind(&claim.claim_owner)
     .bind(claim.claim_generation)
-    .fetch_optional(connection)
+    .fetch_optional(&mut *connection)
     .await
     .map_err(|error| database_error("push_send_occurrence_lock", error))?;
-    Ok(row.map(
-        |(source_message_id, message_preview_enabled_snapshot)| LockedOccurrence {
-            source_message_id,
-            message_preview_enabled_snapshot,
-        },
-    ))
+    let Some((source_message_id, message_preview_enabled_snapshot)) = row else {
+        return Ok(None);
+    };
+    if let Some(source_message_id) = source_message_id {
+        let live_message = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS ( \
+                 SELECT 1 FROM messages \
+                 WHERE id = $1 AND deleted_at IS NULL \
+             )",
+        )
+        .bind(source_message_id)
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(|error| database_error("push_send_message_live", error))?;
+        if !live_message {
+            return Ok(None);
+        }
+    }
+    Ok(Some(LockedOccurrence {
+        source_message_id,
+        message_preview_enabled_snapshot,
+    }))
 }
 
 fn authorized_delivery(

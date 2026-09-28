@@ -70,7 +70,7 @@ pub fn router(state: TopicsHttpState) -> Router {
         )
         .route(
             "/api/v1/groups/{group_id}/topics/{topic_id}",
-            get(get_topic).patch(patch_topic),
+            get(get_topic).patch(patch_topic).delete(delete_topic),
         )
         .route(
             "/api/v1/groups/{group_id}/topics/{topic_id}/tags",
@@ -249,6 +249,31 @@ async fn patch_topic(
         Err(error) => Err(error),
     };
     topic_result(result, request_id)
+}
+
+async fn delete_topic(
+    State(state): State<TopicsHttpState>,
+    AuthenticatedAccess(identity): AuthenticatedAccess,
+    Path((group_id, topic_id)): Path<(String, String)>,
+    request: Request,
+) -> Response {
+    let (parts, _) = request.into_parts();
+    let request_id = request_id(&parts);
+    let ids = parse_uuid(&group_id)
+        .and_then(|group_id| parse_uuid(&topic_id).map(|topic_id| (group_id, topic_id)));
+    let result = match ids {
+        Ok((group_id, topic_id)) => {
+            state
+                .service
+                .delete_topic(identity.user_id, group_id, topic_id)
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    match result {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => TopicsHttpError { error, request_id }.into_response(),
+    }
 }
 
 async fn replace_tags(

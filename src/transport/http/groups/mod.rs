@@ -22,6 +22,7 @@ use crate::{
             GroupCreateInput, GroupPatchInput, GroupsError, GroupsService, InviteCreateInput,
             PageInput,
         },
+        realtime::membership_revocation::{MembershipRevocationError, MembershipRevocationService},
     },
     ports::groups::{
         GroupPage, GroupRecord, GroupRole, InviteJoinRecord, InviteRecord, MemberPage, MemberRecord,
@@ -34,6 +35,7 @@ const MAX_GROUP_BODY_BYTES: usize = 8 * 1024;
 #[derive(Clone)]
 pub struct GroupsHttpState {
     service: Arc<GroupsService>,
+    membership_revocations: Option<Arc<MembershipRevocationService>>,
     verifier: AuthVerifierState,
 }
 
@@ -41,7 +43,47 @@ impl GroupsHttpState {
     pub fn new(service: Arc<GroupsService>, verifier: Arc<dyn AccessTokenVerifier>) -> Self {
         Self {
             service,
+            membership_revocations: None,
             verifier: AuthVerifierState::new(verifier),
+        }
+    }
+
+    pub fn with_membership_revocations(
+        mut self,
+        membership_revocations: Arc<MembershipRevocationService>,
+    ) -> Self {
+        self.membership_revocations = Some(membership_revocations);
+        self
+    }
+
+    async fn delete_group(&self, actor_id: Uuid, group_id: Uuid) -> Result<(), GroupsError> {
+        match &self.membership_revocations {
+            Some(service) => service
+                .delete_group(actor_id, group_id)
+                .await
+                .map(|_| ())
+                .map_err(groups_error_from_revocation),
+            None => self.service.delete_group(actor_id, group_id).await,
+        }
+    }
+
+    async fn remove_member(
+        &self,
+        actor_id: Uuid,
+        group_id: Uuid,
+        target_user_id: Uuid,
+    ) -> Result<(), GroupsError> {
+        match &self.membership_revocations {
+            Some(service) => service
+                .remove_member(actor_id, group_id, target_user_id)
+                .await
+                .map(|_| ())
+                .map_err(groups_error_from_revocation),
+            None => {
+                self.service
+                    .remove_member(actor_id, group_id, target_user_id)
+                    .await
+            }
         }
     }
 }
@@ -187,7 +229,7 @@ async fn delete_group(
     let request_id = request_id(&parts);
     let result = parse_uuid(&group_id);
     let result = match result {
-        Ok(group_id) => state.service.delete_group(identity.user_id, group_id).await,
+        Ok(group_id) => state.delete_group(identity.user_id, group_id).await,
         Err(error) => Err(error),
     };
     empty_result(result, request_id)
@@ -206,13 +248,21 @@ async fn remove_member(
     let result = match result {
         Ok((group_id, user_id)) => {
             state
-                .service
                 .remove_member(identity.user_id, group_id, user_id)
                 .await
         }
         Err(error) => Err(error),
     };
     empty_result(result, request_id)
+}
+
+fn groups_error_from_revocation(error: MembershipRevocationError) -> GroupsError {
+    match error {
+        MembershipRevocationError::Group(error) => error,
+        MembershipRevocationError::Push(_)
+        | MembershipRevocationError::ControlIntent(_)
+        | MembershipRevocationError::Transaction => GroupsError::DatabaseUnavailable,
+    }
 }
 
 async fn set_member_role(
@@ -393,6 +443,11 @@ impl IntoResponse for GroupsHttpError {
 
 fn error_profile(error: GroupsError) -> (StatusCode, &'static str, &'static str) {
     match error {
+        GroupsError::AuthenticationRequired => (
+            StatusCode::UNAUTHORIZED,
+            "authentication_required",
+            "인증이 필요합니다.",
+        ),
         GroupsError::RequestValidation => (
             StatusCode::UNPROCESSABLE_ENTITY,
             "request_validation_failed",

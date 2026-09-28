@@ -114,6 +114,78 @@ async fn postgres_p2_reuses_one_row_and_increments_epoch_without_inheriting_prev
 }
 
 #[tokio::test]
+async fn postgres_p2_p3_reject_grace_deleted_accounts_before_writing() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let deleted_owner = insert_user(&pool, "삭제된 설치 소유자").await?;
+    mark_user_deleted(&pool, deleted_owner).await?;
+    let repository = PostgresPushRepository::new(pool.clone());
+    let transactions = SqlxTransactionManager::new(pool.clone());
+
+    let mut upsert_transaction = transactions.begin().await?;
+    let upsert = repository
+        .upsert_installation(
+            upsert_transaction.as_mut(),
+            &upsert_command(
+                deleted_owner,
+                INSTALLATION_A,
+                TOKEN_A,
+                PushEnvironment::Development,
+                true,
+            ),
+        )
+        .await;
+    transactions.rollback(upsert_transaction).await?;
+    assert_eq!(upsert, Err(PushRepositoryError::AccountNotFound));
+    assert_eq!(installation_count(&pool).await?, 0);
+
+    let live_owner = insert_user(&pool, "삭제 전 설치 소유자").await?;
+    let created = committed_upsert(
+        &repository,
+        &transactions,
+        upsert_command(
+            live_owner,
+            INSTALLATION_A,
+            TOKEN_A,
+            PushEnvironment::Development,
+            true,
+        ),
+    )
+    .await?;
+    mark_user_deleted(&pool, live_owner).await?;
+    sqlx::query("UPDATE push_installations SET disabled_at = clock_timestamp() WHERE id = $1")
+        .bind(created.installation.id)
+        .execute(&pool)
+        .await?;
+
+    let mut update_transaction = transactions.begin().await?;
+    let update = repository
+        .update_installation(
+            update_transaction.as_mut(),
+            &UpdatePushInstallationCommand {
+                user_id: live_owner,
+                installation_id: INSTALLATION_A.to_owned(),
+                token: TOKEN_B.to_owned(),
+                message_preview_enabled: Some(false),
+            },
+        )
+        .await;
+    transactions.rollback(update_transaction).await?;
+    assert_eq!(update, Err(PushRepositoryError::AccountNotFound));
+    let disabled = sqlx::query_scalar::<_, bool>(
+        "SELECT disabled_at IS NOT NULL FROM push_installations WHERE id = $1",
+    )
+    .bind(created.installation.id)
+    .fetch_one(&pool)
+    .await?;
+    assert!(disabled);
+    assert_eq!(installation_count(&pool).await?, 1);
+
+    pool.close().await;
+    database.dispose().await
+}
+
+#[tokio::test]
 async fn postgres_p3_preserves_omitted_preview_and_p4_is_current_owner_scoped() -> TestResult {
     let database = TestDatabase::migrated().await?;
     let pool = database.pool()?;
@@ -349,6 +421,14 @@ async fn insert_user(pool: &PgPool, nickname: &str) -> TestResult<Uuid> {
         .execute(pool)
         .await?;
     Ok(id)
+}
+
+async fn mark_user_deleted(pool: &PgPool, user_id: Uuid) -> TestResult {
+    sqlx::query("UPDATE users SET deleted_at = clock_timestamp() WHERE id = $1")
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 async fn installation_count(pool: &PgPool) -> TestResult<i64> {

@@ -124,6 +124,49 @@ async fn missing_application_ping_reaches_the_protocol_heartbeat_timeout() -> Te
     stop(shutdown, server).await
 }
 
+#[tokio::test]
+async fn previous_contract_socket_drops_unknown_realtime_discriminants_without_closing()
+-> TestResult {
+    let conversation_id = Uuid::new_v4();
+    let hub = LocalRealtimeHub::default();
+    let state = websocket_state_with_contract(
+        hub.clone(),
+        [conversation_id],
+        OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(30),
+        Duration::from_secs(5),
+        Duration::from_secs(5),
+        "1",
+    )?;
+    let (mut socket, shutdown, server) = connect(state).await?;
+    send_subscribe(&mut socket, Uuid::new_v4(), conversation_id).await?;
+    let subscribed: Value = serde_json::from_str(&next_text(&mut socket).await?)?;
+    assert_eq!(subscribed["type"], "subscribed");
+
+    let payload = json!({
+        "version": 1,
+        "type": "message.deleted",
+        "event_id": Uuid::new_v4(),
+        "conversation_id": conversation_id,
+        "cursor": "1",
+        "occurred_at": "1970-01-01T00:00:00Z",
+        "message_id": Uuid::new_v4(),
+    })
+    .to_string();
+    assert_eq!(hub.publish(conversation_id, payload).await, 1);
+    assert_no_message(&mut socket).await?;
+
+    socket
+        .send(ClientMessage::Text(
+            json!({"type": "ping", "nonce": "still-open"})
+                .to_string()
+                .into(),
+        ))
+        .await?;
+    let pong: Value = serde_json::from_str(&next_text(&mut socket).await?)?;
+    assert_eq!(pong, json!({"type": "pong", "nonce": "still-open"}));
+    stop(shutdown, server).await
+}
+
 #[derive(Clone)]
 struct WebSocketState {
     session: RealtimeSession,
@@ -140,11 +183,29 @@ fn websocket_state<const N: usize>(
     ping_interval: Duration,
     pong_deadline: Duration,
 ) -> TestResult<WebSocketState> {
+    websocket_state_with_contract(
+        hub,
+        allowed_conversations,
+        access_token_expires_at,
+        ping_interval,
+        pong_deadline,
+        "2",
+    )
+}
+
+fn websocket_state_with_contract<const N: usize>(
+    hub: LocalRealtimeHub,
+    allowed_conversations: [Uuid; N],
+    access_token_expires_at: OffsetDateTime,
+    ping_interval: Duration,
+    pong_deadline: Duration,
+    contract_version: &str,
+) -> TestResult<WebSocketState> {
     Ok(WebSocketState {
         session: RealtimeSession {
             user_id: Uuid::new_v4(),
             session_id: Uuid::new_v4(),
-            contract_version: "1".to_owned(),
+            contract_version: contract_version.to_owned(),
             access_token_expires_at,
         },
         hub,
@@ -247,6 +308,18 @@ async fn next_text(socket: &mut TestSocket) -> TestResult<String> {
         other => {
             Err(io::Error::other(format!("expected a text WebSocket frame, got {other:?}")).into())
         }
+    }
+}
+
+async fn assert_no_message(socket: &mut TestSocket) -> TestResult {
+    match tokio::time::timeout(Duration::from_millis(200), socket.next()).await {
+        Err(_) => Ok(()),
+        Ok(Some(Ok(message))) => Err(io::Error::other(format!(
+            "unexpected filtered WebSocket frame: {message:?}"
+        ))
+        .into()),
+        Ok(Some(Err(error))) => Err(error.into()),
+        Ok(None) => Err(io::Error::other("WebSocket closed while waiting for no frame").into()),
     }
 }
 

@@ -225,7 +225,11 @@ pub(super) async fn notification_context(
     topic: &TopicRecord,
 ) -> Result<crate::ports::topics::TopicNotificationContext, TopicsRepositoryError> {
     let rows = sqlx::query_as::<_, (Uuid, Uuid, Uuid, Uuid, String)>(
-        "SELECT topic.group_id, topic.id, chatroom.id, event.id, author.nickname \
+        "SELECT topic.group_id, topic.id, chatroom.id, event.id, \
+                CASE \
+                    WHEN author.deleted_at IS NOT NULL THEN '탈퇴한 사용자' \
+                    ELSE author.nickname \
+                END \
          FROM topics AS topic \
          JOIN chatrooms AS chatroom ON chatroom.topic_id = topic.id \
            AND chatroom.group_id = topic.group_id AND chatroom.type = 'topic' \
@@ -261,7 +265,9 @@ pub(super) async fn patch_topic(
 ) -> Result<TopicRecord, TopicsRepositoryError> {
     lock_group_and_membership(connection, command.group_id, command.actor_id).await?;
     let author_id = sqlx::query_scalar::<_, Uuid>(
-        "SELECT author_id FROM topics WHERE id = $1 AND group_id = $2 FOR UPDATE",
+        "SELECT author_id FROM topics \
+         WHERE id = $1 AND group_id = $2 AND deleted_at IS NULL \
+         FOR UPDATE",
     )
     .bind(command.topic_id)
     .bind(command.group_id)
@@ -298,7 +304,9 @@ pub(super) async fn replace_tags(
 ) -> Result<TopicTagPage, TopicsRepositoryError> {
     lock_group_and_membership(connection, command.group_id, command.actor_id).await?;
     let author_id = sqlx::query_scalar::<_, Uuid>(
-        "SELECT author_id FROM topics WHERE id = $1 AND group_id = $2 FOR UPDATE",
+        "SELECT author_id FROM topics \
+         WHERE id = $1 AND group_id = $2 AND deleted_at IS NULL \
+         FOR UPDATE",
     )
     .bind(command.topic_id)
     .bind(command.group_id)
@@ -363,7 +371,9 @@ async fn lock_group_and_membership(
         "SELECT membership.role, actor.nickname, actor.avatar_url \
          FROM memberships membership \
          JOIN users actor ON actor.id = membership.user_id \
-         WHERE membership.group_id = $1 AND membership.user_id = $2",
+         WHERE membership.group_id = $1 AND membership.user_id = $2 \
+           AND membership.deleted_at IS NULL \
+           AND actor.deleted_at IS NULL",
     )
     .bind(group_id)
     .bind(actor_id)
@@ -377,8 +387,8 @@ async fn existing_topic(
     connection: &mut PgConnection,
     command: &CreateTopicCommand,
 ) -> Result<CreateTopicOutcome, TopicsRepositoryError> {
-    let existing = sqlx::query_as::<_, (Uuid, Uuid, String)>(
-        "SELECT id, group_id, request_fingerprint \
+    let existing = sqlx::query_as::<_, (Uuid, Uuid, String, Option<OffsetDateTime>)>(
+        "SELECT id, group_id, request_fingerprint, deleted_at \
          FROM topics WHERE author_id = $1 AND idempotency_key = $2",
     )
     .bind(command.author_id)
@@ -387,6 +397,9 @@ async fn existing_topic(
     .await
     .map_err(|error| database_error("topic_idempotency_read", error))?
     .ok_or(TopicsRepositoryError::InvalidData)?;
+    if existing.3.is_some() {
+        return Err(TopicsRepositoryError::IdempotencyConflict);
+    }
     if existing.1 != command.group_id || existing.2 != command.request_fingerprint {
         return Err(TopicsRepositoryError::IdempotencyConflict);
     }
@@ -402,11 +415,20 @@ async fn load_topic(
 ) -> Result<TopicRecord, TopicsRepositoryError> {
     let row = sqlx::query_as::<_, TopicBaseRow>(
         "SELECT t.id, t.group_id, t.author_id, t.title, t.body, t.status, \
-                t.created_at, t.updated_at, topic_chat.id, author.nickname, \
-                author.avatar_url, \
+                t.created_at, t.updated_at, topic_chat.id, \
+                CASE \
+                    WHEN author.deleted_at IS NOT NULL THEN '탈퇴한 사용자' \
+                    ELSE author.nickname \
+                END, \
+                CASE \
+                    WHEN author.deleted_at IS NOT NULL THEN NULL \
+                    ELSE author.avatar_url \
+                END, \
                 EXISTS ( \
                     SELECT 1 FROM conversation_events event \
                     WHERE event.conversation_id = topic_chat.id \
+                      AND event.event_type IN ('message.created', 'topic.created') \
+                      AND event.deleted_at IS NULL \
                       AND event.cursor > COALESCE(( \
                           SELECT marker.last_read_cursor FROM chatroom_reads marker \
                           WHERE marker.user_id = $2 AND marker.chatroom_id = topic_chat.id \
@@ -415,8 +437,9 @@ async fn load_topic(
          FROM topics t \
          JOIN chatrooms topic_chat \
            ON topic_chat.topic_id = t.id AND topic_chat.type = 'topic' \
+          AND topic_chat.deleted_at IS NULL \
          JOIN users author ON author.id = t.author_id \
-         WHERE t.id = $1",
+         WHERE t.id = $1 AND t.deleted_at IS NULL",
     )
     .bind(topic_id)
     .bind(actor_id)

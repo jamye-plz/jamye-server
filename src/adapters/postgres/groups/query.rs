@@ -29,13 +29,17 @@ pub(super) async fn list_groups(
     let fetch_limit = i64::from(query.limit) + 1;
     let rows = sqlx::query_as::<_, GroupRow>(
         "SELECT g.id, g.name, g.owner_id, g.max_members, \
-                (SELECT COUNT(*) FROM memberships all_members WHERE all_members.group_id = g.id), \
+                ( \
+                    SELECT COUNT(*) FROM memberships all_members \
+                    WHERE all_members.group_id = g.id AND all_members.deleted_at IS NULL \
+                ), \
                 g.created_at, main.id \
          FROM groups g \
          JOIN memberships actor_membership \
            ON actor_membership.group_id = g.id AND actor_membership.user_id = $1 \
          JOIN chatrooms main ON main.group_id = g.id AND main.type = 'main' \
          WHERE g.deleted_at IS NULL \
+           AND actor_membership.deleted_at IS NULL \
            AND ( \
              $2::uuid IS NULL \
              OR (g.created_at, g.id) > ( \
@@ -44,7 +48,9 @@ pub(super) async fn list_groups(
                  JOIN memberships cursor_membership \
                    ON cursor_membership.group_id = cursor_group.id \
                   AND cursor_membership.user_id = $1 \
-                 WHERE cursor_group.id = $2 AND cursor_group.deleted_at IS NULL \
+                 WHERE cursor_group.id = $2 \
+                   AND cursor_group.deleted_at IS NULL \
+                   AND cursor_membership.deleted_at IS NULL \
              ) \
            ) \
          ORDER BY g.created_at, g.id \
@@ -73,12 +79,16 @@ pub(super) async fn get_group(
 ) -> Result<GroupRecord, GroupsRepositoryError> {
     let row = sqlx::query_as::<_, GroupAccessRow>(
         "SELECT g.id, g.name, g.owner_id, g.max_members, \
-                (SELECT COUNT(*) FROM memberships all_members WHERE all_members.group_id = g.id), \
+                ( \
+                    SELECT COUNT(*) FROM memberships all_members \
+                    WHERE all_members.group_id = g.id AND all_members.deleted_at IS NULL \
+                ), \
                 g.created_at, main.id, \
                 EXISTS ( \
                     SELECT 1 FROM memberships actor_membership \
                     WHERE actor_membership.group_id = g.id \
                       AND actor_membership.user_id = $2 \
+                      AND actor_membership.deleted_at IS NULL \
                 ) \
          FROM groups g \
          JOIN chatrooms main ON main.group_id = g.id AND main.type = 'main' \
@@ -112,13 +122,15 @@ pub(super) async fn list_members(
                      JOIN memberships actor_membership ON actor_membership.group_id = g.id \
                      WHERE g.id = $1 AND g.deleted_at IS NULL \
                        AND actor_membership.user_id = $2 \
+                       AND actor_membership.deleted_at IS NULL \
                  ) AS member \
          ), page AS ( \
              SELECT m.id AS membership_id, m.user_id, u.nickname, u.avatar_url, m.role, m.joined_at \
              FROM memberships m \
-             JOIN users u ON u.id = m.user_id \
+             JOIN users u ON u.id = m.user_id AND u.deleted_at IS NULL \
              CROSS JOIN access \
              WHERE m.group_id = $1 AND access.live AND access.member \
+               AND m.deleted_at IS NULL \
                AND ( \
                  $3::uuid IS NULL \
                  OR (CASE WHEN m.role = 'owner' THEN 0 ELSE 1 END, m.joined_at, m.id) > ( \
@@ -127,6 +139,7 @@ pub(super) async fn list_members(
                      FROM memberships cursor_membership \
                      WHERE cursor_membership.id = $3 \
                        AND cursor_membership.group_id = $1 \
+                       AND cursor_membership.deleted_at IS NULL \
                  ) \
                ) \
              ORDER BY CASE WHEN m.role = 'owner' THEN 0 ELSE 1 END, m.joined_at, m.id \

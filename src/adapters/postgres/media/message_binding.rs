@@ -137,16 +137,21 @@ async fn lock_authorized_message(
          FROM messages AS stored_message \
          JOIN chatrooms AS chatroom \
            ON chatroom.id = stored_message.chatroom_id \
+          AND chatroom.deleted_at IS NULL \
+         LEFT JOIN topics AS topic ON topic.id = chatroom.topic_id \
          JOIN groups AS live_group \
            ON live_group.id = chatroom.group_id \
           AND live_group.deleted_at IS NULL \
          JOIN memberships AS actor_membership \
            ON actor_membership.group_id = live_group.id \
           AND actor_membership.user_id = $3 \
+          AND actor_membership.deleted_at IS NULL \
          WHERE stored_message.id = $1 \
            AND stored_message.chatroom_id = $2 \
            AND stored_message.sender_id = $3 \
            AND stored_message.type = 'user' \
+           AND stored_message.deleted_at IS NULL \
+           AND (chatroom.topic_id IS NULL OR topic.deleted_at IS NULL) \
          FOR UPDATE OF stored_message \
          FOR SHARE OF chatroom, live_group, actor_membership",
     )

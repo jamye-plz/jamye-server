@@ -27,6 +27,18 @@ type MessageRow = (
     Option<String>,
 );
 
+type ExistingMessageRow = (
+    Uuid,
+    Uuid,
+    Option<Uuid>,
+    Option<Uuid>,
+    Option<String>,
+    OffsetDateTime,
+    Option<String>,
+    Option<String>,
+    Option<OffsetDateTime>,
+);
+
 pub(super) async fn persist(
     handle: &mut dyn TransactionHandle,
     command: &SendMessageCommand,
@@ -58,13 +70,21 @@ pub(super) async fn delivery_context(
     message: &CanonicalMessage,
 ) -> Result<MessageDeliveryContext, MessagingRepositoryError> {
     let row = sqlx::query_as::<_, (Uuid, String, Option<Uuid>, String)>(
-        "SELECT chatroom.group_id, chatroom.type, chatroom.topic_id, sender.nickname \
+        "SELECT chatroom.group_id, chatroom.type, chatroom.topic_id, \
+                CASE \
+                    WHEN sender.deleted_at IS NOT NULL THEN '탈퇴한 사용자' \
+                    ELSE sender.nickname \
+                END \
          FROM messages AS message \
          JOIN chatrooms AS chatroom ON chatroom.id = message.chatroom_id \
          JOIN groups AS live_group ON live_group.id = chatroom.group_id \
            AND live_group.deleted_at IS NULL \
+         LEFT JOIN topics AS topic ON topic.id = chatroom.topic_id \
          JOIN users AS sender ON sender.id = message.sender_id \
          WHERE message.id = $1 AND message.chatroom_id = $2 AND message.sender_id = $3 \
+           AND message.deleted_at IS NULL \
+           AND chatroom.deleted_at IS NULL \
+           AND (chatroom.topic_id IS NULL OR topic.deleted_at IS NULL) \
          FOR SHARE OF message, chatroom, live_group, sender",
     )
     .bind(message.id)
@@ -82,7 +102,7 @@ pub(super) async fn delivery_context(
         ("topic", Some(topic_id)) => {
             let authoritative_topic_id = sqlx::query_scalar::<_, Uuid>(
                 "SELECT topic.id FROM topics AS topic \
-                 WHERE topic.id = $1 AND topic.group_id = $2 \
+                 WHERE topic.id = $1 AND topic.group_id = $2 AND topic.deleted_at IS NULL \
                  FOR SHARE OF topic",
             )
             .bind(topic_id)
@@ -112,9 +132,15 @@ async fn authorize(
         "SELECT 1 \
          FROM chatrooms c \
          JOIN groups g ON g.id = c.group_id AND g.deleted_at IS NULL \
+         LEFT JOIN topics t ON t.id = c.topic_id \
          JOIN memberships m ON m.group_id = g.id AND m.user_id = $2 \
+         JOIN users account ON account.id = m.user_id \
          WHERE c.id = $1 \
-         FOR SHARE OF g, m",
+           AND c.deleted_at IS NULL \
+           AND m.deleted_at IS NULL \
+           AND account.deleted_at IS NULL \
+           AND (c.topic_id IS NULL OR t.deleted_at IS NULL) \
+         FOR SHARE OF g, m, account",
     )
     .bind(command.chatroom_id)
     .bind(command.sender_id)
@@ -143,7 +169,14 @@ async fn insert_message(
          ) \
          SELECT inserted_message.id, inserted_message.chatroom_id, inserted_message.sender_id, \
                 inserted_message.client_msg_id, inserted_message.body, inserted_message.created_at, \
-                sender.nickname, sender.avatar_url \
+                CASE \
+                    WHEN sender.deleted_at IS NOT NULL THEN '탈퇴한 사용자' \
+                    ELSE sender.nickname \
+                END, \
+                CASE \
+                    WHEN sender.deleted_at IS NOT NULL THEN NULL \
+                    ELSE sender.avatar_url \
+                END \
          FROM inserted_message \
          LEFT JOIN users AS sender ON sender.id = inserted_message.sender_id",
     )
@@ -162,9 +195,18 @@ async fn existing_message(
     connection: &mut PgConnection,
     command: &SendMessageCommand,
 ) -> Result<PersistMessageOutcome, MessagingRepositoryError> {
-    let row = sqlx::query_as::<_, MessageRow>(
+    let row = sqlx::query_as::<_, ExistingMessageRow>(
         "SELECT messages.id, messages.chatroom_id, messages.sender_id, messages.client_msg_id, \
-                messages.body, messages.created_at, sender.nickname, sender.avatar_url \
+                messages.body, messages.created_at, \
+                CASE \
+                    WHEN sender.deleted_at IS NOT NULL THEN '탈퇴한 사용자' \
+                    ELSE sender.nickname \
+                END, \
+                CASE \
+                    WHEN sender.deleted_at IS NOT NULL THEN NULL \
+                    ELSE sender.avatar_url \
+                END, \
+                messages.deleted_at \
          FROM messages \
          LEFT JOIN users AS sender ON sender.id = messages.sender_id \
          WHERE messages.sender_id = $1 AND messages.client_msg_id = $2",
@@ -175,10 +217,13 @@ async fn existing_message(
     .await
     .map_err(|_| database_error("read_existing"))?
     .ok_or_else(|| database_error("missing_conflict_row"))?;
+    if row.8.is_some() {
+        return Err(MessagingRepositoryError::IdempotencyConflict);
+    }
     if row.1 != command.chatroom_id || row.4 != command.body {
         return Err(MessagingRepositoryError::IdempotencyConflict);
     }
-    let message = canonical_message(row);
+    let message = canonical_message((row.0, row.1, row.2, row.3, row.4, row.5, row.6, row.7));
     let canonical_event_ids = sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM conversation_events \
          WHERE conversation_id = $1 \

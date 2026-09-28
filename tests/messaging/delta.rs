@@ -17,7 +17,7 @@ async fn s1_pages_strictly_forward_across_commits_and_an_unknown_marker() -> Tes
         send_known(&app, &format!("message-{index}")).await?;
     }
 
-    let first = page(&app, None, "1").await?;
+    let first = page(&app, None, "2").await?;
     assert_page(&first, &["1", "2"], Some("2"))?;
 
     let unknown_id = Uuid::new_v4();
@@ -33,10 +33,10 @@ async fn s1_pages_strictly_forward_across_commits_and_an_unknown_marker() -> Tes
     .await?;
     send_known(&app, "after-marker").await?;
 
-    let second = page(&app, Some("2"), "1").await?;
-    let third = page(&app, Some("4"), "1").await?;
-    let fourth = page(&app, Some("6"), "1").await?;
-    let terminal = page(&app, Some("7"), "1").await?;
+    let second = page(&app, Some("2"), "2").await?;
+    let third = page(&app, Some("4"), "2").await?;
+    let fourth = page(&app, Some("6"), "2").await?;
+    let terminal = page(&app, Some("7"), "2").await?;
     assert_page(&second, &["3", "4"], Some("4"))?;
     assert_page(&third, &["5", "6"], Some("6"))?;
     assert_eq!(third["items"][1]["event_id"], unknown_id.to_string());
@@ -51,7 +51,7 @@ async fn s1_pages_strictly_forward_across_commits_and_an_unknown_marker() -> Tes
     assert_eq!(observer.last_cursor, Some(7));
     assert_eq!(observer.seen_event_ids.len(), 7);
 
-    let previous = page(&app, None, "0").await?;
+    let previous = page(&app, None, "1").await?;
     assert_page(&previous, &["1", "2"], Some("2"))?;
     app.dispose().await
 }
@@ -59,21 +59,23 @@ async fn s1_pages_strictly_forward_across_commits_and_an_unknown_marker() -> Tes
 #[tokio::test]
 async fn s1_rejects_unsupported_versions_and_unsafe_unknown_projection() -> TestResult {
     let app = TestApp::new().await?;
-    let unsupported = app
-        .events(
-            Some(&app.fixture.access_token),
-            app.fixture.chatroom_id,
-            None,
-            2,
-            Some("999"),
+    for version in ["0", "999"] {
+        let unsupported = app
+            .events(
+                Some(&app.fixture.access_token),
+                app.fixture.chatroom_id,
+                None,
+                2,
+                Some(version),
+            )
+            .await?;
+        assert_error(
+            unsupported,
+            StatusCode::UPGRADE_REQUIRED,
+            "contract_upgrade_required",
         )
         .await?;
-    assert_error(
-        unsupported,
-        StatusCode::UPGRADE_REQUIRED,
-        "contract_upgrade_required",
-    )
-    .await?;
+    }
 
     sqlx::query(
         "INSERT INTO conversation_events \
@@ -90,7 +92,7 @@ async fn s1_rejects_unsupported_versions_and_unsafe_unknown_projection() -> Test
             app.fixture.chatroom_id,
             None,
             2,
-            Some("1"),
+            Some("2"),
         )
         .await?;
     assert_error(
@@ -107,7 +109,7 @@ async fn s1_requires_bearer_authentication_and_current_membership() -> TestResul
     let app = TestApp::new().await?;
     for token in [None, Some("invalid-token")] {
         let response = app
-            .events(token, app.fixture.chatroom_id, None, 2, Some("1"))
+            .events(token, app.fixture.chatroom_id, None, 2, Some("2"))
             .await?;
         assert_error(
             response,
@@ -124,7 +126,7 @@ async fn s1_requires_bearer_authentication_and_current_membership() -> TestResul
             app.fixture.chatroom_id,
             None,
             2,
-            Some("1"),
+            Some("2"),
         )
         .await?;
     assert_error(response, StatusCode::FORBIDDEN, "membership_required").await?;
