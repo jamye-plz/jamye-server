@@ -556,6 +556,7 @@ pub struct PushInstallationUpsert {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PushError {
+    AuthenticationRequired,
     RequestValidation,
     InstallationNotFound,
     DatabaseUnavailable,
@@ -564,6 +565,7 @@ pub enum PushError {
 impl From<PushRepositoryError> for PushError {
     fn from(error: PushRepositoryError) -> Self {
         match error {
+            PushRepositoryError::AccountNotFound => Self::AuthenticationRequired,
             PushRepositoryError::InstallationNotFound => Self::InstallationNotFound,
             PushRepositoryError::InvalidData | PushRepositoryError::Unavailable => {
                 Self::DatabaseUnavailable

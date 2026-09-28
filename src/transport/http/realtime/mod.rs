@@ -14,7 +14,10 @@ use url::form_urlencoded;
 use uuid::Uuid;
 
 use crate::{
-    application::realtime::{RealtimeTicketError, RealtimeTicketService},
+    application::{
+        realtime::{RealtimeTicketError, RealtimeTicketService},
+        users::{UserError, UserService},
+    },
     ports::realtime::ConversationAuthorizer,
     transport::{
         http::auth::{AuthVerifierState, AuthenticatedAccess, error_response},
@@ -30,6 +33,7 @@ pub struct RealtimeHttpState {
     hub: LocalRealtimeHub,
     authorizer: Arc<dyn ConversationAuthorizer>,
     auth: AuthVerifierState,
+    users: Arc<UserService>,
 }
 
 impl RealtimeHttpState {
@@ -38,12 +42,14 @@ impl RealtimeHttpState {
         hub: LocalRealtimeHub,
         authorizer: Arc<dyn ConversationAuthorizer>,
         auth: AuthVerifierState,
+        users: Arc<UserService>,
     ) -> Self {
         Self {
             tickets,
             hub,
             authorizer,
             auth,
+            users,
         }
     }
 }
@@ -71,6 +77,15 @@ async fn issue_ticket(
         Ok(version) => version,
         Err(error) => return ticket_error(error, request_id),
     };
+    match state.users.ensure_active(identity.user_id).await {
+        Ok(()) => {}
+        Err(UserError::ProfileNotFound) => {
+            return ticket_error(RealtimeTicketError::AuthenticationRequired, request_id);
+        }
+        Err(UserError::DatabaseUnavailable | UserError::RequestValidation) => {
+            return ticket_error(RealtimeTicketError::Unavailable, request_id);
+        }
+    }
     match state.tickets.issue(&identity, &version).await {
         Ok(ticket) => {
             let mut response = (

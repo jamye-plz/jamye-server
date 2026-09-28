@@ -48,13 +48,15 @@ use crate::{
             chatrooms::PostgresChatroomsRepository, groups::PostgresGroupsRepository,
             media::PostgresMediaRepository, messaging::PostgresMessagingRepository,
             notifications::PostgresNotificationsRepository, push::PostgresPushRepository,
-            realtime::PostgresRealtimeRepository, runtime_pool, topics::PostgresTopicsRepository,
-            transactions::SqlxTransactionManager,
+            realtime::PostgresRealtimeRepository,
+            realtime_revocations::PostgresRealtimeRevocations, runtime_pool,
+            topics::PostgresTopicsRepository, transactions::SqlxTransactionManager,
         },
         redis::{
             oauth_attempt::RedisOAuthAttemptStore,
             rate_limit::RedisRateLimiter,
             realtime::{OsTicketCredentialSource, RedisRealtimeAdapter},
+            realtime_control::RedisRealtimeControl,
         },
     },
     application::users::UserService,
@@ -72,11 +74,13 @@ use crate::{
         messaging::MessagingService,
         notifications::{NotificationsDependencies, NotificationsService},
         push::{PushDependencies, PushService},
-        realtime::{RealtimeTicketService, SystemClock},
+        realtime::{
+            RealtimeTicketService, SystemClock, membership_revocation::MembershipRevocationService,
+        },
         topics::{TopicsDependencies, TopicsService},
         transactions::{TransactionCompositionDependencies, TransactionCompositions},
     },
-    ports::oauth_provider::ProviderKind,
+    ports::{oauth_provider::ProviderKind, realtime::RealtimePortError},
     transport::{
         http::{
             account_deletion::{AccountDeletionHttpState, router as account_deletion_router},
@@ -95,7 +99,7 @@ use crate::{
             topics::{TopicsHttpState, router as topics_router},
             users::{UserHttpState, router as user_router},
         },
-        realtime::LocalRealtimeHub,
+        realtime::{LocalRealtimeHub, authorization::RealtimeControlConsumer},
     },
 };
 
@@ -158,6 +162,8 @@ pub fn router_with_runtime(
     let media_repository = Arc::new(PostgresMediaRepository::new(pool.clone()));
     let notifications_repository = Arc::new(PostgresNotificationsRepository::new(pool.clone()));
     let push_repository = Arc::new(PostgresPushRepository::new(pool.clone()));
+    let realtime_revocations = PostgresRealtimeRevocations::new(pool.clone());
+    let realtime_revocation_appender = Arc::new(realtime_revocations.clone());
     let rate_limiter =
         Arc::new(RedisRateLimiter::new(redis_url).map_err(|_| CompositionError::Redis)?);
     let attempts =
@@ -249,6 +255,12 @@ pub fn router_with_runtime(
         repository: push_repository.clone(),
     }));
     let users = Arc::new(UserService::new(transactions.clone(), auth_repository));
+    let membership_revocations = Arc::new(MembershipRevocationService::new(
+        groups_service.clone(),
+        transactions.clone(),
+        realtime_revocation_appender,
+        push_repository.clone(),
+    ));
     let deletion = Arc::new(AccountDeletionService::new(AccountDeletionDependencies {
         transactions: transactions.clone(),
         groups: groups_service.clone(),
@@ -257,8 +269,14 @@ pub fn router_with_runtime(
     }));
     let redis =
         Arc::new(RedisRealtimeAdapter::new(redis_url).map_err(|_| CompositionError::Redis)?);
+    let redis_control =
+        Arc::new(RedisRealtimeControl::new(redis_url).map_err(|_| CompositionError::Redis)?);
     let hub = LocalRealtimeHub::default();
     spawn_redis_forwarder(redis.clone(), hub.clone());
+    spawn_realtime_control_consumer(
+        redis_control,
+        RealtimeControlConsumer::new(hub.clone(), realtime_revocations.clone()),
+    );
     let tickets = Arc::new(RealtimeTicketService::new(
         redis,
         Arc::new(OsTicketCredentialSource),
@@ -271,15 +289,18 @@ pub fn router_with_runtime(
             auth_service,
             verifier.clone(),
         )))
-        .merge(user_router(UserHttpState::new(users, verifier.clone())))
+        .merge(user_router(UserHttpState::new(
+            users.clone(),
+            verifier.clone(),
+        )))
         .merge(account_deletion_router(AccountDeletionHttpState::new(
             deletion,
             verifier.clone(),
         )))
-        .merge(groups_router(GroupsHttpState::new(
-            groups_service,
-            verifier.clone(),
-        )))
+        .merge(groups_router(
+            GroupsHttpState::new(groups_service, verifier.clone())
+                .with_membership_revocations(membership_revocations),
+        ))
         .merge(chatrooms_router(
             ChatroomsHttpState::new(chatrooms_service, verifier.clone())
                 .with_compositions(compositions.clone()),
@@ -317,6 +338,7 @@ pub fn router_with_runtime(
             hub,
             realtime_repository,
             crate::transport::http::auth::AuthVerifierState::new(verifier),
+            users,
         )));
     Ok(with_platform_layers(application))
 }
@@ -371,11 +393,12 @@ pub fn worker(
     let realtime =
         realtime_composition::worker(config).map_err(WorkerCompositionError::Realtime)?;
     let push = push_composition::worker(config, push).map_err(WorkerCompositionError::Push)?;
-    let cleanup = cleanup_worker(config, object_storage, cleanup)?;
+    let (cleanup, purge) = account_cleanup_workers(config, object_storage, cleanup)?;
     Ok(ProductionWorkerRuntime {
         realtime,
         push,
         cleanup,
+        purge,
     })
 }
 
@@ -383,6 +406,7 @@ pub struct ProductionWorkerRuntime {
     realtime: realtime_composition::WorkerRuntime,
     push: push_composition::WorkerRuntime,
     cleanup: crate::application::account_deletion::cleanup::AccountObjectDeletionWorker,
+    purge: crate::application::account_deletion::cleanup::AccountPurgeWorker,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -408,11 +432,13 @@ impl ProductionWorkerRuntime {
             realtime,
             push,
             cleanup,
+            purge,
         } = self;
         let (stop, receiver) = tokio::sync::watch::channel(());
         let realtime_stop = receiver.clone();
         let push_stop = receiver.clone();
-        let cleanup_stop = receiver;
+        let cleanup_stop = receiver.clone();
+        let purge_stop = receiver;
         let mut runners = tokio::task::JoinSet::new();
         runners.spawn(async move {
             realtime
@@ -432,6 +458,13 @@ impl ProductionWorkerRuntime {
         runners.spawn(async move {
             run_cleanup_until(cleanup, async move {
                 let mut receiver = cleanup_stop;
+                let _ = receiver.changed().await;
+            })
+            .await;
+        });
+        runners.spawn(async move {
+            run_purge_until(purge, async move {
+                let mut receiver = purge_stop;
                 let _ = receiver.changed().await;
             })
             .await;
@@ -467,32 +500,49 @@ where
     failure.map_or(Ok(()), Err)
 }
 
-fn cleanup_worker(
+fn account_cleanup_workers(
     config: &AppConfig,
     object_storage: &ObjectStorageConfig,
     cleanup: &AccountDeletionConfig,
 ) -> Result<
-    crate::application::account_deletion::cleanup::AccountObjectDeletionWorker,
+    (
+        crate::application::account_deletion::cleanup::AccountObjectDeletionWorker,
+        crate::application::account_deletion::cleanup::AccountPurgeWorker,
+    ),
     WorkerCompositionError,
 > {
     use crate::{
-        adapters::postgres::{account_deletion::PostgresAccountDeletionRepository, runtime_pool},
+        adapters::postgres::{
+            account_deletion::PostgresAccountDeletionRepository, runtime_pool,
+            transactions::SqlxTransactionManager,
+        },
         application::account_deletion::cleanup::{
             AccountObjectDeletionWorker, AccountObjectDeletionWorkerDependencies,
+            AccountPurgeWorker, AccountPurgeWorkerDependencies,
         },
     };
     let pool = runtime_pool(config.database_url(), config.readiness_timeout())
         .map_err(|_| WorkerCompositionError::CleanupPostgres)?;
     let provider = S3AccountObjectDeletionProvider::new(object_storage, cleanup.credentials())
         .map_err(|_| WorkerCompositionError::CleanupStorage)?;
-    AccountObjectDeletionWorker::new(
+    let repository = Arc::new(PostgresAccountDeletionRepository::new(pool.clone()));
+    let object_worker = AccountObjectDeletionWorker::new(
         AccountObjectDeletionWorkerDependencies {
-            repository: Arc::new(PostgresAccountDeletionRepository::new(pool)),
+            repository: repository.clone(),
             provider: Arc::new(provider),
         },
         cleanup.worker_config(),
     )
-    .map_err(|_| WorkerCompositionError::CleanupWorker)
+    .map_err(|_| WorkerCompositionError::CleanupWorker)?;
+    let purge_worker = AccountPurgeWorker::new(
+        AccountPurgeWorkerDependencies {
+            transactions: Arc::new(SqlxTransactionManager::new(pool)),
+            repository,
+        },
+        cleanup.purge_worker_config(),
+    )
+    .map_err(|_| WorkerCompositionError::CleanupWorker)?;
+    Ok((object_worker, purge_worker))
 }
 
 async fn run_cleanup_until<F>(
@@ -521,6 +571,40 @@ async fn run_cleanup_until<F>(
                 dependency = "postgres",
                 failure_kind = "worker_poll",
                 "account object-deletion worker poll failed"
+            ),
+        }
+        tokio::select! {
+            () = &mut shutdown => break,
+            () = tokio::time::sleep(worker.poll_interval()) => {},
+        }
+    }
+}
+
+async fn run_purge_until<F>(
+    worker: crate::application::account_deletion::cleanup::AccountPurgeWorker,
+    shutdown: F,
+) where
+    F: Future<Output = ()> + Send,
+{
+    tokio::pin!(shutdown);
+    loop {
+        match worker.run_once().await {
+            Ok(report) if report.claimed > 0 => tracing::info!(
+                target: "jamye_server",
+                event_kind = "account_purge_worker_batch",
+                claimed = report.claimed,
+                purged = report.purged,
+                failed = report.failed,
+                released_claims = report.released_claims,
+                stale_claims = report.stale_claims,
+                "account purge worker batch completed"
+            ),
+            Ok(_) => {}
+            Err(_) => tracing::warn!(
+                target: "jamye_server",
+                dependency = "postgres",
+                failure_kind = "worker_poll",
+                "account purge worker poll failed"
             ),
         }
         tokio::select! {
@@ -562,10 +646,56 @@ fn spawn_redis_forwarder(redis: Arc<RedisRealtimeAdapter>, hub: LocalRealtimeHub
                     continue;
                 }
             };
-            while let Ok(Some(event)) = subscriber.next_event().await {
-                let conversation_id = event.conversation_id;
-                if let Ok(payload) = serde_json::to_string(&event) {
-                    hub.publish(conversation_id, payload).await;
+            loop {
+                let event = match subscriber.next_event().await {
+                    Ok(Some(event)) => event,
+                    Ok(None) | Err(RealtimePortError::Unavailable) => break,
+                    Err(RealtimePortError::InvalidData) => {
+                        tracing::warn!(
+                            dependency = "redis",
+                            failure_kind = "realtime_decode",
+                            "dropping unrecognized realtime envelope"
+                        );
+                        continue;
+                    }
+                };
+                let conversation_id = event.conversation_id();
+                match serde_json::to_string(&event) {
+                    Ok(payload) => {
+                        hub.publish(conversation_id, payload).await;
+                    }
+                    Err(_) => tracing::warn!(
+                        dependency = "serde_json",
+                        failure_kind = "realtime_encode",
+                        "realtime event could not be encoded"
+                    ),
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+    });
+}
+
+fn spawn_realtime_control_consumer(
+    redis: Arc<RedisRealtimeControl>,
+    consumer: RealtimeControlConsumer,
+) {
+    tokio::spawn(async move {
+        loop {
+            let mut subscriber = match redis.subscriber().await {
+                Ok(subscriber) => subscriber,
+                Err(_) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                    continue;
+                }
+            };
+            while let Ok(Some(intent)) = subscriber.next_control().await {
+                if consumer.apply(&intent).await.is_err() {
+                    tracing::warn!(
+                        dependency = "postgres",
+                        failure_kind = "realtime_control",
+                        "realtime control intent could not be applied"
+                    );
                 }
             }
             tokio::time::sleep(std::time::Duration::from_millis(250)).await;

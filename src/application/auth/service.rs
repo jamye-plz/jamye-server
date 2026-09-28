@@ -187,7 +187,7 @@ impl AuthService {
         provider_path: &str,
         input: ExchangeInput,
         network_subject: &str,
-    ) -> Result<TokenPair, AuthError> {
+    ) -> Result<AuthExchangeOutput, AuthError> {
         let slot = self.provider_slot(provider_path)?;
         validate_exchange_input(&input)?;
         if !slot.allows_redirect(&input.redirect_uri) {
@@ -263,17 +263,36 @@ impl AuthService {
             avatar_url: provider_identity.avatar_url,
         };
         let mut transaction = self.begin().await?;
-        let issued = match self
+        let restored = match self
             .dependencies
             .repository
-            .create_session(transaction.as_mut(), &identity, &session)
+            .restore_deleted_identity(transaction.as_mut(), &identity, &session)
             .await
         {
-            Ok(issued) => issued,
+            Ok(restored) => restored,
             Err(_) => {
                 return self
                     .rollback_with(transaction, AuthError::DatabaseUnavailable)
                     .await;
+            }
+        };
+        let (issued, account_restored) = match restored {
+            Some(issued) => (issued, true),
+            None => {
+                let issued = match self
+                    .dependencies
+                    .repository
+                    .create_session(transaction.as_mut(), &identity, &session)
+                    .await
+                {
+                    Ok(issued) => issued,
+                    Err(_) => {
+                        return self
+                            .rollback_with(transaction, AuthError::DatabaseUnavailable)
+                            .await;
+                    }
+                };
+                (issued, false)
             }
         };
         let token_pair = match self.issue_token_pair(
@@ -288,7 +307,10 @@ impl AuthService {
             Err(error) => return self.rollback_with(transaction, error).await,
         };
         self.commit(transaction).await?;
-        Ok(token_pair)
+        Ok(AuthExchangeOutput {
+            token_pair,
+            account_restored,
+        })
     }
 
     pub async fn refresh(&self, raw_refresh_token: &str) -> Result<TokenPair, AuthError> {
@@ -570,6 +592,12 @@ pub struct TokenPair {
     pub access_token_expires_at: OffsetDateTime,
     pub refresh_token: String,
     pub refresh_token_expires_at: OffsetDateTime,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthExchangeOutput {
+    pub token_pair: TokenPair,
+    pub account_restored: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

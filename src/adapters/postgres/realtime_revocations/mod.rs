@@ -215,9 +215,16 @@ impl PostgresRealtimeRevocations {
         let rows = sqlx::query_scalar::<_, Uuid>(
             "SELECT DISTINCT m.user_id \
              FROM chatrooms c \
+             LEFT JOIN topics topic ON topic.id = c.topic_id \
              JOIN groups g ON g.id = c.group_id AND g.deleted_at IS NULL \
              JOIN memberships m ON m.group_id = g.id \
-             WHERE c.id = $1 AND m.user_id = ANY($2::UUID[])",
+             JOIN users account ON account.id = m.user_id \
+             WHERE c.id = $1 \
+               AND c.deleted_at IS NULL \
+               AND (c.topic_id IS NULL OR topic.deleted_at IS NULL) \
+               AND m.deleted_at IS NULL \
+               AND account.deleted_at IS NULL \
+               AND m.user_id = ANY($2::UUID[])",
         )
         .bind(conversation_id)
         .bind(candidates)

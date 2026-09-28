@@ -187,6 +187,89 @@
       ],
       "type": "string"
     },
+    "MessageDeletedData": {
+      "additionalProperties": false,
+      "properties": {
+        "chatroom_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "deleted_at": {
+          "type": "string"
+        },
+        "deleted_by": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "group_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "message_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_id",
+        "chatroom_id",
+        "group_id",
+        "deleted_at",
+        "deleted_by",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "MessageDeletedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "cursor": {
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/MessageDeletedData"
+        },
+        "event_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "occurred_at": {
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/MessageDeletedType"
+        },
+        "version": {
+          "format": "uint8",
+          "maximum": 1,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "type",
+        "event_id",
+        "conversation_id",
+        "cursor",
+        "occurred_at",
+        "data"
+      ],
+      "type": "object"
+    },
+    "MessageDeletedType": {
+      "enum": [
+        "message.deleted"
+      ],
+      "type": "string"
+    },
     "MessageKind": {
       "enum": [
         "user",
@@ -361,6 +444,92 @@
         "topic.created"
       ],
       "type": "string"
+    },
+    "TopicDeletedData": {
+      "additionalProperties": false,
+      "properties": {
+        "announcement_message_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "deleted_at": {
+          "type": "string"
+        },
+        "deleted_by": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "group_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "topic_chatroom_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "topic_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "topic_id",
+        "topic_chatroom_id",
+        "group_id",
+        "deleted_at",
+        "deleted_by"
+      ],
+      "type": "object"
+    },
+    "TopicDeletedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "cursor": {
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/TopicDeletedData"
+        },
+        "event_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "occurred_at": {
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/TopicDeletedType"
+        },
+        "version": {
+          "format": "uint8",
+          "maximum": 1,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "type",
+        "event_id",
+        "conversation_id",
+        "cursor",
+        "occurred_at",
+        "data"
+      ],
+      "type": "object"
+    },
+    "TopicDeletedType": {
+      "enum": [
+        "topic.deleted"
+      ],
+      "type": "string"
     }
   },
   "$id": "https://contracts.jamye.local/realtime/server-frame.schema.json",
@@ -374,6 +543,12 @@
     },
     {
       "$ref": "#/$defs/TopicCreatedEvent"
+    },
+    {
+      "$ref": "#/$defs/MessageDeletedEvent"
+    },
+    {
+      "$ref": "#/$defs/TopicDeletedEvent"
     }
   ],
   "title": "Jamye realtime server frames"

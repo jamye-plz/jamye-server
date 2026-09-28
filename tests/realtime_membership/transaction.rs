@@ -44,14 +44,24 @@ async fn remove_leave_and_group_delete_commit_exact_typed_control_intents() -> T
         RealtimeControlIntent::GroupDeleted { .. }
     ));
 
-    let membership_count = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM memberships WHERE group_id = $1 AND user_id = ANY($2::UUID[])",
+    let live_membership_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM memberships \
+         WHERE group_id = $1 AND user_id = ANY($2::UUID[]) AND deleted_at IS NULL",
     )
     .bind(group.id)
     .bind(vec![removed_id, leaving_id])
     .fetch_one(&pool)
     .await?;
-    assert_eq!(membership_count, 0);
+    assert_eq!(live_membership_count, 0);
+    let soft_deleted_membership_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM memberships \
+         WHERE group_id = $1 AND user_id = ANY($2::UUID[]) AND deleted_at IS NOT NULL",
+    )
+    .bind(group.id)
+    .bind(vec![removed_id, leaving_id])
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(soft_deleted_membership_count, 2);
     let deleted_at_exists =
         sqlx::query_scalar::<_, bool>("SELECT deleted_at IS NOT NULL FROM groups WHERE id = $1")
             .bind(group.id)

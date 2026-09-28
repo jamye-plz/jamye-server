@@ -112,7 +112,7 @@ async fn live_owned_group_blocks_with_one_rollback_and_byte_equivalent_zero_muta
 }
 
 #[tokio::test]
-async fn d10_reassigns_retained_content_removes_private_state_and_enqueues_unique_cleanup()
+async fn grace_then_purge_reassigns_retained_content_removes_private_state_and_enqueues_unique_cleanup()
 -> TestResult {
     let database = TestDatabase::migrated().await?;
     let pool = database.pool()?;
@@ -132,14 +132,25 @@ async fn d10_reassigns_retained_content_removes_private_state_and_enqueues_uniqu
             report,
             Ok(AccountDeletionReport {
                 memberships_removed: 2,
-                cleanup_intents_enqueued: 3,
+                cleanup_intents_enqueued: 0,
             }),
-            "D10 deletion did not report the committed transition",
+            "account deletion did not report a committed grace transition",
         )?;
         require_eq(
             harness.transactions.events(),
             vec![TransactionEventKind::Begin, TransactionEventKind::Commit],
-            "D10 deletion did not use exactly one begin and one commit",
+            "grace deletion did not use exactly one begin and one commit",
+        )?;
+        require_account_grace_started(&pool, fixture.target_id, 2).await?;
+
+        let purge_report = finalize_account(&pool, fixture.target_id).await?;
+        require_eq(
+            purge_report,
+            AccountDeletionReport {
+                memberships_removed: 2,
+                cleanup_intents_enqueued: 3,
+            },
+            "D10 purge did not report the committed transition",
         )?;
 
         let tombstone = tombstone_projection(&pool).await?;
@@ -486,6 +497,15 @@ async fn delete_and_assert_source_authored_occurrence(
         }),
         "source-author deletion did not commit",
     )?;
+    require_account_grace_started(pool, fixture.target_id, 0).await?;
+    require_eq(
+        finalize_account(pool, fixture.target_id).await?,
+        AccountDeletionReport {
+            memberships_removed: 0,
+            cleanup_intents_enqueued: 0,
+        },
+        "source-author purge did not commit",
+    )?;
     let tombstone = tombstone_projection(pool).await?;
     assert_source_authored_message_and_event(
         pool,
@@ -708,6 +728,14 @@ async fn target_routed_membership_revocation_control_intent_remains_exact_and_de
             }),
             "control-target account deletion did not commit",
         )?;
+        require_eq(
+            finalize_account(&pool, target_id).await?,
+            AccountDeletionReport {
+                memberships_removed: 0,
+                cleanup_intents_enqueued: 0,
+            },
+            "control-target purge did not commit",
+        )?;
 
         let payload = sqlx::query_scalar::<_, Value>(
             "SELECT payload FROM outbox_events WHERE id = $1",
@@ -792,23 +820,21 @@ async fn memberships_are_removed_and_fenced_in_membership_id_order_on_one_handle
                 .map(|call| (call.boundary, call.group_id))
                 .collect::<Vec<_>>(),
             vec![
-                (MembershipBoundary::Groups, group_b),
                 (MembershipBoundary::Push, group_b),
-                (MembershipBoundary::Groups, group_a),
                 (MembershipBoundary::Push, group_a),
             ],
-            "Task-6 removals and Task-9 fences did not interleave in membership-id order",
+            "Task-9 fences did not follow membership-id order",
         )?;
         let transaction_handle = harness
             .transactions
             .single_handle()
             .ok_or_else(|| test_error("transaction recorder did not retain one opaque handle"))?;
         require(
-            calls.len() == 4
+            calls.len() == 2
                 && calls
                     .iter()
                     .all(|call| call.handle_id == transaction_handle),
-            "Task-6 and Task-9 did not receive the same caller-owned opaque handle",
+            "Task-9 fences did not receive the same caller-owned opaque handle",
         )?;
         require_eq(
             harness.transactions.events(),
@@ -894,10 +920,18 @@ async fn archived_owned_group_is_reassigned_to_tombstone_without_live_d5_conflic
         require_eq(
             report,
             Ok(AccountDeletionReport {
-                memberships_removed: 1,
+                memberships_removed: 0,
                 cleanup_intents_enqueued: 0,
             }),
-            "soft-deleted ownership was incorrectly treated as a live D5 conflict",
+            "grace deletion should not purge archived ownership before D10",
+        )?;
+        require_eq(
+            finalize_account(&pool, target_id).await?,
+            AccountDeletionReport {
+                memberships_removed: 1,
+                cleanup_intents_enqueued: 0,
+            },
+            "archived owner purge did not commit",
         )?;
         let tombstone = tombstone_projection(&pool).await?;
         let archived = sqlx::query_as::<_, (Uuid, bool)>(
@@ -934,6 +968,56 @@ async fn archived_owned_group_is_reassigned_to_tombstone_without_live_d5_conflic
     .await;
 
     finish_database_test(database, pool, result).await
+}
+
+async fn finalize_account(pool: &PgPool, user_id: Uuid) -> TestResult<AccountDeletionReport> {
+    let transactions = SqlxTransactionManager::new(pool.clone());
+    let repository = PostgresAccountDeletionRepository::new(pool.clone());
+    let mut transaction = transactions.begin().await?;
+    match repository
+        .finalize_deletion(transaction.as_mut(), user_id)
+        .await
+    {
+        Ok(report) => {
+            transactions.commit(transaction).await?;
+            Ok(report)
+        }
+        Err(error) => {
+            transactions.rollback(transaction).await?;
+            Err(test_error(format!("account purge failed: {error:?}")))
+        }
+    }
+}
+
+async fn require_account_grace_started(
+    pool: &PgPool,
+    user_id: Uuid,
+    expected_memberships: i64,
+) -> TestResult {
+    require(
+        sqlx::query_scalar::<_, bool>("SELECT deleted_at IS NOT NULL FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await?
+            .unwrap_or(false),
+        "account deletion did not mark the user as grace-deleted",
+    )?;
+    let (live_memberships, account_deleted_memberships) = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT \
+                 count(*) FILTER (WHERE deleted_at IS NULL), \
+                 count(*) FILTER (WHERE deleted_at IS NOT NULL AND account_deleted_at IS NOT NULL) \
+             FROM memberships \
+             WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+    require_eq(live_memberships, 0, "grace deletion left live memberships")?;
+    require_eq(
+        account_deleted_memberships,
+        expected_memberships,
+        "grace deletion did not mark the expected account-deleted memberships",
+    )
 }
 
 #[derive(Clone)]
@@ -1242,6 +1326,18 @@ impl AccountDeletionRepository for FailAfterFinalizeRepository {
     ) -> AccountDeletionRepositoryFuture<'a, AccountDeletionReport> {
         Box::pin(async move {
             let _ = self.inner.finalize_deletion(transaction, user_id).await?;
+            self.finalized.store(true, Ordering::SeqCst);
+            Err(AccountDeletionRepositoryError::Unavailable)
+        })
+    }
+
+    fn start_grace_period<'a>(
+        &'a self,
+        transaction: &'a mut dyn TransactionHandle,
+        user_id: Uuid,
+    ) -> AccountDeletionRepositoryFuture<'a, AccountDeletionReport> {
+        Box::pin(async move {
+            let _ = self.inner.start_grace_period(transaction, user_id).await?;
             self.finalized.store(true, Ordering::SeqCst);
             Err(AccountDeletionRepositoryError::Unavailable)
         })

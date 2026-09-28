@@ -27,7 +27,8 @@ named-volume data를 보존한 채 PostgreSQL을 한 번, Redis를 세 번 정�
 - `just format`은 Rust source를 변경하고 `just format-check`는 검사만 한다.
 - `just clippy`는 모든 target/feature를 warning deny로 검사한다.
 - `just test`는 `.env.local`을 읽어 default와 all-feature suite를 실행한다.
-- `just contract-generate`는 committed contract를 갱신한다.
+- 계약 재생성은 release-candidate provenance를 명시해서 실행한다:
+  `rtk proxy cargo run --locked --bin generate_contracts -- generate-release-candidate --output contracts --provenance tests/production_composition/fixtures/contract_generation/dirty.json`.
 - `just contract-check`는 contract 생성의 결정성과 byte 일치를 검사한다.
 - `just dependency-check`, `just secret-check`, `just lock-check`는 모든 local test에
   중복 결합하지 않고 필요할 때 명시적으로 실행하는 supply-chain 검사다.

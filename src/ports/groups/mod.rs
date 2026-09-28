@@ -214,6 +214,7 @@ pub struct InviteJoinRecord {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GroupsRepositoryError {
+    AccountNotFound,
     GroupNotFound,
     MembershipRequired,
     OwnerRequired,

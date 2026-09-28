@@ -84,6 +84,139 @@ pub struct MessageCreatedEvent {
     pub data: CanonicalMessage,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum TopicCreatedType {
+    #[serde(rename = "topic.created")]
+    TopicCreated,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicCreatedData {
+    pub topic_id: Uuid,
+    pub group_id: Uuid,
+    pub chatroom_id: Uuid,
+    pub author_id: Uuid,
+    pub title: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicCreatedEvent {
+    pub version: u8,
+    #[serde(rename = "type")]
+    pub event_type: TopicCreatedType,
+    pub event_id: Uuid,
+    pub conversation_id: Uuid,
+    pub cursor: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub occurred_at: OffsetDateTime,
+    pub data: TopicCreatedData,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum MessageDeletedType {
+    #[serde(rename = "message.deleted")]
+    MessageDeleted,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MessageDeletedData {
+    pub message_id: Uuid,
+    pub chatroom_id: Uuid,
+    pub group_id: Uuid,
+    #[serde(with = "time::serde::rfc3339")]
+    pub deleted_at: OffsetDateTime,
+    pub deleted_by: Uuid,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MessageDeletedEvent {
+    pub version: u8,
+    #[serde(rename = "type")]
+    pub event_type: MessageDeletedType,
+    pub event_id: Uuid,
+    pub conversation_id: Uuid,
+    pub cursor: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub occurred_at: OffsetDateTime,
+    pub data: MessageDeletedData,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum TopicDeletedType {
+    #[serde(rename = "topic.deleted")]
+    TopicDeleted,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicDeletedData {
+    pub topic_id: Uuid,
+    pub topic_chatroom_id: Uuid,
+    pub group_id: Uuid,
+    #[serde(with = "time::serde::rfc3339")]
+    pub deleted_at: OffsetDateTime,
+    pub deleted_by: Uuid,
+    pub announcement_message_id: Option<Uuid>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicDeletedEvent {
+    pub version: u8,
+    #[serde(rename = "type")]
+    pub event_type: TopicDeletedType,
+    pub event_id: Uuid,
+    pub conversation_id: Uuid,
+    pub cursor: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub occurred_at: OffsetDateTime,
+    pub data: TopicDeletedData,
+}
+
+#[allow(clippy::large_enum_variant)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum RealtimeServerEvent {
+    MessageCreated(MessageCreatedEvent),
+    TopicCreated(TopicCreatedEvent),
+    MessageDeleted(MessageDeletedEvent),
+    TopicDeleted(TopicDeletedEvent),
+}
+
+impl RealtimeServerEvent {
+    pub fn conversation_id(&self) -> Uuid {
+        match self {
+            Self::MessageCreated(event) => event.conversation_id,
+            Self::TopicCreated(event) => event.conversation_id,
+            Self::MessageDeleted(event) => event.conversation_id,
+            Self::TopicDeleted(event) => event.conversation_id,
+        }
+    }
+
+    pub fn event_id(&self) -> Uuid {
+        match self {
+            Self::MessageCreated(event) => event.event_id,
+            Self::TopicCreated(event) => event.event_id,
+            Self::MessageDeleted(event) => event.event_id,
+            Self::TopicDeleted(event) => event.event_id,
+        }
+    }
+
+    pub fn event_type(&self) -> &'static str {
+        match self {
+            Self::MessageCreated(_) => "message.created",
+            Self::TopicCreated(_) => "topic.created",
+            Self::MessageDeleted(_) => "message.deleted",
+            Self::TopicDeleted(_) => "topic.deleted",
+        }
+    }
+}
+
 // `MessageCreatedEvent` grew alongside `CanonicalMessage`'s new sender
 // display fields, so it is now noticeably larger than `UnsupportedEventMarker`.
 // Boxing it would ripple through every `DeltaItem::Known(...)` construction
@@ -94,6 +227,8 @@ pub struct MessageCreatedEvent {
 #[serde(untagged)]
 pub enum DeltaItem {
     Known(MessageCreatedEvent),
+    MessageDeleted(MessageDeletedEvent),
+    TopicDeleted(TopicDeletedEvent),
     Unsupported(UnsupportedEventMarker),
 }
 
@@ -101,6 +236,8 @@ impl DeltaItem {
     pub fn cursor(&self) -> &str {
         match self {
             Self::Known(event) => &event.cursor,
+            Self::MessageDeleted(event) => &event.cursor,
+            Self::TopicDeleted(event) => &event.cursor,
             Self::Unsupported(marker) => &marker.cursor,
         }
     }
@@ -108,6 +245,8 @@ impl DeltaItem {
     pub fn event_id(&self) -> Uuid {
         match self {
             Self::Known(event) => event.event_id,
+            Self::MessageDeleted(event) => event.event_id,
+            Self::TopicDeleted(event) => event.event_id,
             Self::Unsupported(marker) => marker.event_id,
         }
     }

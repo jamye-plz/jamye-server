@@ -295,7 +295,7 @@ fn manifest_provenance() -> Value {
             "input": {
                 "server_tag": null,
                 "server_commit": "dirty",
-                "contract_version": "1",
+                "contract_version": "2",
                 "server_version": "0.1.0"
             },
             "dirty_workspace_result": "uses_the_explicit_input",
@@ -318,8 +318,8 @@ fn version_negotiation() -> Value {
         "fixture": "current_previous_version_negotiation",
         "header": "X-Jamye-Contract-Version",
         "accepted": [
-            {"requested": "1", "echoed": "1"},
-            {"requested": "0", "echoed": "0"}
+            {"requested": "2", "echoed": "2"},
+            {"requested": "1", "echoed": "1"}
         ],
         "unsupported": {
             "requested": "999",
@@ -340,7 +340,7 @@ fn realtime_lifecycle() -> Value {
             "issued_once": true,
             "stored_form": "sha256_digest_only",
             "consume": "atomic_once",
-            "contract_version": "1",
+            "contract_version": "2",
             "effective_expiry": "min(issue_time_plus_30_seconds, access_token_exp)"
         },
         "join": {

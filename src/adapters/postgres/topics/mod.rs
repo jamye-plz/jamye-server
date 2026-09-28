@@ -1,5 +1,6 @@
 //! PostgreSQL topic lifecycle, cursor-unread, tag, and atomic-create adapter.
 
+mod delete;
 mod mutation;
 mod query;
 
@@ -9,10 +10,11 @@ use crate::{
     adapters::postgres::transactions::connection,
     ports::{
         topics::{
-            CreateTopicCommand, CreateTopicOutcome, GetTopicQuery, ListTopicDatesQuery,
-            ListTopicTagsQuery, ListTopicsQuery, PatchTopicCommand, ReplaceTopicTagsCommand,
-            TopicDatePage, TopicNotificationContext, TopicPage, TopicRecord, TopicTagPage,
-            TopicsRepository, TopicsRepositoryError, TopicsRepositoryFuture,
+            CreateTopicCommand, CreateTopicOutcome, DeleteTopicCommand, GetTopicQuery,
+            ListTopicDatesQuery, ListTopicTagsQuery, ListTopicsQuery, PatchTopicCommand,
+            ReplaceTopicTagsCommand, TopicDatePage, TopicNotificationContext, TopicPage,
+            TopicRecord, TopicTagPage, TopicsRepository, TopicsRepositoryError,
+            TopicsRepositoryFuture,
         },
         transactions::TransactionHandle,
     },
@@ -83,6 +85,18 @@ impl TopicsRepository for PostgresTopicsRepository {
 
     fn list_tags(&self, query: ListTopicTagsQuery) -> TopicsRepositoryFuture<'_, TopicTagPage> {
         Box::pin(query::list_tags(&self.pool, query))
+    }
+
+    fn delete_topic<'a>(
+        &'a self,
+        transaction: &'a mut dyn TransactionHandle,
+        command: &'a DeleteTopicCommand,
+    ) -> TopicsRepositoryFuture<'a, ()> {
+        Box::pin(async move {
+            let connection =
+                connection(transaction).map_err(|_| TopicsRepositoryError::Unavailable)?;
+            delete::delete_topic(connection, command).await
+        })
     }
 
     fn notification_context<'a>(

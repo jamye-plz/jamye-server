@@ -7,8 +7,10 @@
 
 pub mod cleanup;
 
+mod grace;
 mod payload_scrub;
 mod preparation;
+mod purge;
 mod transition;
 
 use sqlx::PgPool;
@@ -19,7 +21,8 @@ use crate::{
     ports::{
         account_deletion::{
             AccountDeletionPreparation, AccountDeletionReport, AccountDeletionRepository,
-            AccountDeletionRepositoryError, AccountDeletionRepositoryFuture,
+            AccountDeletionRepositoryError, AccountDeletionRepositoryFuture, AccountPurgeClaim,
+            AccountPurgeClaimRequest,
         },
         transactions::TransactionHandle,
     },
@@ -62,6 +65,32 @@ impl AccountDeletionRepository for PostgresAccountDeletionRepository {
                 connection(transaction).map_err(|_| AccountDeletionRepositoryError::InvalidData)?;
             finalize_deletion(connection, user_id).await
         })
+    }
+
+    fn start_grace_period<'a>(
+        &'a self,
+        transaction: &'a mut dyn TransactionHandle,
+        user_id: Uuid,
+    ) -> AccountDeletionRepositoryFuture<'a, AccountDeletionReport> {
+        Box::pin(async move {
+            let connection =
+                connection(transaction).map_err(|_| AccountDeletionRepositoryError::InvalidData)?;
+            grace::start_grace_period(connection, user_id).await
+        })
+    }
+
+    fn claim_account_purges(
+        &self,
+        request: AccountPurgeClaimRequest,
+    ) -> AccountDeletionRepositoryFuture<'_, Vec<AccountPurgeClaim>> {
+        Box::pin(purge::claim_account_purges(&self.pool, request))
+    }
+
+    fn release_account_purge_claim<'a>(
+        &'a self,
+        claim: &'a AccountPurgeClaim,
+    ) -> AccountDeletionRepositoryFuture<'a, bool> {
+        Box::pin(purge::release_account_purge_claim(&self.pool, claim))
     }
 }
 

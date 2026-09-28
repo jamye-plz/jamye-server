@@ -5,14 +5,16 @@ use futures_util::{SinkExt, StreamExt};
 use jamye_server::{
     adapters::{
         postgres::{
-            dev_fixtures::PostgresDevFixtureStore, messaging::PostgresMessagingRepository,
-            realtime::PostgresRealtimeRepository, transactions::SqlxTransactionManager,
+            auth::PostgresAuthRepository, dev_fixtures::PostgresDevFixtureStore,
+            messaging::PostgresMessagingRepository, realtime::PostgresRealtimeRepository,
+            transactions::SqlxTransactionManager,
         },
         redis::realtime::{OsTicketCredentialSource, RedisRealtimeAdapter},
     },
     application::{
         messaging::MessagingService,
         realtime::{OutboxWorker, OutboxWorkerConfig, RealtimeTicketService, SystemClock},
+        users::UserService,
     },
     dev_fixtures::{DevFixtureGuard, DevTokenCodec, SeededFixture},
     domain::messaging::{CanonicalMessage, DeltaItem, EventPage, MessageCreatedEvent},
@@ -44,6 +46,10 @@ async fn dev_c1_flows_from_seed_to_rest_outbox_redis_websocket_and_delta() -> Te
     let redis_url = guarded_redis_url()?;
     let guard = DevFixtureGuard::from_env()?;
     let codec = DevTokenCodec::ephemeral(guard);
+    let users = Arc::new(UserService::new(
+        Arc::new(SqlxTransactionManager::new(pool.clone())),
+        Arc::new(PostgresAuthRepository::new(pool.clone())),
+    ));
     let fixture_state =
         DevFixtureHttpState::new(Arc::new(PostgresDevFixtureStore::new(pool.clone())), codec);
     let auth = fixture_state.auth_state();
@@ -70,6 +76,7 @@ async fn dev_c1_flows_from_seed_to_rest_outbox_redis_websocket_and_delta() -> Te
             hub.clone(),
             postgres_realtime.clone(),
             auth,
+            users,
         )));
 
     let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
@@ -99,12 +106,12 @@ async fn dev_c1_flows_from_seed_to_rest_outbox_redis_websocket_and_delta() -> Te
     let ticket_response = client
         .post(format!("{base_url}/api/v1/realtime/tickets"))
         .bearer_auth(&fixture.access_token)
-        .header("x-jamye-contract-version", "1")
+        .header("x-jamye-contract-version", "2")
         .send()
         .await?;
     assert_eq!(ticket_response.status(), reqwest::StatusCode::CREATED);
     let ticket: TicketResponse = serde_json::from_slice(&ticket_response.bytes().await?)?;
-    assert_eq!(ticket.contract_version, "1");
+    assert_eq!(ticket.contract_version, "2");
     assert!(!ticket.expires_at.is_empty());
 
     let mut subscriber = redis_realtime.event_subscriber().await?;
@@ -117,11 +124,11 @@ async fn dev_c1_flows_from_seed_to_rest_outbox_redis_websocket_and_delta() -> Te
                 .await
                 .map_err(io::Error::other)?
                 .ok_or_else(|| io::Error::other("Redis event subscriber ended"))?;
-            if event.conversation_id == expected_conversation_id {
+            if event.conversation_id() == expected_conversation_id {
                 break event;
             }
         };
-        let conversation_id = event.conversation_id;
+        let conversation_id = event.conversation_id();
         let payload = serde_json::to_string(&event).map_err(io::Error::other)?;
         let recipients = forward_hub.publish(conversation_id, payload).await;
         if recipients != 1 {
@@ -270,7 +277,7 @@ async fn delta_page(
             fixture.chatroom_id
         ))
         .bearer_auth(&fixture.access_token)
-        .header("x-jamye-contract-version", "1")
+        .header("x-jamye-contract-version", "2")
         .send()
         .await?;
     assert_eq!(response.status(), reqwest::StatusCode::OK);

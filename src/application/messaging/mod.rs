@@ -12,15 +12,15 @@ use crate::{
     },
     ports::{
         messaging::{
-            ContractProjection, DeltaQuery, MessageDeliveryContext, MessagingRepository,
-            MessagingRepositoryError, PersistMessageOutcome, PersistedMessage,
+            ContractProjection, DeleteMessageCommand, DeltaQuery, MessageDeliveryContext,
+            MessagingRepository, MessagingRepositoryError, PersistMessageOutcome, PersistedMessage,
         },
         transactions::{BoxTransactionHandle, TransactionHandle, TransactionManager},
     },
 };
 
-pub const CURRENT_CONTRACT_VERSION: &str = "1";
-pub const PREVIOUS_CONTRACT_VERSION: &str = "0";
+pub const CURRENT_CONTRACT_VERSION: &str = "2";
+pub const PREVIOUS_CONTRACT_VERSION: &str = "1";
 pub const DEFAULT_DELTA_LIMIT: u32 = 50;
 pub const MAX_DELTA_LIMIT: u32 = 100;
 
@@ -159,6 +159,44 @@ impl MessagingService {
             .map_err(MessagingError::from)
     }
 
+    pub async fn delete_message(
+        &self,
+        identity: &AccessIdentity,
+        input: DeleteMessageInput,
+    ) -> Result<(), MessagingError> {
+        let command = DeleteMessageCommand {
+            chatroom_id: input.chatroom_id,
+            message_id: input.message_id,
+            actor_id: identity.user_id,
+        };
+        let mut handle = self
+            .transactions
+            .begin()
+            .await
+            .map_err(|_| MessagingError::DatabaseUnavailable)?;
+        let result = self
+            .repository
+            .delete_message(handle.as_mut(), &command)
+            .await
+            .map_err(MessagingError::from);
+        match result {
+            Ok(()) => {
+                self.transactions
+                    .commit(handle)
+                    .await
+                    .map_err(|_| MessagingError::DatabaseUnavailable)?;
+                Ok(())
+            }
+            Err(error) => {
+                self.transactions
+                    .rollback(handle)
+                    .await
+                    .map_err(|_| MessagingError::DatabaseUnavailable)?;
+                Err(error)
+            }
+        }
+    }
+
     async fn finish_send(
         &self,
         mut handle: BoxTransactionHandle,
@@ -249,6 +287,12 @@ pub struct DeltaInput {
     pub contract_version: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DeleteMessageInput {
+    pub chatroom_id: Uuid,
+    pub message_id: Uuid,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SendMessageOutcome {
     Created(CanonicalMessage),
@@ -262,6 +306,8 @@ pub enum MessagingError {
     IdempotencyKeyMismatch,
     MediaNotAvailable,
     MembershipRequired,
+    MessageNotFound,
+    MessageAuthorRequired,
     IdempotencyConflict,
     ContractUpgradeRequired,
     DatabaseUnavailable,
@@ -271,6 +317,8 @@ impl From<MessagingRepositoryError> for MessagingError {
     fn from(error: MessagingRepositoryError) -> Self {
         match error {
             MessagingRepositoryError::MembershipRequired => Self::MembershipRequired,
+            MessagingRepositoryError::MessageNotFound => Self::MessageNotFound,
+            MessagingRepositoryError::MessageAuthorRequired => Self::MessageAuthorRequired,
             MessagingRepositoryError::IdempotencyConflict => Self::IdempotencyConflict,
             MessagingRepositoryError::ContractUpgradeRequired => Self::ContractUpgradeRequired,
             MessagingRepositoryError::DatabaseUnavailable => Self::DatabaseUnavailable,

@@ -51,6 +51,7 @@ pub(super) async fn lock_authentic_account(
         "SELECT account.id \
          FROM users account \
          WHERE account.id = $1 \
+           AND account.deleted_at IS NULL \
            AND NOT EXISTS ( \
                SELECT 1 FROM anonymous_author_tombstones tombstone \
                WHERE tombstone.user_id = account.id \
@@ -77,6 +78,7 @@ async fn lock_affected_groups(
                 SELECT 1 FROM memberships membership \
                 WHERE membership.group_id = group_entry.id \
                   AND membership.user_id = $1 \
+                  AND membership.deleted_at IS NULL \
             ) \
          ORDER BY group_entry.id \
          FOR UPDATE",
@@ -96,6 +98,7 @@ async fn lock_target_memberships(
          FROM memberships membership \
          JOIN groups group_entry ON group_entry.id = membership.group_id \
          WHERE membership.user_id = $1 \
+           AND membership.deleted_at IS NULL \
          ORDER BY membership.id \
          FOR UPDATE OF membership",
     )

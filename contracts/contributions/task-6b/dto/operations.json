@@ -44,6 +44,16 @@
       "request": null,
       "response": "ChatroomMediaPage",
       "success_status": 200
+    },
+    {
+      "auth": "author",
+      "errors": "E8 message_author_required + 404 deleted/missing target + 204 author retry",
+      "id": "C6",
+      "method": "DELETE",
+      "path": "/api/v1/chatrooms/{chatroom_id}/messages/{message_id}",
+      "request": null,
+      "response": null,
+      "success_status": 204
     }
   ]
 }

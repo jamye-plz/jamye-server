@@ -92,21 +92,26 @@ pub(super) async fn list_chatrooms(
                      JOIN memberships actor_membership \
                        ON actor_membership.group_id = g.id \
                       AND actor_membership.user_id = $2 \
+                      AND actor_membership.deleted_at IS NULL \
                      WHERE g.id = $1 AND g.deleted_at IS NULL \
                  ) AS member, \
                  ( \
                      $3::uuid IS NULL \
                      OR EXISTS ( \
                          SELECT 1 FROM chatrooms cursor_chatroom \
-                         WHERE cursor_chatroom.id = $3 \
+                     WHERE cursor_chatroom.id = $3 \
                            AND cursor_chatroom.group_id = $1 \
+                           AND cursor_chatroom.deleted_at IS NULL \
                      ) \
                  ) AS cursor_valid \
          ), page AS ( \
              SELECT c.id, c.group_id, c.type, c.topic_id, c.created_at \
              FROM chatrooms c \
              CROSS JOIN actor_access \
+             LEFT JOIN topics topic ON topic.id = c.topic_id \
              WHERE c.group_id = $1 AND actor_access.member AND actor_access.cursor_valid \
+               AND c.deleted_at IS NULL \
+               AND (c.topic_id IS NULL OR topic.deleted_at IS NULL) \
                AND ( \
                  $3::uuid IS NULL \
                  OR (c.created_at, c.id) > ( \
@@ -114,6 +119,7 @@ pub(super) async fn list_chatrooms(
                      FROM chatrooms cursor_chatroom \
                      WHERE cursor_chatroom.id = $3 \
                        AND cursor_chatroom.group_id = $1 \
+                       AND cursor_chatroom.deleted_at IS NULL \
                  ) \
                ) \
              ORDER BY c.created_at, c.id \
@@ -159,26 +165,45 @@ pub(super) async fn message_history(
                  EXISTS ( \
                      SELECT 1 FROM chatrooms c \
                      JOIN groups g ON g.id = c.group_id AND g.deleted_at IS NULL \
+                     LEFT JOIN topics topic ON topic.id = c.topic_id \
                      JOIN memberships actor_membership \
                        ON actor_membership.group_id = g.id \
                       AND actor_membership.user_id = $2 \
+                      AND actor_membership.deleted_at IS NULL \
                      WHERE c.id = $1 \
+                       AND c.deleted_at IS NULL \
+                       AND (c.topic_id IS NULL OR topic.deleted_at IS NULL) \
                  ) AS member, \
                  ( \
                      $3::uuid IS NULL \
                      OR EXISTS ( \
                          SELECT 1 FROM messages cursor_message \
-                         WHERE cursor_message.id = $3 \
+                     WHERE cursor_message.id = $3 \
                            AND cursor_message.chatroom_id = $1 \
+                           AND cursor_message.deleted_at IS NULL \
                      ) \
                  ) AS cursor_valid \
          ), page AS ( \
              SELECT m.id, m.chatroom_id, m.sender_id, m.client_msg_id, m.body, m.type, \
-                    m.created_at, sender.nickname, sender.avatar_url \
+                    m.created_at, \
+                    CASE \
+                        WHEN sender.deleted_at IS NOT NULL THEN '탈퇴한 사용자' \
+                        ELSE sender.nickname \
+                    END, \
+                    CASE \
+                        WHEN sender.deleted_at IS NOT NULL THEN NULL \
+                        ELSE sender.avatar_url \
+                    END \
              FROM messages m \
              LEFT JOIN users sender ON sender.id = m.sender_id \
              CROSS JOIN actor_access \
+             LEFT JOIN topics topic ON topic.id = ( \
+                 SELECT topic_chatroom.topic_id FROM chatrooms topic_chatroom \
+                 WHERE topic_chatroom.id = m.chatroom_id \
+             ) \
              WHERE m.chatroom_id = $1 AND actor_access.member AND actor_access.cursor_valid \
+               AND m.deleted_at IS NULL \
+               AND (topic.id IS NULL OR topic.deleted_at IS NULL) \
                AND ( \
                  $3::uuid IS NULL \
                  OR (m.created_at, m.id) < ( \
@@ -186,6 +211,7 @@ pub(super) async fn message_history(
                      FROM messages cursor_message \
                      WHERE cursor_message.id = $3 \
                        AND cursor_message.chatroom_id = $1 \
+                       AND cursor_message.deleted_at IS NULL \
                  ) \
                ) \
              ORDER BY m.created_at DESC, m.id DESC \
@@ -234,10 +260,14 @@ pub(super) async fn chatroom_media(
                  EXISTS ( \
                      SELECT 1 FROM chatrooms c \
                      JOIN groups g ON g.id = c.group_id AND g.deleted_at IS NULL \
+                     LEFT JOIN topics topic ON topic.id = c.topic_id \
                      JOIN memberships actor_membership \
                        ON actor_membership.group_id = g.id \
                       AND actor_membership.user_id = $2 \
+                      AND actor_membership.deleted_at IS NULL \
                      WHERE c.id = $1 \
+                       AND c.deleted_at IS NULL \
+                       AND (c.topic_id IS NULL OR topic.deleted_at IS NULL) \
                  ) AS member, \
                  ( \
                      $3::uuid IS NULL \
@@ -246,6 +276,8 @@ pub(super) async fn chatroom_media(
                          JOIN messages cursor_message ON cursor_message.id = cursor_media.message_id \
                          WHERE cursor_media.id = $3 \
                            AND cursor_message.chatroom_id = $1 \
+                           AND cursor_message.deleted_at IS NULL \
+                           AND cursor_media.deleted_at IS NULL \
                      ) \
                  ) AS cursor_valid \
          ), cursor_item AS ( \
@@ -254,6 +286,8 @@ pub(super) async fn chatroom_media(
              FROM message_media cursor_media \
              JOIN messages cursor_message ON cursor_message.id = cursor_media.message_id \
              WHERE cursor_media.id = $3 AND cursor_message.chatroom_id = $1 \
+               AND cursor_message.deleted_at IS NULL \
+               AND cursor_media.deleted_at IS NULL \
          ), page AS ( \
              SELECT media.id, media.message_id, media.media_upload_id, media.type, \
                     media.byte_size, media.width, media.height, media.duration, \
@@ -261,11 +295,17 @@ pub(super) async fn chatroom_media(
                     message.created_at AS message_created_at \
              FROM message_media media \
              JOIN messages message ON message.id = media.message_id \
+             JOIN chatrooms chatroom ON chatroom.id = message.chatroom_id \
+             LEFT JOIN topics topic ON topic.id = chatroom.topic_id \
              LEFT JOIN media_uploads upload ON upload.id = media.media_upload_id \
              CROSS JOIN actor_access \
              WHERE message.chatroom_id = $1 \
                AND actor_access.member \
                AND actor_access.cursor_valid \
+               AND message.deleted_at IS NULL \
+               AND media.deleted_at IS NULL \
+               AND chatroom.deleted_at IS NULL \
+               AND (chatroom.topic_id IS NULL OR topic.deleted_at IS NULL) \
                AND (media.type LIKE 'image/%' OR media.type LIKE 'video/%') \
                AND ( \
                  $3::uuid IS NULL \
@@ -330,8 +370,11 @@ async fn hydrate_message_media(
                 media.byte_size, media.width, media.height, media.duration, \
                 media.filename, media.position, upload.poster_upload_id \
          FROM message_media AS media \
+         JOIN messages AS message ON message.id = media.message_id \
          LEFT JOIN media_uploads AS upload ON upload.id = media.media_upload_id \
          WHERE media.message_id = ANY($1) \
+           AND message.deleted_at IS NULL \
+           AND media.deleted_at IS NULL \
          ORDER BY media.message_id, media.position",
     )
     .bind(&message_ids)
@@ -441,10 +484,15 @@ pub(super) async fn read_marker(
              SELECT EXISTS ( \
                  SELECT 1 FROM chatrooms c \
                  JOIN groups g ON g.id = c.group_id AND g.deleted_at IS NULL \
+                 LEFT JOIN topics topic ON topic.id = c.topic_id \
                  JOIN memberships actor_membership \
                    ON actor_membership.group_id = g.id \
                   AND actor_membership.user_id = $2 \
+                  AND actor_membership.deleted_at IS NULL \
                  WHERE c.id = $1 \
+                   AND c.deleted_at IS NULL \
+                   AND (c.topic_id IS NULL OR topic.deleted_at IS NULL) \
+                   AND c.deleted_at IS NULL \
              ) AS member \
          ) \
          SELECT actor_access.member, marker.id, marker.user_id, marker.chatroom_id, \

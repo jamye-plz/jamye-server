@@ -12,7 +12,7 @@ fn task_7_contract_contribution_is_the_exact_selected_topic_wire() -> TestResult
     let rows = operations["operations"]
         .as_array()
         .ok_or_else(|| io::Error::other("task-7 operations must be an array"))?;
-    assert_eq!(rows.len(), 7);
+    assert_eq!(rows.len(), 8);
     for (index, expected) in [
         ("T1", "POST", "/api/v1/groups/{group_id}/topics"),
         ("T2", "GET", "/api/v1/groups/{group_id}/topics/dates"),
@@ -29,6 +29,11 @@ fn task_7_contract_contribution_is_the_exact_selected_topic_wire() -> TestResult
             "GET",
             "/api/v1/groups/{group_id}/topics/{topic_id}/tags",
         ),
+        (
+            "T8",
+            "DELETE",
+            "/api/v1/groups/{group_id}/topics/{topic_id}",
+        ),
     ]
     .into_iter()
     .enumerate()
@@ -41,6 +46,7 @@ fn task_7_contract_contribution_is_the_exact_selected_topic_wire() -> TestResult
     assert_eq!(rows[0]["success_status"], "201 new|200 retry");
     assert_eq!(rows[4]["auth"], "author");
     assert_eq!(rows[5]["auth"], "author");
+    assert_eq!(rows[7]["auth"], "author");
 
     let schema: Value = serde_json::from_str(&fs::read_to_string(
         "contracts/contributions/task-7/schemas/topics-wire.schema.json",

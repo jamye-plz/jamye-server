@@ -156,6 +156,70 @@ pub struct TopicCreatedEvent {
     pub data: TopicCreatedData,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, Serialize, ToSchema)]
+pub enum MessageDeletedType {
+    #[serde(rename = "message.deleted")]
+    MessageDeleted,
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MessageDeletedData {
+    pub message_id: Uuid,
+    pub chatroom_id: Uuid,
+    pub group_id: Uuid,
+    pub deleted_at: String,
+    pub deleted_by: Uuid,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MessageDeletedEvent {
+    #[schemars(range(min = 1, max = 1))]
+    #[schema(minimum = 1, maximum = 1)]
+    pub version: u8,
+    #[serde(rename = "type")]
+    pub event_type: MessageDeletedType,
+    pub event_id: Uuid,
+    pub conversation_id: Uuid,
+    pub cursor: String,
+    pub occurred_at: String,
+    pub data: MessageDeletedData,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, Serialize, ToSchema)]
+pub enum TopicDeletedType {
+    #[serde(rename = "topic.deleted")]
+    TopicDeleted,
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TopicDeletedData {
+    pub topic_id: Uuid,
+    pub topic_chatroom_id: Uuid,
+    pub group_id: Uuid,
+    pub deleted_at: String,
+    pub deleted_by: Uuid,
+    pub announcement_message_id: Option<Uuid>,
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TopicDeletedEvent {
+    #[schemars(range(min = 1, max = 1))]
+    #[schema(minimum = 1, maximum = 1)]
+    pub version: u8,
+    #[serde(rename = "type")]
+    pub event_type: TopicDeletedType,
+    pub event_id: Uuid,
+    pub conversation_id: Uuid,
+    pub cursor: String,
+    pub occurred_at: String,
+    pub data: TopicDeletedData,
+}
+
 // Mirrors the domain `DeltaItem`'s `#[allow]`: `MessageCreatedEvent` grew
 // alongside `CanonicalMessage`'s new sender display fields, and boxing it
 // here would only affect schema derivation, not any real payload shape.
@@ -164,6 +228,8 @@ pub struct TopicCreatedEvent {
 #[serde(untagged)]
 pub enum DeltaItem {
     Known(MessageCreatedEvent),
+    MessageDeleted(MessageDeletedEvent),
+    TopicDeleted(TopicDeletedEvent),
     Unsupported(UnsupportedEventMarker),
 }
 
@@ -235,4 +301,6 @@ pub enum ReleaseCandidateServerFrame {
     Control(ServerControlFrame),
     MessageCreated(MessageCreatedEvent),
     TopicCreated(TopicCreatedEvent),
+    MessageDeleted(MessageDeletedEvent),
+    TopicDeleted(TopicDeletedEvent),
 }

@@ -28,6 +28,7 @@ pub(super) async fn upsert_installation(
     connection: &mut PgConnection,
     command: &UpsertPushInstallationCommand,
 ) -> Result<UpsertPushInstallationOutcome, PushRepositoryError> {
+    require_live_account(connection, command.user_id).await?;
     lock_identity(connection, &command.installation_id).await?;
     lock_destination(connection, &command.token).await?;
 
@@ -110,6 +111,7 @@ pub(super) async fn update_installation(
     connection: &mut PgConnection,
     command: &UpdatePushInstallationCommand,
 ) -> Result<PushInstallationRecord, PushRepositoryError> {
+    require_live_account(connection, command.user_id).await?;
     lock_identity(connection, &command.installation_id).await?;
     lock_destination(connection, &command.token).await?;
 
@@ -189,6 +191,23 @@ pub(super) async fn delete_installation(
     .map_err(|error| database_error("push_installation_delete_lock", error))?
     .ok_or(PushRepositoryError::InstallationNotFound)?;
     delete_installation_state(connection, installation_id).await
+}
+
+async fn require_live_account(
+    connection: &mut PgConnection,
+    user_id: Uuid,
+) -> Result<(), PushRepositoryError> {
+    sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM users \
+         WHERE id = $1 AND deleted_at IS NULL \
+         FOR SHARE",
+    )
+    .bind(user_id)
+    .fetch_optional(connection)
+    .await
+    .map_err(|error| database_error("push_account_lock", error))?
+    .map(|_| ())
+    .ok_or(PushRepositoryError::AccountNotFound)
 }
 
 async fn insert_installation(

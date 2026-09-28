@@ -18,10 +18,14 @@ pub(super) async fn mark_read(
         "SELECT c.id \
          FROM chatrooms c \
          JOIN groups g ON g.id = c.group_id AND g.deleted_at IS NULL \
+         LEFT JOIN topics topic ON topic.id = c.topic_id \
          JOIN memberships actor_membership \
            ON actor_membership.group_id = g.id \
           AND actor_membership.user_id = $2 \
+          AND actor_membership.deleted_at IS NULL \
          WHERE c.id = $1 \
+           AND c.deleted_at IS NULL \
+           AND (c.topic_id IS NULL OR topic.deleted_at IS NULL) \
          FOR SHARE OF c, g, actor_membership",
     )
     .bind(command.chatroom_id)
@@ -82,7 +86,8 @@ async fn cursor_for_existing_cursor(
 ) -> Result<i64, ChatroomsRepositoryError> {
     let cursor = sqlx::query_scalar::<_, i64>(
         "SELECT cursor FROM conversation_events \
-         WHERE conversation_id = $1 AND cursor = $2",
+         WHERE conversation_id = $1 AND cursor = $2 \
+           AND deleted_at IS NULL",
     )
     .bind(command.chatroom_id)
     .bind(cursor)
@@ -107,8 +112,10 @@ async fn cursor_for_message_anchor(
            ON event.conversation_id = message.chatroom_id \
           AND event.event_type = 'message.created' \
           AND event.event_version = 1 \
+          AND event.deleted_at IS NULL \
           AND event.payload ->> 'id' = message.id::TEXT \
          WHERE message.id = $1 AND message.chatroom_id = $2 \
+           AND message.deleted_at IS NULL \
          ORDER BY event.cursor \
          FOR SHARE OF message, event",
     )

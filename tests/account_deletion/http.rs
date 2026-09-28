@@ -9,7 +9,6 @@ use jamye_server::{
         oauth::OsCredentialSource,
         postgres::{auth::PostgresAuthRepository, transactions::SqlxTransactionManager},
     },
-    application::account_deletion::ANONYMOUS_AUTHOR_NICKNAME,
     ports::{
         auth::{AuthRepository, CredentialSource, NewRotatedSession, RotationOutcome},
         transactions::TransactionManager,
@@ -180,24 +179,42 @@ async fn delete_me_commits_one_empty_204_then_revokes_account_access_and_anonymi
             "the deleted refresh credential remained reusable",
         )?;
 
-        let private_references = sqlx::query_scalar::<_, i64>(
+        let live_private_references = sqlx::query_scalar::<_, i64>(
             "SELECT \
-            (SELECT count(*) FROM users WHERE id = $1) + \
-            (SELECT count(*) FROM auth_identities WHERE user_id = $1) + \
-            (SELECT count(*) FROM refresh_sessions WHERE user_id = $1) + \
-            (SELECT count(*) FROM memberships WHERE user_id = $1) + \
-            (SELECT count(*) FROM invites WHERE created_by = $1) + \
-            (SELECT count(*) FROM chatroom_reads WHERE user_id = $1) + \
-            (SELECT count(*) FROM notifications WHERE user_id = $1) + \
-            (SELECT count(*) FROM push_installations WHERE user_id = $1)",
+            (SELECT count(*) FROM users WHERE id = $1 AND deleted_at IS NULL) + \
+            (SELECT count(*) FROM auth_identities WHERE user_id = $1 AND deleted_at IS NULL) + \
+            (SELECT count(*) FROM refresh_sessions WHERE user_id = $1 AND deleted_at IS NULL) + \
+            (SELECT count(*) FROM memberships WHERE user_id = $1 AND deleted_at IS NULL) + \
+            (SELECT count(*) FROM push_installations \
+             WHERE user_id = $1 AND deleted_at IS NULL AND disabled_at IS NULL)",
         )
         .bind(fixture.target_id)
         .fetch_one(&pool)
         .await?;
         require_eq(
-            private_references,
+            live_private_references,
             0,
-            "account deletion left private or live-access references",
+            "account deletion left live-access references",
+        )?;
+        let grace_markers = sqlx::query_as::<_, (bool, i64, i64, i64)>(
+            "SELECT \
+                EXISTS (SELECT 1 FROM users WHERE id = $1 AND deleted_at IS NOT NULL), \
+                (SELECT count(*) FROM memberships \
+                 WHERE user_id = $1 AND deleted_at IS NOT NULL AND account_deleted_at IS NOT NULL), \
+                (SELECT count(*) FROM auth_identities WHERE user_id = $1 AND deleted_at IS NOT NULL), \
+                (SELECT count(*) FROM refresh_sessions \
+                 WHERE user_id = $1 AND deleted_at IS NOT NULL AND revoked_at IS NOT NULL)",
+        )
+        .bind(fixture.target_id)
+        .fetch_one(&pool)
+        .await?;
+        require(
+            grace_markers.0,
+            "account deletion did not mark users.deleted_at",
+        )?;
+        require(
+            grace_markers.1 > 0 && grace_markers.2 > 0 && grace_markers.3 > 0,
+            "account deletion did not mark memberships, identities, and sessions for grace",
         )?;
 
         let reclaimable_push = sqlx::query_scalar::<_, i64>(
@@ -213,8 +230,8 @@ async fn delete_me_commits_one_empty_204_then_revokes_account_access_and_anonymi
             "account deletion left reclaimable recipient push",
         )?;
 
-        let retained = sqlx::query_as::<_, (Uuid, Uuid, String, Option<String>)>(
-            "SELECT messages.sender_id, topics.author_id, users.nickname, users.avatar_url \
+        let retained = sqlx::query_as::<_, (Option<Uuid>, Uuid, bool)>(
+            "SELECT messages.sender_id, topics.author_id, users.deleted_at IS NOT NULL \
          FROM messages \
          INNER JOIN topics ON topics.id = $2 \
          INNER JOIN users ON users.id = messages.sender_id \
@@ -225,23 +242,9 @@ async fn delete_me_commits_one_empty_204_then_revokes_account_access_and_anonymi
         .fetch_one(&pool)
         .await?;
         require_eq(
-            retained.0,
-            retained.1,
-            "retained message and topic did not converge on one tombstone",
-        )?;
-        require(
-            retained.0 != fixture.target_id,
-            "retained content still references the authenticating account",
-        )?;
-        require_eq(
-            retained.2,
-            ANONYMOUS_AUTHOR_NICKNAME.to_owned(),
-            "retained content did not use the anonymous projection",
-        )?;
-        require_eq(
-            retained.3,
-            None,
-            "anonymous retained content unexpectedly exposed an avatar",
+            retained,
+            (Some(fixture.target_id), fixture.target_id, true),
+            "retained content did not keep the grace-deleted author link",
         )?;
         let retained_payload = sqlx::query_scalar::<_, String>(
             "SELECT payload::TEXT FROM conversation_events WHERE id = $1",
@@ -250,16 +253,8 @@ async fn delete_me_commits_one_empty_204_then_revokes_account_access_and_anonymi
         .fetch_one(&pool)
         .await?;
         require(
-            !retained_payload.contains(&fixture.target_id.to_string()),
-            "retained event payload contains the deleted account id",
-        )?;
-        require(
-            !retained_payload.contains("private delete target"),
-            "retained event payload contains the deleted nickname",
-        )?;
-        require(
-            !retained_payload.contains("private.invalid"),
-            "retained event payload contains the deleted avatar material",
+            retained_payload.contains(&fixture.target_id.to_string()),
+            "grace deletion rewrote the retained event payload before purge",
         )?;
 
         Ok(())

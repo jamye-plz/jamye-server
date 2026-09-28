@@ -51,6 +51,44 @@ pub trait AccountDeletionRepository: Send + Sync {
         transaction: &'a mut dyn TransactionHandle,
         user_id: Uuid,
     ) -> AccountDeletionRepositoryFuture<'a, AccountDeletionReport>;
+
+    fn start_grace_period<'a>(
+        &'a self,
+        _transaction: &'a mut dyn TransactionHandle,
+        _user_id: Uuid,
+    ) -> AccountDeletionRepositoryFuture<'a, AccountDeletionReport> {
+        Box::pin(async { Err(AccountDeletionRepositoryError::Unavailable) })
+    }
+
+    fn claim_account_purges(
+        &self,
+        _request: AccountPurgeClaimRequest,
+    ) -> AccountDeletionRepositoryFuture<'_, Vec<AccountPurgeClaim>> {
+        Box::pin(async { Err(AccountDeletionRepositoryError::Unavailable) })
+    }
+
+    fn release_account_purge_claim<'a>(
+        &'a self,
+        _claim: &'a AccountPurgeClaim,
+    ) -> AccountDeletionRepositoryFuture<'a, bool> {
+        Box::pin(async { Err(AccountDeletionRepositoryError::Unavailable) })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AccountPurgeClaimRequest {
+    pub claim_owner: String,
+    pub grace_days: u32,
+    pub batch_size: u32,
+    pub lease_duration: Duration,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AccountPurgeClaim {
+    pub user_id: Uuid,
+    pub claim_owner: String,
+    pub claim_generation: i64,
+    pub claim_expires_at: OffsetDateTime,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

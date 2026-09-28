@@ -7,7 +7,7 @@ use redis::{Client, aio::PubSub};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    domain::messaging::MessageCreatedEvent,
+    domain::messaging::RealtimeServerEvent,
     ports::realtime::{
         ClaimedOutboxEvent, RealtimeEventPublisher, RealtimeFuture, RealtimePortError,
         RealtimeTicketRecord, RealtimeTicketStore, TicketConsumeOutcome, TicketCredential,
@@ -168,7 +168,7 @@ pub struct RedisEventSubscriber {
 }
 
 impl RedisEventSubscriber {
-    pub async fn next_event(&mut self) -> Result<Option<MessageCreatedEvent>, RealtimePortError> {
+    pub async fn next_event(&mut self) -> Result<Option<RealtimeServerEvent>, RealtimePortError> {
         let mut stream = self.pubsub.on_message();
         let Some(message) = stream.next().await else {
             return Ok(None);

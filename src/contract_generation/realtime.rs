@@ -6,12 +6,18 @@ use schemars::{JsonSchema, generate::SchemaSettings};
 use serde_json::Value;
 
 use super::model::{
-    ClientFrame, MessageCreatedEvent, ReleaseCandidateServerFrame, ServerFrame, TopicCreatedEvent,
+    ClientFrame, MessageCreatedEvent, MessageDeletedEvent, ReleaseCandidateServerFrame,
+    ServerFrame, TopicCreatedEvent, TopicDeletedEvent,
 };
 use super::{BoxError, invalid_data};
 
 pub const C0_REALTIME_DISCRIMINANTS: &[&str] = &["message.created"];
-pub const REALTIME_DISCRIMINANTS: &[&str] = &["message.created", "topic.created"];
+pub const REALTIME_DISCRIMINANTS: &[&str] = &[
+    "message.created",
+    "topic.created",
+    "message.deleted",
+    "topic.deleted",
+];
 
 pub fn documents() -> Result<Vec<(String, Value)>, BoxError> {
     validate_discriminants(C0_REALTIME_DISCRIMINANTS, "C0")?;
@@ -66,6 +72,20 @@ pub fn documents_release_candidate() -> Result<Vec<(String, Value)>, BoxError> {
             schema_document::<TopicCreatedEvent>(
                 "https://contracts.jamye.local/realtime/topic.created.schema.json",
                 "Jamye topic.created event v1",
+            )?,
+        ),
+        (
+            "realtime/message.deleted.schema.json".to_owned(),
+            schema_document::<MessageDeletedEvent>(
+                "https://contracts.jamye.local/realtime/message.deleted.schema.json",
+                "Jamye message.deleted event v1",
+            )?,
+        ),
+        (
+            "realtime/topic.deleted.schema.json".to_owned(),
+            schema_document::<TopicDeletedEvent>(
+                "https://contracts.jamye.local/realtime/topic.deleted.schema.json",
+                "Jamye topic.deleted event v1",
             )?,
         ),
         (
@@ -135,8 +155,8 @@ fn protocol_document(discriminants: &[&str], stage: &str) -> Value {
         "stage": stage,
         "url": "wss://{host}/api/v1/realtime/ws?ticket={one_time_ticket}",
         "contract_versions": {
-            "current": "1",
-            "previous": "0",
+            "current": "2",
+            "previous": "1",
             "request_header": "X-Jamye-Contract-Version",
             "unsupported": {
                 "status": 426,

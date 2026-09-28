@@ -35,7 +35,7 @@
   },
   "ticket": {
     "consume": "atomic_once",
-    "contract_version": "1",
+    "contract_version": "2",
     "effective_expiry": "min(issue_time_plus_30_seconds, access_token_exp)",
     "issued_once": true,
     "stored_form": "sha256_digest_only"

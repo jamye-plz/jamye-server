@@ -2,7 +2,7 @@ const DIRTY: &str = "dirty";
 const CLEAN_PREPUBLICATION: &str = "clean-prepublication";
 const FUTURE_TRANSITION: &str = "future-transition";
 const CASES: [&str; 3] = [DIRTY, CLEAN_PREPUBLICATION, FUTURE_TRANSITION];
-const EXPECTED_RELEASE_CANDIDATE_ARTIFACTS: [&str; 21] = [
+const EXPECTED_RELEASE_CANDIDATE_ARTIFACTS: [&str; 23] = [
     "fixtures/c2-bodyless-audio-reachability.json",
     "fixtures/c2-health-profile-account.json",
     "fixtures/c2-mobile-handoff.json",
@@ -21,18 +21,22 @@ const EXPECTED_RELEASE_CANDIDATE_ARTIFACTS: [&str; 21] = [
     "openapi.json",
     "realtime/client-frame.schema.json",
     "realtime/message.created.schema.json",
+    "realtime/message.deleted.schema.json",
     "realtime/protocol.json",
     "realtime/server-frame.schema.json",
     "realtime/topic.created.schema.json",
+    "realtime/topic.deleted.schema.json",
 ];
-const EXPECTED_RELEASE_CANDIDATE_ONLY_ARTIFACTS: [&str; 5] = [
+const EXPECTED_RELEASE_CANDIDATE_ONLY_ARTIFACTS: [&str; 7] = [
     "fixtures/c2-bodyless-audio-reachability.json",
     "fixtures/c2-health-profile-account.json",
     "fixtures/c2-mobile-handoff.json",
     "fixtures/selected-surface-mapping.json",
+    "realtime/message.deleted.schema.json",
     "realtime/topic.created.schema.json",
+    "realtime/topic.deleted.schema.json",
 ];
-const EXPECTED_REST_OPERATIONS: [(&str, &str, &str); 43] = [
+const EXPECTED_REST_OPERATIONS: [(&str, &str, &str); 45] = [
     ("H1", "get", "/health/live"),
     ("H2", "get", "/health/ready"),
     ("A1", "post", "/api/v1/auth/oauth/{provider}/authorize"),
@@ -72,6 +76,7 @@ const EXPECTED_REST_OPERATIONS: [(&str, &str, &str); 43] = [
         "get",
         "/api/v1/groups/{group_id}/topics/{topic_id}/tags",
     ),
+    ("T8", "delete", "/api/v1/groups/{group_id}/topics/{topic_id}"),
     ("MD1", "post", "/api/v1/media/uploads"),
     ("MD2", "post", "/api/v1/media/uploads/{upload_id}/finalize"),
     ("C1", "get", "/api/v1/groups/{group_id}/chatrooms"),
@@ -79,6 +84,11 @@ const EXPECTED_REST_OPERATIONS: [(&str, &str, &str); 43] = [
     ("C3", "post", "/api/v1/chatrooms/{chatroom_id}/read"),
     ("C4", "post", "/api/v1/chatrooms/{chatroom_id}/messages"),
     ("C5", "get", "/api/v1/chatrooms/{chatroom_id}/media"),
+    (
+        "C6",
+        "delete",
+        "/api/v1/chatrooms/{chatroom_id}/messages/{message_id}",
+    ),
     ("MD4", "get", "/api/v1/media/{media_id}/url"),
     ("MD5", "get", "/api/v1/media/{media_id}/download"),
     (
@@ -97,7 +107,12 @@ const EXPECTED_REST_OPERATIONS: [(&str, &str, &str); 43] = [
     ("N1", "get", "/api/v1/notifications"),
     ("N2", "post", "/api/v1/notifications/{notification_id}/read"),
 ];
-const EXPECTED_REALTIME_EVENTS: [(&str, u64); 2] = [("message.created", 1), ("topic.created", 1)];
+const EXPECTED_REALTIME_EVENTS: [(&str, u64); 4] = [
+    ("message.created", 1),
+    ("topic.created", 1),
+    ("message.deleted", 1),
+    ("topic.deleted", 1),
+];
 const REST_MAPPING_FIELDS: [&str; 7] = [
     "feature_behavior_test",
     "fixture",
@@ -117,7 +132,7 @@ const REALTIME_MAPPING_FIELDS: [&str; 7] = [
     "version",
 ];
 const ROUTE_PROBE: &str = "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory";
-const EXPECTED_REST_MAPPING: [RestMappingOracle; 43] = [
+const EXPECTED_REST_MAPPING: [RestMappingOracle; 45] = [
     RestMappingOracle::new(
         "H1",
         "get",
@@ -335,6 +350,14 @@ const EXPECTED_REST_MAPPING: [RestMappingOracle; 43] = [
         "contracts/contributions/task-7/fixtures/topic-flow.json",
     ),
     RestMappingOracle::new(
+        "T8",
+        "delete",
+        "/api/v1/groups/{group_id}/topics/{topic_id}",
+        "src/transport/http/topics/mod.rs::delete_topic",
+        "tests/topics/http.rs::t1_through_t8_http_use_the_locked_authenticated_mobile_shapes",
+        "contracts/contributions/task-7/fixtures/topic-flow.json",
+    ),
+    RestMappingOracle::new(
         "MD1",
         "post",
         "/api/v1/media/uploads",
@@ -388,6 +411,14 @@ const EXPECTED_REST_MAPPING: [RestMappingOracle; 43] = [
         "/api/v1/chatrooms/{chatroom_id}/media",
         "src/transport/http/chatrooms/mod.rs::chatroom_media",
         "tests/chatrooms/media.rs::c5_lists_image_and_video_attachments_with_item_cursor_pagination",
+        "contracts/contributions/task-6b/fixtures/chatroom-history-read.json",
+    ),
+    RestMappingOracle::new(
+        "C6",
+        "delete",
+        "/api/v1/chatrooms/{chatroom_id}/messages/{message_id}",
+        "src/transport/http/messaging/mod.rs::delete_message",
+        "tests/messaging/http.rs::c6_deletes_author_messages_scrubs_content_and_is_idempotent",
         "contracts/contributions/task-6b/fixtures/chatroom-history-read.json",
     ),
     RestMappingOracle::new(

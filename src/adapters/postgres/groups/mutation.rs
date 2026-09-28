@@ -27,6 +27,7 @@ pub(super) async fn create_group(
     connection: &mut PgConnection,
     command: &CreateGroupCommand,
 ) -> Result<GroupRecord, GroupsRepositoryError> {
+    require_live_account(connection, command.owner_id).await?;
     let created_at = sqlx::query_scalar::<_, OffsetDateTime>(
         "INSERT INTO groups (id, name, owner_id, max_members) \
          VALUES ($1, $2, $3, $4) RETURNING created_at",
@@ -193,6 +194,7 @@ pub(super) async fn redeem_invite(
     connection: &mut PgConnection,
     command: &RedeemInviteCommand,
 ) -> Result<InviteJoinRecord, GroupsRepositoryError> {
+    require_live_account(connection, command.actor_id).await?;
     let group_id = sqlx::query_scalar::<_, Uuid>("SELECT group_id FROM invites WHERE code = $1")
         .bind(&command.code)
         .fetch_optional(&mut *connection)
@@ -242,12 +244,14 @@ pub(super) async fn redeem_invite(
         return Err(GroupsRepositoryError::InviteExhausted);
     }
 
-    let member_count =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM memberships WHERE group_id = $1")
-            .bind(group_id)
-            .fetch_one(&mut *connection)
-            .await
-            .map_err(|error| database_error("membership_count", error))?;
+    let member_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM memberships \
+         WHERE group_id = $1 AND deleted_at IS NULL",
+    )
+    .bind(group_id)
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(|error| database_error("membership_count", error))?;
     if member_count >= i64::from(group.max_members) {
         return Err(GroupsRepositoryError::GroupFull);
     }
@@ -281,13 +285,33 @@ pub(super) async fn redeem_invite(
     })
 }
 
+async fn require_live_account(
+    connection: &mut PgConnection,
+    user_id: Uuid,
+) -> Result<(), GroupsRepositoryError> {
+    sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM users \
+         WHERE id = $1 AND deleted_at IS NULL \
+         FOR SHARE",
+    )
+    .bind(user_id)
+    .fetch_optional(connection)
+    .await
+    .map_err(|error| database_error("actor_account_lock", error))?
+    .map(|_| ())
+    .ok_or(GroupsRepositoryError::AccountNotFound)
+}
+
 async fn lock_live_group(
     connection: &mut PgConnection,
     group_id: Uuid,
 ) -> Result<GroupRecord, GroupsRepositoryError> {
     sqlx::query_as::<_, GroupRow>(
         "SELECT g.id, g.name, g.owner_id, g.max_members, \
-                (SELECT COUNT(*) FROM memberships all_members WHERE all_members.group_id = g.id), \
+                ( \
+                    SELECT COUNT(*) FROM memberships all_members \
+                    WHERE all_members.group_id = g.id AND all_members.deleted_at IS NULL \
+                ), \
                 g.created_at, main.id \
          FROM groups g \
          JOIN chatrooms main ON main.group_id = g.id AND main.type = 'main' \
@@ -308,7 +332,13 @@ async fn membership(
     user_id: Uuid,
 ) -> Result<Option<MembershipRow>, GroupsRepositoryError> {
     let row = sqlx::query_as::<_, (Uuid, String)>(
-        "SELECT id, role FROM memberships WHERE group_id = $1 AND user_id = $2",
+        "SELECT membership.id, membership.role \
+         FROM memberships membership \
+         JOIN users account ON account.id = membership.user_id \
+         WHERE membership.group_id = $1 \
+           AND membership.user_id = $2 \
+           AND membership.deleted_at IS NULL \
+           AND account.deleted_at IS NULL",
     )
     .bind(group_id)
     .bind(user_id)
@@ -341,12 +371,20 @@ async fn delete_membership(
     connection: &mut PgConnection,
     membership_id: Uuid,
 ) -> Result<(), GroupsRepositoryError> {
-    sqlx::query("DELETE FROM memberships WHERE id = $1")
-        .bind(membership_id)
-        .execute(connection)
-        .await
-        .map(|_| ())
-        .map_err(|error| database_error("membership_delete", error))
+    let result = sqlx::query(
+        "UPDATE memberships \
+         SET deleted_at = clock_timestamp() \
+         WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(membership_id)
+    .execute(connection)
+    .await
+    .map_err(|error| database_error("membership_delete", error))?;
+    if result.rows_affected() == 1 {
+        Ok(())
+    } else {
+        Err(GroupsRepositoryError::MemberNotFound)
+    }
 }
 
 fn invite_from_row(row: InviteRow) -> InviteRecord {

@@ -145,6 +145,157 @@ async fn c4_matching_header_concurrent_retries_share_one_canonical_commit() -> T
 }
 
 #[tokio::test]
+async fn c6_deletes_author_messages_scrubs_content_and_is_idempotent() -> TestResult {
+    let app = TestApp::new().await?;
+    let token = app.fixture.access_token.as_str();
+    let chatroom_id = app.fixture.chatroom_id;
+
+    let denied = app
+        .send(
+            Some(token),
+            chatroom_id,
+            message_payload(Uuid::new_v4(), "not yours"),
+            None,
+        )
+        .await?;
+    assert_eq!(denied.status(), StatusCode::CREATED);
+    let denied_id = uuid_field(&json_body(denied).await?, "id")?;
+    let other_user_id = Uuid::new_v4();
+    sqlx::query("INSERT INTO users (id, nickname) VALUES ($1, '다른 작성자')")
+        .bind(other_user_id)
+        .execute(&app.pool)
+        .await?;
+    sqlx::query(
+        "INSERT INTO memberships (id, group_id, user_id, role) VALUES ($1, $2, $3, 'member')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(app.fixture.group_id)
+    .bind(other_user_id)
+    .execute(&app.pool)
+    .await?;
+    sqlx::query("UPDATE messages SET sender_id = $2 WHERE id = $1")
+        .bind(denied_id)
+        .bind(other_user_id)
+        .execute(&app.pool)
+        .await?;
+    let forbidden = app
+        .delete_message(Some(token), chatroom_id, denied_id)
+        .await?;
+    assert_error(forbidden, StatusCode::FORBIDDEN, "message_author_required").await?;
+    sqlx::query("UPDATE messages SET deleted_at = clock_timestamp() WHERE id = $1")
+        .bind(denied_id)
+        .execute(&app.pool)
+        .await?;
+    let hidden = app
+        .delete_message(Some(token), chatroom_id, denied_id)
+        .await?;
+    assert_error(hidden, StatusCode::NOT_FOUND, "message_not_found").await?;
+
+    let client_msg_id = Uuid::new_v4();
+    let created = app
+        .send(
+            Some(token),
+            chatroom_id,
+            message_payload(client_msg_id, "delete me"),
+            None,
+        )
+        .await?;
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let message_id = uuid_field(&json_body(created).await?, "id")?;
+
+    let deleted = app
+        .delete_message(Some(token), chatroom_id, message_id)
+        .await?;
+    assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
+    let retry = app
+        .delete_message(Some(token), chatroom_id, message_id)
+        .await?;
+    assert_eq!(retry.status(), StatusCode::NO_CONTENT);
+    let resend = app
+        .send(
+            Some(token),
+            chatroom_id,
+            message_payload(client_msg_id, "delete me"),
+            None,
+        )
+        .await?;
+    assert_error(resend, StatusCode::CONFLICT, "idempotency_conflict").await?;
+
+    let (body, deleted_present) = sqlx::query_as::<_, (Option<String>, bool)>(
+        "SELECT body, deleted_at IS NOT NULL FROM messages WHERE id = $1",
+    )
+    .bind(message_id)
+    .fetch_one(&app.pool)
+    .await?;
+    assert_eq!(body, None);
+    assert!(deleted_present);
+
+    let created_payload: Value = sqlx::query_scalar(
+        "SELECT payload FROM conversation_events \
+         WHERE event_type = 'message.created' AND payload ->> 'id' = $1::uuid::text",
+    )
+    .bind(message_id)
+    .fetch_one(&app.pool)
+    .await?;
+    assert_eq!(created_payload["body"], Value::Null);
+    assert_eq!(created_payload["media"], json!([]));
+
+    let (deleted_event_id, deleted_event_payload) = sqlx::query_as::<_, (Uuid, Value)>(
+        "SELECT id, payload FROM conversation_events \
+         WHERE event_type = 'message.deleted' AND payload ->> 'message_id' = $1::uuid::text",
+    )
+    .bind(message_id)
+    .fetch_one(&app.pool)
+    .await?;
+    assert_eq!(
+        deleted_event_payload["chatroom_id"],
+        chatroom_id.to_string()
+    );
+    assert_eq!(
+        deleted_event_payload["deleted_by"],
+        app.fixture.user_id.to_string()
+    );
+    assert_eq!(deleted_event_payload["reason"], "author_deleted");
+
+    let outbox_payload: Value = sqlx::query_scalar(
+        "SELECT payload FROM outbox_events \
+         WHERE event_type = 'message.deleted' AND conversation_event_id = $1",
+    )
+    .bind(deleted_event_id)
+    .fetch_one(&app.pool)
+    .await?;
+    assert_eq!(outbox_payload["type"], "message.deleted");
+    assert_eq!(outbox_payload["data"]["message_id"], message_id.to_string());
+
+    let v2 = app
+        .events(Some(token), chatroom_id, None, 10, Some("2"))
+        .await?;
+    assert_eq!(v2.status(), StatusCode::OK);
+    let v2 = json_body(v2).await?;
+    assert!(v2["items"].as_array().is_some_and(|items| {
+        items.iter().any(|item| {
+            item["type"] == "message.deleted"
+                && item["event_id"] == deleted_event_id.to_string()
+                && item["data"]["message_id"] == message_id.to_string()
+        })
+    }));
+    let v1 = app
+        .events(Some(token), chatroom_id, None, 10, Some("1"))
+        .await?;
+    assert_eq!(v1.status(), StatusCode::OK);
+    let v1 = json_body(v1).await?;
+    assert!(v1["items"].as_array().is_some_and(|items| {
+        items.iter().any(|item| {
+            item["event_id"] == deleted_event_id.to_string()
+                && item["reconcile_scope"] == "chat_history"
+                && item.get("type").is_none()
+        })
+    }));
+
+    app.dispose().await
+}
+
+#[tokio::test]
 async fn c4_auth_and_membership_fail_without_resource_disclosure() -> TestResult {
     let app = TestApp::new().await?;
     let payload = message_payload(Uuid::new_v4(), "private");
@@ -242,4 +393,10 @@ async fn a_failure_after_message_insert_rolls_back_the_entire_command() -> TestR
 
 pub(crate) fn message_payload(client_msg_id: Uuid, body: &str) -> Value {
     json!({"client_msg_id": client_msg_id, "body": body, "media": []})
+}
+
+fn uuid_field(value: &Value, field: &str) -> TestResult<Uuid> {
+    Ok(Uuid::try_parse(value[field].as_str().ok_or_else(
+        || format!("{field} must be a UUID string"),
+    )?)?)
 }

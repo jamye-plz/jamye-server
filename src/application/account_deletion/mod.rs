@@ -36,11 +36,11 @@ impl AccountDeletionService {
         Self { dependencies }
     }
 
-    /// Deletes one authenticated account through its sole caller-owned transaction.
+    /// Starts one authenticated account's grace-deletion through one transaction.
     ///
     /// The repository owns the archived-group exception and returns only live
-    /// memberships. Each live membership is removed through the Task-6 boundary
-    /// and immediately fences its Task-9 push state on the same transaction.
+    /// memberships. Membership rows stay recoverable; Task-9 push state is
+    /// fenced on the same transaction for each live membership.
     pub async fn delete_account(
         &self,
         command: AccountDeletionCommand,
@@ -65,23 +65,25 @@ impl AccountDeletionService {
             }
         };
 
-        for membership in preparation.memberships {
-            let removal = self
-                .dependencies
-                .groups
-                .remove_member_in_transaction(
-                    transaction.as_mut(),
-                    command.user_id,
-                    membership.group_id,
-                    command.user_id,
-                )
-                .await;
-            if removal.is_err() {
-                return self
-                    .finish(transaction, Err(AccountDeletionError::DatabaseUnavailable))
-                    .await;
-            }
+        let result = self
+            .dependencies
+            .repository
+            .start_grace_period(transaction.as_mut(), command.user_id)
+            .await
+            .map_err(AccountDeletionError::from)
+            .and_then(|mut report| {
+                report.memberships_removed = report
+                    .memberships_removed
+                    .checked_add(live_memberships_removed)
+                    .ok_or(AccountDeletionError::DatabaseUnavailable)?;
+                Ok(report)
+            });
+        let report = match result {
+            Ok(report) => report,
+            Err(error) => return self.finish(transaction, Err(error)).await,
+        };
 
+        for membership in preparation.memberships {
             let fence = self
                 .dependencies
                 .push_privacy_fence
@@ -100,20 +102,7 @@ impl AccountDeletionService {
             }
         }
 
-        let result = self
-            .dependencies
-            .repository
-            .finalize_deletion(transaction.as_mut(), command.user_id)
-            .await
-            .map_err(AccountDeletionError::from)
-            .and_then(|mut report| {
-                report.memberships_removed = report
-                    .memberships_removed
-                    .checked_add(live_memberships_removed)
-                    .ok_or(AccountDeletionError::DatabaseUnavailable)?;
-                Ok(report)
-            });
-        self.finish(transaction, result).await
+        self.finish(transaction, Ok(report)).await
     }
 
     async fn begin(&self) -> Result<BoxTransactionHandle, AccountDeletionError> {

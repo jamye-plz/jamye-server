@@ -6,7 +6,10 @@ use jamye_server::{
         auth::AccessIdentity,
         realtime::{RealtimeTicketError, RealtimeTicketService, SystemClock},
     },
-    domain::messaging::{CanonicalMessage, MessageCreatedEvent, MessageCreatedType, MessageKind},
+    domain::messaging::{
+        CanonicalMessage, MessageCreatedEvent, MessageCreatedType, MessageKind,
+        RealtimeServerEvent, TopicCreatedData, TopicCreatedEvent, TopicCreatedType,
+    },
     ports::realtime::{ClaimedOutboxEvent, RealtimeEventPublisher, RealtimePortError},
 };
 use sha2::{Digest, Sha256};
@@ -27,7 +30,7 @@ async fn redis_stores_only_the_digest_and_getdel_allows_one_consumer() -> TestRe
     );
     let identity = AccessIdentity::new(Uuid::new_v4(), Uuid::new_v4(), "task-4b-redis")
         .with_access_token_expiry(OffsetDateTime::now_utc() + time::Duration::seconds(20));
-    let issued = tickets.issue(&identity, "1").await?;
+    let issued = tickets.issue(&identity, "2").await?;
     assert_eq!(issued.ticket.len(), 64);
     assert!(issued.ticket.bytes().all(|byte| byte.is_ascii_hexdigit()));
 
@@ -91,13 +94,48 @@ async fn redis_pubsub_preserves_the_stable_event_id_and_canonical_payload() -> T
                 .next_event()
                 .await?
                 .ok_or(RealtimePortError::Unavailable)?;
-            if received.event_id == expected_event_id {
+            if received.event_id() == expected_event_id {
                 return Ok::<_, RealtimePortError>(received);
             }
         }
     })
     .await??;
-    assert_eq!(received, event);
+    assert_eq!(received, RealtimeServerEvent::MessageCreated(event));
+    Ok(())
+}
+
+#[tokio::test]
+async fn redis_pubsub_decodes_topic_created_without_message_specific_shape() -> TestResult {
+    let redis_url = guarded_redis_url()?;
+    let adapter = RedisRealtimeAdapter::new(&redis_url)?;
+    let mut subscriber = adapter.event_subscriber().await?;
+    let event = topic_event();
+    let claim = ClaimedOutboxEvent {
+        id: Uuid::new_v4(),
+        conversation_id: event.conversation_id,
+        event_id: event.event_id,
+        payload: serde_json::to_value(&event)?,
+        claim_owner: "task-14a-redis".to_owned(),
+        claim_generation: 1,
+        claim_expires_at: OffsetDateTime::now_utc() + time::Duration::seconds(5),
+        attempt_count: 0,
+    };
+
+    adapter.publish(&claim).await?;
+    let expected_event_id = event.event_id;
+    let received = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let received = subscriber
+                .next_event()
+                .await?
+                .ok_or(RealtimePortError::Unavailable)?;
+            if received.event_id() == expected_event_id {
+                return Ok::<_, RealtimePortError>(received);
+            }
+        }
+    })
+    .await??;
+    assert_eq!(received, RealtimeServerEvent::TopicCreated(event));
     Ok(())
 }
 
@@ -141,6 +179,25 @@ fn message_event() -> MessageCreatedEvent {
             message_type: MessageKind::User,
             created_at: OffsetDateTime::UNIX_EPOCH,
             media: Vec::new(),
+        },
+    }
+}
+
+fn topic_event() -> TopicCreatedEvent {
+    let conversation_id = Uuid::new_v4();
+    TopicCreatedEvent {
+        version: 1,
+        event_type: TopicCreatedType::TopicCreated,
+        event_id: Uuid::new_v4(),
+        conversation_id,
+        cursor: "84".to_owned(),
+        occurred_at: OffsetDateTime::UNIX_EPOCH,
+        data: TopicCreatedData {
+            topic_id: Uuid::new_v4(),
+            group_id: Uuid::new_v4(),
+            chatroom_id: conversation_id,
+            author_id: Uuid::new_v4(),
+            title: "task-14a redis topic".to_owned(),
         },
     }
 }

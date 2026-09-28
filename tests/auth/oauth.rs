@@ -358,6 +358,98 @@ async fn auth_http_happy_path_returns_exact_mobile_token_pairs_and_stores_only_d
 }
 
 #[tokio::test]
+async fn auth_exchange_restores_grace_deleted_identity_with_header_and_unchanged_body() -> TestResult
+{
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let fixture = harness(pool.clone(), None)?;
+    let router = auth_router(AuthHttpState::new(
+        fixture.service.clone(),
+        fixture.codec.clone(),
+    ));
+
+    let first_state = authorize(&fixture.service).await?;
+    let _ = fixture
+        .service
+        .exchange(
+            "kakao",
+            ExchangeInput {
+                authorization_code: "provider-code".to_owned(),
+                state: first_state,
+                code_verifier: TEST_VERIFIER.to_owned(),
+                redirect_uri: KAKAO_REDIRECT.to_owned(),
+            },
+            "ip:restore-fixture",
+        )
+        .await?;
+    let user_id: Uuid = sqlx::query_scalar(
+        "SELECT user_id FROM auth_identities \
+         WHERE provider = 'kakao' AND provider_id = 'kakao-principal-42'",
+    )
+    .fetch_one(&pool)
+    .await?;
+    sqlx::query("UPDATE users SET deleted_at = clock_timestamp() WHERE id = $1")
+        .bind(user_id)
+        .execute(&pool)
+        .await?;
+    sqlx::query(
+        "UPDATE auth_identities SET deleted_at = clock_timestamp() \
+         WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .execute(&pool)
+    .await?;
+    sqlx::query(
+        "UPDATE refresh_sessions \
+         SET revoked_at = COALESCE(revoked_at, clock_timestamp()), \
+             deleted_at = COALESCE(deleted_at, clock_timestamp()) \
+         WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .execute(&pool)
+    .await?;
+
+    let restored_state = authorize(&fixture.service).await?;
+    let exchange_response = router
+        .oneshot(
+            Request::post("/api/v1/auth/oauth/kakao/exchange")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&json!({
+                    "authorization_code": "provider-code",
+                    "state": restored_state,
+                    "code_verifier": TEST_VERIFIER,
+                    "redirect_uri": KAKAO_REDIRECT
+                }))?))?,
+        )
+        .await?;
+    assert_eq!(exchange_response.status(), StatusCode::OK);
+    assert_eq!(
+        exchange_response
+            .headers()
+            .get("x-jamye-account-restored")
+            .and_then(|value| value.to_str().ok()),
+        Some("true")
+    );
+    let exchange_body: Value =
+        serde_json::from_slice(&to_bytes(exchange_response.into_body(), 8192).await?)?;
+    let _ = assert_exact_token_pair(&exchange_body)?;
+    let restored = sqlx::query_as::<_, (bool, bool, i64)>(
+        "SELECT \
+            EXISTS (SELECT 1 FROM users WHERE id = $1 AND deleted_at IS NULL), \
+            EXISTS (SELECT 1 FROM auth_identities WHERE user_id = $1 AND deleted_at IS NULL), \
+            (SELECT count(*) FROM refresh_sessions \
+             WHERE user_id = $1 AND deleted_at IS NULL AND revoked_at IS NULL)",
+    )
+    .bind(user_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(restored, (true, true, 1));
+
+    pool.close().await;
+    database.dispose().await
+}
+
+#[tokio::test]
 async fn attempt_is_consumed_before_pkce_failure_and_never_reaches_provider() -> TestResult {
     let database = TestDatabase::migrated().await?;
     let pool = database.pool()?;

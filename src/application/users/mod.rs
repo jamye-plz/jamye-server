@@ -37,6 +37,19 @@ impl UserService {
             .ok_or(UserError::ProfileNotFound)
     }
 
+    pub async fn ensure_active(&self, user_id: Uuid) -> Result<(), UserError> {
+        let active = self
+            .repository
+            .account_is_active(user_id)
+            .await
+            .map_err(|_| UserError::DatabaseUnavailable)?;
+        if active {
+            Ok(())
+        } else {
+            Err(UserError::ProfileNotFound)
+        }
+    }
+
     pub async fn update(&self, user_id: Uuid, input: UserPatch) -> Result<UserProfile, UserError> {
         let patch = validate_patch(input)?;
         let mut transaction = self.begin().await?;

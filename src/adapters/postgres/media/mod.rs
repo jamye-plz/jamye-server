@@ -49,13 +49,17 @@ impl MediaRepository for PostgresMediaRepository {
                 "WITH authorized_chat AS ( \
                      SELECT chatroom.group_id \
                      FROM chatrooms chatroom \
+                     LEFT JOIN topics topic ON topic.id = chatroom.topic_id \
                      JOIN groups live_group \
                        ON live_group.id = chatroom.group_id \
                       AND live_group.deleted_at IS NULL \
                      JOIN memberships actor_membership \
                        ON actor_membership.group_id = chatroom.group_id \
                       AND actor_membership.user_id = $2 \
+                      AND actor_membership.deleted_at IS NULL \
                      WHERE chatroom.id = $5 \
+                       AND chatroom.deleted_at IS NULL \
+                       AND (chatroom.topic_id IS NULL OR topic.deleted_at IS NULL) \
                      FOR SHARE OF chatroom, live_group, actor_membership \
                  ), \
                  stamped AS ( \

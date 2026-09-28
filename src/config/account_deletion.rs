@@ -4,7 +4,10 @@ use std::{env, fmt, time::Duration};
 
 use crate::{
     adapters::object_storage::account_deletion::S3AccountObjectDeletionCredentials,
-    application::account_deletion::cleanup::AccountObjectDeletionWorkerConfig, config::ConfigError,
+    application::account_deletion::cleanup::{
+        AccountObjectDeletionWorkerConfig, AccountPurgeWorkerConfig,
+    },
+    config::ConfigError,
 };
 
 const ACCESS_KEY: &str = "JAMYE_ACCOUNT_OBJECT_DELETION_ACCESS_KEY_ID";
@@ -14,6 +17,7 @@ const SECRET_KEY: &str = "JAMYE_ACCOUNT_OBJECT_DELETION_SECRET_ACCESS_KEY";
 pub struct AccountDeletionConfig {
     credentials: S3AccountObjectDeletionCredentials,
     worker: AccountObjectDeletionWorkerConfig,
+    purge_worker: AccountPurgeWorkerConfig,
 }
 
 #[derive(Clone, Default)]
@@ -27,6 +31,10 @@ pub struct AccountDeletionConfigInput {
     pub retry_delay_ms: Option<String>,
     pub poll_interval_ms: Option<String>,
     pub max_attempts: Option<String>,
+    pub purge_grace_days: Option<String>,
+    pub purge_batch_size: Option<String>,
+    pub purge_lease_ms: Option<String>,
+    pub purge_poll_interval_ms: Option<String>,
 }
 
 impl AccountDeletionConfigInput {
@@ -44,6 +52,10 @@ impl AccountDeletionConfigInput {
             retry_delay_ms: env::var("JAMYE_ACCOUNT_OBJECT_DELETION_RETRY_DELAY_MS").ok(),
             poll_interval_ms: env::var("JAMYE_ACCOUNT_OBJECT_DELETION_POLL_INTERVAL_MS").ok(),
             max_attempts: env::var("JAMYE_ACCOUNT_OBJECT_DELETION_MAX_ATTEMPTS").ok(),
+            purge_grace_days: env::var("JAMYE_ACCOUNT_PURGE_GRACE_DAYS").ok(),
+            purge_batch_size: env::var("JAMYE_ACCOUNT_PURGE_BATCH_SIZE").ok(),
+            purge_lease_ms: env::var("JAMYE_ACCOUNT_PURGE_LEASE_MS").ok(),
+            purge_poll_interval_ms: env::var("JAMYE_ACCOUNT_PURGE_POLL_INTERVAL_MS").ok(),
         }
     }
 }
@@ -112,9 +124,25 @@ impl AccountDeletionConfig {
                 "must exceed delete timeout plus safety margin",
             ));
         }
+        let purge_worker = AccountPurgeWorkerConfig {
+            claim_owner: format!("account-purge-{}", uuid::Uuid::new_v4()),
+            grace_days: positive_u32("JAMYE_ACCOUNT_PURGE_GRACE_DAYS", input.purge_grace_days, 30)?,
+            batch_size: positive_u32("JAMYE_ACCOUNT_PURGE_BATCH_SIZE", input.purge_batch_size, 20)?,
+            lease_duration: milliseconds(
+                "JAMYE_ACCOUNT_PURGE_LEASE_MS",
+                input.purge_lease_ms,
+                15_000,
+            )?,
+            poll_interval: milliseconds(
+                "JAMYE_ACCOUNT_PURGE_POLL_INTERVAL_MS",
+                input.purge_poll_interval_ms,
+                1_000,
+            )?,
+        };
         Ok(Self {
             credentials,
             worker,
+            purge_worker,
         })
     }
 
@@ -124,6 +152,9 @@ impl AccountDeletionConfig {
     pub(crate) fn worker_config(&self) -> AccountObjectDeletionWorkerConfig {
         self.worker.clone()
     }
+    pub(crate) fn purge_worker_config(&self) -> AccountPurgeWorkerConfig {
+        self.purge_worker.clone()
+    }
 }
 
 impl fmt::Debug for AccountDeletionConfig {
@@ -132,6 +163,7 @@ impl fmt::Debug for AccountDeletionConfig {
             .debug_struct("AccountDeletionConfig")
             .field("credentials", &self.credentials)
             .field("worker", &self.worker)
+            .field("purge_worker", &self.purge_worker)
             .finish()
     }
 }

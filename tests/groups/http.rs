@@ -16,8 +16,8 @@ use uuid::Uuid;
 use crate::{
     TestResult,
     groups_helpers::{
-        DenyRateLimiter, TestAccessVerifier, UnavailableRateLimiter, bearer, create_group, harness,
-        harness_with_limiter, insert_member, insert_user,
+        DenyRateLimiter, TestAccessVerifier, UnavailableRateLimiter, bearer, create_group,
+        create_invite, harness, harness_with_limiter, insert_member, insert_user,
     },
     postgres_support::TestDatabase,
 };
@@ -145,6 +145,70 @@ async fn group_http_crud_paginates_and_enforces_membership_without_disclosure() 
         .await?;
     assert_eq!(renamed.status(), StatusCode::OK);
     assert_eq!(response_json(renamed).await?["name"], "바뀐 그룹");
+
+    pool.close().await;
+    database.dispose().await
+}
+
+#[tokio::test]
+async fn grace_deleted_actor_cannot_create_group_or_redeem_invite() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let fixture = harness(pool.clone())?;
+    let owner_id = insert_user(&pool, "유예 가드 소유자").await?;
+    let deleted_actor_id = insert_user(&pool, "유예 중 행위자").await?;
+    sqlx::query("UPDATE users SET deleted_at = clock_timestamp() WHERE id = $1")
+        .bind(deleted_actor_id)
+        .execute(&pool)
+        .await?;
+    let group = create_group(&fixture, owner_id).await?;
+    let invite = create_invite(&fixture, owner_id, group.id, Some(1)).await?;
+    let router = groups_router(GroupsHttpState::new(
+        fixture.service.clone(),
+        Arc::new(TestAccessVerifier),
+    ));
+    let before_affiliation_rows = affiliation_row_counts(&pool).await?;
+
+    let create = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/api/v1/groups",
+            Some(deleted_actor_id),
+            json!({"name": "만들 수 없는 그룹"}),
+        )?)
+        .await?;
+    assert_error(create, StatusCode::UNAUTHORIZED, "authentication_required").await?;
+    assert_eq!(
+        affiliation_row_counts(&pool).await?,
+        before_affiliation_rows
+    );
+
+    let redeem = router
+        .clone()
+        .oneshot(empty_request(
+            "POST",
+            &format!("/api/v1/invites/{}/join", invite.code),
+            Some(deleted_actor_id),
+        )?)
+        .await?;
+    assert_error(redeem, StatusCode::UNAUTHORIZED, "authentication_required").await?;
+    let joiner_memberships: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM memberships WHERE group_id = $1 AND user_id = $2")
+            .bind(group.id)
+            .bind(deleted_actor_id)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(joiner_memberships, 0);
+    let used_count: i32 = sqlx::query_scalar("SELECT used_count FROM invites WHERE id = $1")
+        .bind(invite.id)
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(used_count, 0);
+    assert_eq!(
+        affiliation_row_counts(&pool).await?,
+        before_affiliation_rows
+    );
 
     pool.close().await;
     database.dispose().await
@@ -364,4 +428,15 @@ fn uuid_field(value: &Value, field: &str) -> TestResult<Uuid> {
     Ok(Uuid::try_parse(value[field].as_str().ok_or_else(
         || io::Error::other(format!("response omitted UUID field {field}")),
     )?)?)
+}
+
+async fn affiliation_row_counts(pool: &sqlx::PgPool) -> TestResult<(i64, i64, i64)> {
+    Ok(sqlx::query_as::<_, (i64, i64, i64)>(
+        "SELECT \
+             (SELECT count(*) FROM groups), \
+             (SELECT count(*) FROM memberships), \
+             (SELECT count(*) FROM chatrooms)",
+    )
+    .fetch_one(pool)
+    .await?)
 }

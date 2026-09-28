@@ -1,4 +1,4 @@
-const EXPECTED_REALTIME_MAPPING: [RealtimeMappingOracle; 2] = [
+const EXPECTED_REALTIME_MAPPING: [RealtimeMappingOracle; 4] = [
     RealtimeMappingOracle::new(
         "message.created",
         1,
@@ -14,6 +14,22 @@ const EXPECTED_REALTIME_MAPPING: [RealtimeMappingOracle; 2] = [
         "tests/topics/create.rs::t1_is_atomic_idempotent_and_emits_distinct_bootstrap_and_announcement_events",
         "contracts/contributions/task-7/fixtures/topic-flow.json",
         "contracts/realtime/topic.created.schema.json",
+    ),
+    RealtimeMappingOracle::new(
+        "message.deleted",
+        1,
+        "src/adapters/postgres/messaging/delete.rs::delete_message",
+        "tests/messaging/http.rs::c6_deletes_author_messages_scrubs_content_and_is_idempotent",
+        "contracts/contributions/task-6b/fixtures/chatroom-history-read.json",
+        "contracts/realtime/message.deleted.schema.json",
+    ),
+    RealtimeMappingOracle::new(
+        "topic.deleted",
+        1,
+        "src/adapters/postgres/topics/delete.rs::delete_topic",
+        "tests/topics/http.rs::t1_through_t8_http_use_the_locked_authenticated_mobile_shapes",
+        "contracts/contributions/task-7/fixtures/topic-flow.json",
+        "contracts/realtime/topic.deleted.schema.json",
     ),
 ];
 
@@ -120,7 +136,7 @@ fn committed_explicit_provenance_inputs_are_parseable_and_locked() -> TestResult
     for input in [&dirty, &clean_prepublication] {
         assert_eq!(input.server_commit, "dirty");
         assert_eq!(input.server_tag, None);
-        assert_eq!(input.contract_version, "1");
+        assert_eq!(input.contract_version, "2");
         assert_eq!(input.server_version, "0.1.0");
     }
     assert_eq!(
@@ -128,13 +144,13 @@ fn committed_explicit_provenance_inputs_are_parseable_and_locked() -> TestResult
         "0123456789abcdef0123456789abcdef01234567"
     );
     assert_eq!(future_transition.server_tag.as_deref(), Some("v0.1.0"));
-    assert_eq!(future_transition.contract_version, "1");
+    assert_eq!(future_transition.contract_version, "2");
     assert_eq!(future_transition.server_version, "0.1.0");
     Ok(())
 }
 
 #[test]
-fn generated_inventory_has_exactly_43_rest_operations_and_two_selected_realtime_events()
+fn generated_inventory_has_exactly_45_rest_operations_and_four_selected_realtime_events()
 -> TestResult {
     let _filesystem = filesystem_lock();
     let generated = generate_current(DIRTY, "inventory")?;
@@ -149,7 +165,7 @@ fn generated_inventory_has_exactly_43_rest_operations_and_two_selected_realtime_
     let expected_events = expected_realtime_event_types();
     if actual_operations != expected_operations || actual_events != expected_events {
         return Err(io::Error::other(format!(
-            "generated selected inventory must contain the exact 43 operation/method/path rows and two unique selected realtime events; actual_rest_count={}, actual_rest={actual_operations:?}, actual_realtime_count={}, actual_realtime={actual_events:?}",
+            "generated selected inventory must contain the exact 45 operation/method/path rows and four unique selected realtime events; actual_rest_count={}, actual_rest={actual_operations:?}, actual_realtime_count={}, actual_realtime={actual_events:?}",
             actual_operations.len(),
             actual_events.len(),
         ))

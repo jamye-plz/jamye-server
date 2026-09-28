@@ -48,7 +48,8 @@ async fn structured_auth_logs_exclude_every_credential_class() -> TestResult {
             },
             "ip:logging-fixture",
         )
-        .await?;
+        .await?
+        .token_pair;
     let refresh_digest = OsCredentialSource.digest(&issued.refresh_token)?;
     let refresh_digest_hex = encode_hex(refresh_digest.as_bytes());
     assert_eq!(

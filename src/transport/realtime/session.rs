@@ -7,7 +7,11 @@ use tokio::time::Instant;
 use uuid::Uuid;
 
 use crate::{
-    application::realtime::{RealtimeSession, SystemClock},
+    application::{
+        messaging::{CURRENT_CONTRACT_VERSION, PREVIOUS_CONTRACT_VERSION},
+        realtime::{RealtimeSession, SystemClock},
+    },
+    domain::messaging::RealtimeServerEvent,
     ports::realtime::{ConversationAuthorizer, RealtimeClock},
     transport::realtime::LocalRealtimeHub,
 };
@@ -22,6 +26,7 @@ const PONG_DEADLINE_SECONDS: u64 = 10;
 const HEARTBEAT_TIMEOUT: Duration =
     Duration::from_secs(CLIENT_PING_INTERVAL_SECONDS + PONG_DEADLINE_SECONDS);
 const MAX_NONCE_BYTES: usize = 128;
+const V1_REALTIME_EVENT_TYPES: &[&str] = &["message.created", "topic.created"];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SocketTiming {
@@ -75,6 +80,7 @@ pub async fn run_socket_with_runtime(
     timing: SocketTiming,
 ) {
     let connection = hub.register(session.user_id).await;
+    let contract_version = session.contract_version.clone();
     let socket_id = connection.socket_id;
     let mut outbound = connection.outbound;
     let mut evictions = connection.evictions;
@@ -142,6 +148,9 @@ pub async fn run_socket_with_runtime(
                 let Some(payload) = payload else {
                     break;
                 };
+                if !realtime_event_allowed_for_contract_version(&payload, &contract_version) {
+                    continue;
+                }
                 if sender.send(Message::Text(payload.into())).await.is_err() {
                     break;
                 }
@@ -158,6 +167,17 @@ pub async fn run_unauthenticated_socket(mut socket: WebSocket) {
             reason: "realtime_auth_failed".into(),
         })))
         .await;
+}
+
+fn realtime_event_allowed_for_contract_version(payload: &str, contract_version: &str) -> bool {
+    let Ok(event) = serde_json::from_str::<RealtimeServerEvent>(payload) else {
+        return false;
+    };
+    match contract_version {
+        CURRENT_CONTRACT_VERSION => true,
+        PREVIOUS_CONTRACT_VERSION => V1_REALTIME_EVENT_TYPES.contains(&event.event_type()),
+        _ => false,
+    }
 }
 
 async fn handle_client_frame(

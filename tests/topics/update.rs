@@ -102,6 +102,33 @@ async fn unread_tracks_monotonic_server_cursors_without_topic_count_queries() ->
             .items[0]
             .unread
     );
+    sqlx::query(
+        "INSERT INTO conversation_events \
+             (id, conversation_id, event_type, event_version, payload) \
+         VALUES ($1, $2, 'message.deleted', 1, '{}'::jsonb), \
+                ($3, $2, 'topic.deleted', 1, '{}'::jsonb)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(topic.chatroom_id)
+    .bind(Uuid::new_v4())
+    .execute(&pool)
+    .await?;
+    assert!(
+        !topics
+            .service
+            .list_topics(
+                fixture.member_id,
+                fixture.group_id,
+                TopicPageInput {
+                    after: None,
+                    limit: None,
+                    date: None,
+                },
+            )
+            .await?
+            .items[0]
+            .unread
+    );
 
     let messaging = MessagingService::new(
         Arc::new(SqlxTransactionManager::new(pool.clone())),
@@ -146,6 +173,8 @@ async fn unread_tracks_monotonic_server_cursors_without_topic_count_queries() ->
     );
 
     let source = std::fs::read_to_string("src/adapters/postgres/topics/query.rs")?;
+    assert!(source.contains("event.event_type IN ('message.created', 'topic.created')"));
+    assert!(source.contains("event.deleted_at IS NULL"));
     assert!(source.contains("event.cursor > COALESCE"));
     assert!(source.contains("topic_id = ANY($1)"));
     assert!(!source.contains("for topic in topics"));

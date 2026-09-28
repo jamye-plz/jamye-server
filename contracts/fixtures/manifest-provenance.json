@@ -13,7 +13,7 @@
     "dirty_workspace_result": "uses_the_explicit_input",
     "git_head_inference": false,
     "input": {
-      "contract_version": "1",
+      "contract_version": "2",
       "server_commit": "dirty",
       "server_tag": null,
       "server_version": "0.1.0"

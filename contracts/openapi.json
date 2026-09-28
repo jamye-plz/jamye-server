@@ -426,6 +426,12 @@
             "$ref": "#/components/schemas/MessageCreatedEvent"
           },
           {
+            "$ref": "#/components/schemas/MessageDeletedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/TopicDeletedEvent"
+          },
+          {
             "$ref": "#/components/schemas/UnsupportedEventMarker"
           }
         ]
@@ -1252,6 +1258,89 @@
         ],
         "type": "string"
       },
+      "MessageDeletedData": {
+        "additionalProperties": false,
+        "properties": {
+          "chatroom_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "deleted_at": {
+            "type": "string"
+          },
+          "deleted_by": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "group_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "message_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_id",
+          "chatroom_id",
+          "group_id",
+          "deleted_at",
+          "deleted_by",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "MessageDeletedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "conversation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MessageDeletedData"
+          },
+          "event_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "occurred_at": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/MessageDeletedType"
+          },
+          "version": {
+            "format": "int32",
+            "maximum": 1,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "type",
+          "event_id",
+          "conversation_id",
+          "cursor",
+          "occurred_at",
+          "data"
+        ],
+        "type": "object"
+      },
+      "MessageDeletedType": {
+        "enum": [
+          "message.deleted"
+        ],
+        "type": "string"
+      },
       "MessageKind": {
         "enum": [
           "user",
@@ -1878,6 +1967,92 @@
           "next_cursor"
         ],
         "type": "object"
+      },
+      "TopicDeletedData": {
+        "additionalProperties": false,
+        "properties": {
+          "announcement_message_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deleted_at": {
+            "type": "string"
+          },
+          "deleted_by": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "group_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "topic_chatroom_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "topic_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic_id",
+          "topic_chatroom_id",
+          "group_id",
+          "deleted_at",
+          "deleted_by"
+        ],
+        "type": "object"
+      },
+      "TopicDeletedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "conversation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TopicDeletedData"
+          },
+          "event_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "occurred_at": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/TopicDeletedType"
+          },
+          "version": {
+            "format": "int32",
+            "maximum": 1,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "type",
+          "event_id",
+          "conversation_id",
+          "cursor",
+          "occurred_at",
+          "data"
+        ],
+        "type": "object"
+      },
+      "TopicDeletedType": {
+        "enum": [
+          "topic.deleted"
+        ],
+        "type": "string"
       },
       "TopicPage": {
         "additionalProperties": false,
@@ -2542,7 +2717,16 @@
                 }
               }
             },
-            "description": "Successful response or canonical idempotent retry"
+            "description": "Successful response or canonical idempotent retry",
+            "headers": {
+              "X-Jamye-Account-Restored": {
+                "description": "Present with value true when A2 restored an account inside the deletion grace period; TokenPair body is unchanged",
+                "schema": {
+                  "const": "true",
+                  "type": "string"
+                }
+              }
+            }
           },
           "default": {
             "content": {
@@ -2880,6 +3064,60 @@
         "x-jamye-fixture": "contracts/fixtures/c4-normal.json"
       }
     },
+    "/api/v1/chatrooms/{chatroom_id}/messages/{message_id}": {
+      "delete": {
+        "operationId": "C6",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful response with no body"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error response; inspect error.code for the stable machine-readable reason"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "Delete a message",
+        "tags": [
+          "messages"
+        ],
+        "x-jamye-authorization": "author",
+        "x-jamye-behavior-test": "tests/messaging/http.rs::c6_deletes_author_messages_scrubs_content_and_is_idempotent",
+        "x-jamye-errors": "E8 message_author_required + 404 deleted/missing target + 204 author retry",
+        "x-jamye-fixture": "contracts/contributions/task-6b/fixtures/chatroom-history-read.json",
+        "x-jamye-owner-contribution": "contracts/contributions/task-6b/dto/operations.json"
+      }
+    },
     "/api/v1/chatrooms/{chatroom_id}/read": {
       "post": {
         "operationId": "C3",
@@ -2983,8 +3221,8 @@
             "required": true,
             "schema": {
               "enum": [
-                "1",
-                "0"
+                "2",
+                "1"
               ],
               "type": "string"
             }
@@ -3897,6 +4135,58 @@
       }
     },
     "/api/v1/groups/{group_id}/topics/{topic_id}": {
+      "delete": {
+        "operationId": "T8",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "topic_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful response with no body"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error response; inspect error.code for the stable machine-readable reason"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "Delete a topic",
+        "tags": [
+          "topics"
+        ],
+        "x-jamye-authorization": "author",
+        "x-jamye-behavior-test": "tests/topics/http.rs::t1_through_t8_http_use_the_locked_authenticated_mobile_shapes",
+        "x-jamye-errors": "E8 topic_author_required + 404 deleted/missing target + 204 author retry",
+        "x-jamye-fixture": "contracts/contributions/task-7/fixtures/topic-flow.json",
+        "x-jamye-owner-contribution": "contracts/contributions/task-7/dto/operations.json"
+      },
       "get": {
         "operationId": "T4",
         "parameters": [
@@ -4853,8 +5143,8 @@
             "required": true,
             "schema": {
               "enum": [
-                "1",
-                "0"
+                "2",
+                "1"
               ],
               "type": "string"
             }
