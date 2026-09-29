@@ -21,7 +21,15 @@ type DeltaRow = (
     Option<i16>,
     Option<Value>,
     Option<OffsetDateTime>,
+    Option<Uuid>,
+    Option<String>,
 );
+
+struct DeltaEvent {
+    event: ConversationEvent,
+    feed_group_id: Uuid,
+    feed_chatroom_type: String,
+}
 
 pub(super) async fn page(
     pool: &PgPool,
@@ -33,7 +41,7 @@ pub(super) async fn page(
     }
     let mut events = rows
         .into_iter()
-        .filter_map(|row| conversation_event(row, query.conversation_id))
+        .filter_map(|row| delta_event(row, query.conversation_id))
         .collect::<Vec<_>>();
     let page_limit = usize::try_from(query.limit).map_err(|_| database_error("limit"))?;
     let has_more = events.len() > page_limit;
@@ -68,7 +76,9 @@ async fn fetch_rows(
                    AND c.deleted_at IS NULL \
                    AND (c.topic_id IS NULL OR topic.deleted_at IS NULL) \
                    AND account.deleted_at IS NULL \
-             ) AS allowed \
+             ) AS allowed, \
+             (SELECT c.group_id FROM chatrooms c WHERE c.id = $1) AS feed_group_id, \
+             (SELECT c.type::TEXT FROM chatrooms c WHERE c.id = $1) AS feed_chatroom_type \
          ), page AS ( \
              SELECT e.id, e.cursor, e.event_type, e.event_version, \
                     CASE \
@@ -97,7 +107,8 @@ async fn fetch_rows(
              ORDER BY e.cursor ASC \
              LIMIT $4 \
          ) \
-         SELECT a.allowed, p.id, p.cursor, p.event_type, p.event_version, p.payload, p.occurred_at \
+         SELECT a.allowed, p.id, p.cursor, p.event_type, p.event_version, p.payload, p.occurred_at, \
+                a.feed_group_id, a.feed_chatroom_type \
          FROM membership_access a \
          LEFT JOIN page p ON TRUE \
          ORDER BY p.cursor ASC NULLS LAST",
@@ -111,29 +122,38 @@ async fn fetch_rows(
     .map_err(|_| database_error("delta_page"))
 }
 
-fn conversation_event(row: DeltaRow, conversation_id: Uuid) -> Option<ConversationEvent> {
-    Some(ConversationEvent {
-        id: row.1?,
-        cursor: row.2?,
-        conversation_id,
-        event_type: row.3?,
-        event_version: row.4?,
-        payload: row.5?,
-        occurred_at: row.6?,
+fn delta_event(row: DeltaRow, conversation_id: Uuid) -> Option<DeltaEvent> {
+    Some(DeltaEvent {
+        event: ConversationEvent {
+            id: row.1?,
+            cursor: row.2?,
+            conversation_id,
+            event_type: row.3?,
+            event_version: row.4?,
+            payload: row.5?,
+            occurred_at: row.6?,
+        },
+        feed_group_id: row.7?,
+        feed_chatroom_type: row.8?,
     })
 }
 
 fn project_event(
-    event: ConversationEvent,
+    event: DeltaEvent,
     projection: ContractProjection,
 ) -> Result<DeltaItem, MessagingRepositoryError> {
     match projection {
         ContractProjection::Current => project_v2_event(event),
-        ContractProjection::Previous => project_v1_event(event),
+        ContractProjection::Previous => project_v1_event(event.event),
     }
 }
 
-fn project_v2_event(event: ConversationEvent) -> Result<DeltaItem, MessagingRepositoryError> {
+fn project_v2_event(event: DeltaEvent) -> Result<DeltaItem, MessagingRepositoryError> {
+    let DeltaEvent {
+        event,
+        feed_group_id,
+        feed_chatroom_type,
+    } = event;
     if event.event_type == "message.deleted"
         && event.event_version == 1
         && let Ok(data) = serde_json::from_value::<MessageDeletedData>(event.payload.clone())
@@ -152,7 +172,8 @@ fn project_v2_event(event: ConversationEvent) -> Result<DeltaItem, MessagingRepo
     if event.event_type == "topic.deleted"
         && event.event_version == 1
         && let Ok(data) = serde_json::from_value::<TopicDeletedData>(event.payload.clone())
-        && data.topic_chatroom_id == event.conversation_id
+        && data.group_id == feed_group_id
+        && feed_chatroom_type == "main"
     {
         return Ok(DeltaItem::TopicDeleted(TopicDeletedEvent {
             version: 1,

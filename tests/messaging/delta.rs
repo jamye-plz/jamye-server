@@ -133,6 +133,101 @@ async fn s1_requires_bearer_authentication_and_current_membership() -> TestResul
     app.dispose().await
 }
 
+#[tokio::test]
+async fn s1_v2_reads_topic_deleted_from_main_feed_and_v1_keeps_marker() -> TestResult {
+    let app = TestApp::new().await?;
+    let topic_id = Uuid::new_v4();
+    let topic_chatroom_id = Uuid::new_v4();
+    seed_topic_room(&app, topic_id, topic_chatroom_id).await?;
+    let event_id = Uuid::new_v4();
+    let announcement_message_id = Uuid::new_v4();
+    insert_topic_deleted_event(
+        &app,
+        app.fixture.chatroom_id,
+        event_id,
+        topic_id,
+        topic_chatroom_id,
+        app.fixture.group_id,
+        Some(announcement_message_id),
+    )
+    .await?;
+
+    let current = page_for(&app, app.fixture.chatroom_id, None, 10, "2").await?;
+    let item = &current["items"][0];
+    assert_eq!(item["type"], "topic.deleted");
+    assert_eq!(item["event_id"], event_id.to_string());
+    assert_eq!(item["conversation_id"], app.fixture.chatroom_id.to_string());
+    assert_eq!(item["data"]["topic_id"], topic_id.to_string());
+    assert_eq!(
+        item["data"]["topic_chatroom_id"],
+        topic_chatroom_id.to_string()
+    );
+    assert_eq!(
+        item["data"]["announcement_message_id"],
+        announcement_message_id.to_string()
+    );
+
+    let previous = page_for(&app, app.fixture.chatroom_id, None, 10, "1").await?;
+    let marker = &previous["items"][0];
+    assert_eq!(marker["event_id"], event_id.to_string());
+    assert_eq!(marker["reconcile_scope"], "group_topics");
+    assert!(marker.get("type").is_none());
+    assert!(marker.get("data").is_none());
+    app.dispose().await
+}
+
+#[tokio::test]
+async fn s1_v2_does_not_type_topic_deleted_from_wrong_group_or_topic_feed() -> TestResult {
+    let app = TestApp::new().await?;
+    let topic_id = Uuid::new_v4();
+    let topic_chatroom_id = Uuid::new_v4();
+    seed_topic_room(&app, topic_id, topic_chatroom_id).await?;
+    let other_main_chatroom_id = seed_other_main_room(&app).await?;
+
+    let wrong_group_event_id = Uuid::new_v4();
+    insert_topic_deleted_event(
+        &app,
+        other_main_chatroom_id,
+        wrong_group_event_id,
+        topic_id,
+        topic_chatroom_id,
+        app.fixture.group_id,
+        None,
+    )
+    .await?;
+    let wrong_group = page_for(&app, other_main_chatroom_id, None, 10, "2").await?;
+    let wrong_group_marker = &wrong_group["items"][0];
+    assert_eq!(
+        wrong_group_marker["event_id"],
+        wrong_group_event_id.to_string()
+    );
+    assert_eq!(wrong_group_marker["reconcile_scope"], "group_topics");
+    assert!(wrong_group_marker.get("type").is_none());
+    assert!(wrong_group_marker.get("data").is_none());
+
+    let topic_feed_event_id = Uuid::new_v4();
+    insert_topic_deleted_event(
+        &app,
+        topic_chatroom_id,
+        topic_feed_event_id,
+        topic_id,
+        topic_chatroom_id,
+        app.fixture.group_id,
+        None,
+    )
+    .await?;
+    let topic_feed = page_for(&app, topic_chatroom_id, None, 10, "2").await?;
+    let topic_feed_marker = &topic_feed["items"][0];
+    assert_eq!(
+        topic_feed_marker["event_id"],
+        topic_feed_event_id.to_string()
+    );
+    assert_eq!(topic_feed_marker["reconcile_scope"], "group_topics");
+    assert!(topic_feed_marker.get("type").is_none());
+    assert!(topic_feed_marker.get("data").is_none());
+    app.dispose().await
+}
+
 async fn send_known(app: &TestApp, body: &str) -> TestResult {
     let response = app
         .send(
@@ -147,12 +242,22 @@ async fn send_known(app: &TestApp, body: &str) -> TestResult {
 }
 
 async fn page(app: &TestApp, after: Option<&str>, version: &str) -> TestResult<Value> {
+    page_for(app, app.fixture.chatroom_id, after, 2, version).await
+}
+
+async fn page_for(
+    app: &TestApp,
+    conversation_id: Uuid,
+    after: Option<&str>,
+    limit: u32,
+    version: &str,
+) -> TestResult<Value> {
     let response = app
         .events(
             Some(&app.fixture.access_token),
-            app.fixture.chatroom_id,
+            conversation_id,
             after,
-            2,
+            limit,
             Some(version),
         )
         .await?;
@@ -165,6 +270,87 @@ async fn page(app: &TestApp, after: Option<&str>, version: &str) -> TestResult<V
         Some(version)
     );
     json_body(response).await
+}
+
+async fn seed_topic_room(app: &TestApp, topic_id: Uuid, topic_chatroom_id: Uuid) -> TestResult {
+    sqlx::query(
+        "INSERT INTO topics \
+             (id, group_id, author_id, idempotency_key, request_fingerprint, title) \
+         VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(topic_id)
+    .bind(app.fixture.group_id)
+    .bind(app.fixture.user_id)
+    .bind(Uuid::new_v4())
+    .bind("a".repeat(64))
+    .bind("delta topic")
+    .execute(&app.pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO chatrooms (id, group_id, type, topic_id) VALUES ($1, $2, 'topic', $3)",
+    )
+    .bind(topic_chatroom_id)
+    .bind(app.fixture.group_id)
+    .bind(topic_id)
+    .execute(&app.pool)
+    .await?;
+    Ok(())
+}
+
+async fn seed_other_main_room(app: &TestApp) -> TestResult<Uuid> {
+    let group_id = Uuid::new_v4();
+    let chatroom_id = Uuid::new_v4();
+    sqlx::query("INSERT INTO groups (id, name, owner_id) VALUES ($1, $2, $3)")
+        .bind(group_id)
+        .bind("delta other group")
+        .bind(app.fixture.user_id)
+        .execute(&app.pool)
+        .await?;
+    sqlx::query(
+        "INSERT INTO memberships (id, group_id, user_id, role) VALUES ($1, $2, $3, 'owner')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(group_id)
+    .bind(app.fixture.user_id)
+    .execute(&app.pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO chatrooms (id, group_id, type, topic_id) VALUES ($1, $2, 'main', NULL)",
+    )
+    .bind(chatroom_id)
+    .bind(group_id)
+    .execute(&app.pool)
+    .await?;
+    Ok(chatroom_id)
+}
+
+async fn insert_topic_deleted_event(
+    app: &TestApp,
+    conversation_id: Uuid,
+    event_id: Uuid,
+    topic_id: Uuid,
+    topic_chatroom_id: Uuid,
+    group_id: Uuid,
+    announcement_message_id: Option<Uuid>,
+) -> TestResult {
+    sqlx::query(
+        "INSERT INTO conversation_events \
+             (id, conversation_id, event_type, event_version, payload) \
+         VALUES ($1, $2, 'topic.deleted', 1, $3)",
+    )
+    .bind(event_id)
+    .bind(conversation_id)
+    .bind(json!({
+        "topic_id": topic_id,
+        "topic_chatroom_id": topic_chatroom_id,
+        "group_id": group_id,
+        "deleted_at": "2026-09-29T00:00:00Z",
+        "deleted_by": app.fixture.user_id,
+        "announcement_message_id": announcement_message_id,
+    }))
+    .execute(&app.pool)
+    .await?;
+    Ok(())
 }
 
 fn assert_page(page: &Value, cursors: &[&str], next_cursor: Option<&str>) -> TestResult {
