@@ -379,11 +379,19 @@ async fn t1_through_t8_http_use_the_locked_authenticated_mobile_shapes() -> Test
     .await?;
     assert_eq!(read_counts, (2, 0));
 
+    let topic_deleted_in_topic_room: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM conversation_events \
+         WHERE conversation_id = $1 AND event_type = 'topic.deleted'",
+    )
+    .bind(topic_chatroom_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(topic_deleted_in_topic_room, 0);
     let (topic_event_id, topic_payload) = sqlx::query_as::<_, (Uuid, Value)>(
         "SELECT id, payload FROM conversation_events \
          WHERE conversation_id = $1 AND event_type = 'topic.deleted'",
     )
-    .bind(topic_chatroom_id)
+    .bind(fixture.main_chatroom_id)
     .fetch_one(&pool)
     .await?;
     assert_eq!(topic_payload["topic_id"], topic_id.to_string());
@@ -392,18 +400,37 @@ async fn t1_through_t8_http_use_the_locked_authenticated_mobile_shapes() -> Test
         topic_chatroom_id.to_string()
     );
     assert_eq!(topic_payload["deleted_by"], fixture.author_id.to_string());
-    let topic_outbox_payload: Value = sqlx::query_scalar(
-        "SELECT payload FROM outbox_events \
+    let (topic_outbox_aggregate_id, topic_outbox_payload) = sqlx::query_as::<_, (Uuid, Value)>(
+        "SELECT aggregate_id, payload FROM outbox_events \
          WHERE event_type = 'topic.deleted' AND conversation_event_id = $1",
     )
     .bind(topic_event_id)
     .fetch_one(&pool)
     .await?;
+    assert_eq!(topic_outbox_aggregate_id, fixture.main_chatroom_id);
     assert_eq!(topic_outbox_payload["type"], "topic.deleted");
+    assert_eq!(
+        topic_outbox_payload["conversation_id"],
+        fixture.main_chatroom_id.to_string()
+    );
     assert_eq!(
         topic_outbox_payload["data"]["topic_id"],
         topic_id.to_string()
     );
+    let notification_side_effects: (i64, i64, i64) = sqlx::query_as(
+        "SELECT \
+             (SELECT COUNT(*) FROM notifications \
+              WHERE conversation_id = $1 AND type = 'chat_unread' AND deleted_at IS NULL), \
+             (SELECT COUNT(*) FROM notifications \
+              WHERE topic_id = $2 AND type = 'new_topic' AND deleted_at IS NULL), \
+             (SELECT COUNT(*) FROM push_delivery_intents WHERE source_event_id = $3)",
+    )
+    .bind(fixture.main_chatroom_id)
+    .bind(topic_id)
+    .bind(topic_event_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(notification_side_effects, (0, 0, 0));
     let announcement_deleted_events: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM conversation_events \
          WHERE conversation_id = $1 \

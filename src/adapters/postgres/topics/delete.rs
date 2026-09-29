@@ -71,6 +71,7 @@ pub(super) async fn delete_topic(
         connection,
         command,
         topic_chatroom_id,
+        main_chatroom_id,
         announcement_ids.first().copied(),
         deleted_at,
     )
@@ -565,6 +566,7 @@ async fn append_topic_deleted_event(
     connection: &mut PgConnection,
     command: &DeleteTopicCommand,
     topic_chatroom_id: Uuid,
+    main_chatroom_id: Uuid,
     announcement_message_id: Option<Uuid>,
     deleted_at: OffsetDateTime,
 ) -> Result<(), TopicsRepositoryError> {
@@ -585,7 +587,7 @@ async fn append_topic_deleted_event(
          RETURNING cursor, occurred_at",
     )
     .bind(event_id)
-    .bind(topic_chatroom_id)
+    .bind(main_chatroom_id)
     .bind(payload)
     .fetch_one(&mut *connection)
     .await
@@ -594,7 +596,7 @@ async fn append_topic_deleted_event(
         version: 1,
         event_type: TopicDeletedType::TopicDeleted,
         event_id,
-        conversation_id: topic_chatroom_id,
+        conversation_id: main_chatroom_id,
         cursor: cursor.to_string(),
         occurred_at,
         data,
@@ -602,7 +604,7 @@ async fn append_topic_deleted_event(
     insert_outbox(
         connection,
         event_id,
-        topic_chatroom_id,
+        main_chatroom_id,
         "topic.deleted",
         event,
     )

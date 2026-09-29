@@ -155,6 +155,26 @@ async fn previous_contract_socket_drops_unknown_realtime_discriminants_without_c
     assert_eq!(hub.publish(conversation_id, payload).await, 1);
     assert_no_message(&mut socket).await?;
 
+    let topic_payload = json!({
+        "version": 1,
+        "type": "topic.deleted",
+        "event_id": Uuid::new_v4(),
+        "conversation_id": conversation_id,
+        "cursor": "2",
+        "occurred_at": "1970-01-01T00:00:00Z",
+        "data": {
+            "topic_id": Uuid::new_v4(),
+            "topic_chatroom_id": Uuid::new_v4(),
+            "group_id": Uuid::new_v4(),
+            "deleted_at": "1970-01-01T00:00:00Z",
+            "deleted_by": Uuid::new_v4(),
+            "announcement_message_id": null,
+        },
+    })
+    .to_string();
+    assert_eq!(hub.publish(conversation_id, topic_payload).await, 1);
+    assert_no_message(&mut socket).await?;
+
     socket
         .send(ClientMessage::Text(
             json!({"type": "ping", "nonce": "still-open"})
@@ -164,6 +184,58 @@ async fn previous_contract_socket_drops_unknown_realtime_discriminants_without_c
         .await?;
     let pong: Value = serde_json::from_str(&next_text(&mut socket).await?)?;
     assert_eq!(pong, json!({"type": "pong", "nonce": "still-open"}));
+    stop(shutdown, server).await
+}
+
+#[tokio::test]
+async fn current_contract_socket_receives_topic_deleted_on_subscribed_main_conversation()
+-> TestResult {
+    let conversation_id = Uuid::new_v4();
+    let topic_chatroom_id = Uuid::new_v4();
+    let topic_id = Uuid::new_v4();
+    let group_id = Uuid::new_v4();
+    let event_id = Uuid::new_v4();
+    let hub = LocalRealtimeHub::default();
+    let state = websocket_state(
+        hub.clone(),
+        [conversation_id],
+        OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(30),
+        Duration::from_secs(5),
+        Duration::from_secs(5),
+    )?;
+    let (mut socket, shutdown, server) = connect(state).await?;
+    send_subscribe(&mut socket, Uuid::new_v4(), conversation_id).await?;
+    let subscribed: Value = serde_json::from_str(&next_text(&mut socket).await?)?;
+    assert_eq!(subscribed["type"], "subscribed");
+
+    let payload = json!({
+        "version": 1,
+        "type": "topic.deleted",
+        "event_id": event_id,
+        "conversation_id": conversation_id,
+        "cursor": "1",
+        "occurred_at": "1970-01-01T00:00:00Z",
+        "data": {
+            "topic_id": topic_id,
+            "topic_chatroom_id": topic_chatroom_id,
+            "group_id": group_id,
+            "deleted_at": "1970-01-01T00:00:00Z",
+            "deleted_by": Uuid::new_v4(),
+            "announcement_message_id": null,
+        },
+    })
+    .to_string();
+    assert_eq!(hub.publish(conversation_id, payload).await, 1);
+
+    let frame: Value = serde_json::from_str(&next_text(&mut socket).await?)?;
+    assert_eq!(frame["type"], "topic.deleted");
+    assert_eq!(frame["event_id"], event_id.to_string());
+    assert_eq!(frame["conversation_id"], conversation_id.to_string());
+    assert_eq!(frame["data"]["topic_id"], topic_id.to_string());
+    assert_eq!(
+        frame["data"]["topic_chatroom_id"],
+        topic_chatroom_id.to_string()
+    );
     stop(shutdown, server).await
 }
 
