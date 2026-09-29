@@ -1,16 +1,16 @@
 # jamye-server 로드맵 — FastAPI 전체 이관, 신뢰성 고도화, 모바일 계약
 
-> 세션: ultrawork/20260822-200110 · 후속 로드맵 등록: ultrawork/20260922-100557
-> 현재 단계: task-17·18 운영 배포 완료(앱 M14 라운드 1·2 서버 지원, 2026-09-28 HTTP 전송 첨부 최대 4개 후속 배포 포함). 앱 M14는 2026-09-28 종료됐고 task-14-16은 착수 승인 대기
-> 상태: Task 13(루트 `Justfile` 검증 체계, NixOS module, homelab midgard 배포)이 완료됐다(근거는 §9). task-14(soft delete)·task-15(Apple exchange)·task-16(서버측 잔여 백로그)는 2026-09-22 로드맵에 등록만 됐으며 각 task 착수는 별도 승인이 필요하다. task-17은 2026-09-26 앱 M14 라운드 1 지원 범위로 구현해 같은 날 운영 배포했고(merge `5b987a2`, migration `0012`), task-18은 2026-09-27 앱 M14 라운드 2 지원 범위로 구현해 같은 날 운영 배포했다(merge `a77cac5`, migration `0013`). 2026-09-28에는 HTTP 메시지 전송의 첨부 1개 제한을 푼 수정(merge `c7f71a8`)을 배포했다(§13).
-> 진행률: Task 1-13·17-18 구현·배포 완료, task-14-16은 등록(planned_unapproved) 단계
-> 기계 SSOT: .agents/results/plan-20260822-200110.json (task-1-13) · .agents/results/plan-20260926-181036.json (task-17) · .agents/results/plan-20260927-120934.json (task-18) · task-14 이후는 착수 시 새 plan JSON 생성
+> 세션: ultrawork/20260822-200110 · 후속 로드맵 등록: ultrawork/20260922-100557 · task-14 구현: ultrawork/20260928-171401
+> 현재 단계: task-14 1·2·3차 운영 배포 완료(soft delete 전 범위, 계정 삭제 유예·복구, 앱 M15 소프트 삭제 수용 연동). task-15·16은 여전히 착수 승인 대기(task-14를 선행으로 둠, §14)
+> 상태: Task 13이 완료됐다(근거는 §9). task-14(soft delete)는 세션 ultrawork/20260928-171401에서 구현해 1차(merge `c047e5a`)·2차(merge `b20a4d0`)·3차(merge `6dcb6d5`)를 모두 운영 배포했다(§0, §13, §14). task-15(Apple exchange)·task-16(서버측 잔여 백로그)는 2026-09-22 로드맵에 등록만 됐으며 착수는 별도 승인이 필요하다(task-14 완료가 둘의 선행 조건). task-17은 2026-09-26 앱 M14 라운드 1 지원 범위로 구현해 같은 날 운영 배포했고(merge `5b987a2`, migration `0012`), task-18은 2026-09-27 앱 M14 라운드 2 지원 범위로 구현해 같은 날 운영 배포했다(merge `a77cac5`, migration `0013`). 2026-09-28에는 HTTP 메시지 전송의 첨부 1개 제한을 푼 수정(merge `c7f71a8`)을 배포했다(§13).
+> 진행률: Task 1-14·17-18 구현·배포 완료, task-15-16은 등록(planned_unapproved) 단계
+> 기계 SSOT: .agents/results/plan-20260822-200110.json (task-1-13) · .agents/results/plan-20260926-181036.json (task-17) · .agents/results/plan-20260927-120934.json (task-18) · .agents/results/plan-20260928-171401.json (task-14) · task-15 이후는 착수 시 새 plan JSON 생성
 
-## 0. 2026-09-28 task-14 1차 서버 구현 기록
+## 0. 2026-09-28~29 task-14 서버 구현·배포 기록
 
-task-14a 서버 1차는 구현 중이며 운영 배포 전 상태다. 1차 범위는 계정 삭제를 즉시 D10 hard delete로 처리하지 않고 `users.deleted_at` 기반 30일 유예로 시작하며, refresh session 폐기, push installation 비활성화, membership soft delete(`account_deleted_at`)와 기존 realtime control eviction 경로를 결합한다. retained author link(`sender_id`/`author_id`)는 유예 동안 보존하고, C2/C4/S1/T3/T4/G4/N1 조회 투영에서만 `탈퇴한 사용자`/`null`로 익명화한다.
+task-14는 세션 `20260928-171401`에서 1·2·3차로 나눠 구현하고 모두 운영 배포했다(배포 절차·날짜·merge commit·PR·migration 번호는 §13, 상세 범위는 §14 task-14). 1차 범위는 계정 삭제를 즉시 D10 hard delete로 처리하지 않고 `users.deleted_at` 기반 30일 유예로 시작하며, refresh session 폐기, push installation 비활성화, membership soft delete(`account_deleted_at`)와 기존 realtime control eviction 경로를 결합한다. retained author link(`sender_id`/`author_id`)는 유예 동안 보존하고, C2/C4/S1/T3/T4/G4/N1 조회 투영에서만 `탈퇴한 사용자`/`null`로 익명화한다.
 
-A2 OAuth exchange는 유예 중 soft-deleted identity를 별도 복구 경로에서만 되살리고, 복구 시 `X-Jamye-Account-Restored: true` 응답 헤더를 추가한다. `TokenPair` 본문은 바꾸지 않는다. 30일 이후 purge worker는 DB clock 기준 lease/batch claim으로 기존 D10 전이를 실행한다. 계약 v2 협상과 삭제 이벤트는 task-14 base/delete 단계에서 추가됐고, 이 1차 grace 단계는 복구 헤더와 soft-delete schema를 더한다.
+A2 OAuth exchange는 유예 중 soft-deleted identity를 별도 복구 경로에서만 되살리고, 복구 시 `X-Jamye-Account-Restored: true` 응답 헤더를 추가한다. `TokenPair` 본문은 바꾸지 않는다. 30일 이후 purge worker는 DB clock 기준 lease/batch claim으로 기존 D10 전이를 실행한다. 계약 v2 협상과 삭제 이벤트는 1차 base/delete 단계에서 추가됐고, 1차 grace 단계가 복구 헤더와 soft-delete schema를 더했다. 2차는 나머지 B 대상(초대·푸시·알림·읽음 위치·태그·업로드 등)을 live-row partial unique로 전환했고, 3차는 기기 검증에서 찾은 결함을 고쳐 `topic.deleted` 이벤트를 삭제되는 주제 대화방이 아니라 그룹 메인 대화방 피드에 기록하도록 바꿨다(migration 없음).
 
 ## 1. 목표와 범위
 
@@ -317,7 +317,15 @@ Task 13은 완료됐다. 검증 체계·NixOS module·homelab midgard 배포의 
 
 2026-09-28 앱 기기 검증 중 HTTP 메시지 전송이 첨부 2개 이상을 422 `media_not_available`로 거부하는 문제를 찾았다. 도메인 규칙·Postgres 바인딩과 계약은 이미 최대 4개를 지원했으므로 HTTP 검증(`validate_composed_http_message`)의 1개 제한만 풀어 배포했다(커밋 `9a6cba1`·`fd07187` → PR #10 → merge `c7f71a8` → homelab PR #89, 스키마·계약 변경 없음). 기록은 같은 파일 §10이다. 이때 드러난 `tests/media` fixture의 시계 오차 취약점(호스트 `now`와 DB `clock_timestamp()` 혼용으로 `media_uploads_timestamp_check`가 간헐 실패)은 후속 과제로 남긴다.
 
-앱 M14는 2026-09-28 종료됐다. task-14-16 착수는 여전히 각각 별도 승인이 필요하고, task-15와 task-16은 task-14를 선행으로 둔다(§11, §14).
+앱 M14는 2026-09-28 종료됐다. 같은 날 사용자 요청("M15 구현 시작해. 선행조건인 서버 task-14 먼저 진행하고 배포한 뒤에 시작해.")으로 task-14 착수와 배포가 승인됐다(세션 `20260928-171401`, SSOT `.agents/results/requirements-20260928-171401.md`).
+
+2026-09-28 task-14 1차(감사 컬럼·트리거, C6/T8 삭제 API·이벤트, 계정 삭제 유예·복구, S4 push fence·realtime eviction 운영 조립, 계약 v2)는 필수 검사(base/delete/grace 각 run)와 배포 전 안전 리뷰 PASS 뒤, 운영 `pg_dump`(`pre-0014-20260928T133010Z.dump`)와 개수만 확인하는 사전 집계를 거쳐 커밋 `2618027` → PR #12 → CI `contract-drift` pass → merge `c047e5a`(13:37:15Z) → homelab PR #91 배포(14:05Z 시작) 순서로 진행했다. migration `0014`-`0016` 적용(23:10 KST, 모두 success) 뒤 행 수 불변을 확인했고, 현재 앱(v1) smoke도 정상이었다.
+
+2026-09-28 task-14 2차(나머지 B: `push_installations`·delivery intent·`notifications`·`chatroom_reads`·`invites`·`media_uploads`·`topic_tags`의 hard→soft 전환과 live-row partial unique)는 필수 검사와 배포 전 안전 리뷰 PASS 뒤, `pg_dump`(`pre-0017-20260928T152014Z.dump`)와 사전 집계를 거쳐 커밋 `c692b62` → PR #13 → merge `b20a4d0`(15:24:54Z) → homelab PR #92 배포로 진행했다. migration `0017` 적용(2026-09-29 00:46 KST, success) 뒤 행 수 불변을 확인했고, 설치된 앱(v1) smoke도 정상이었다.
+
+2026-09-29 task-14 3차는 기기 검증(jamye-app M15)에서 찾은 결함 — `topic.deleted`가 삭제되는 주제 대화방 피드에 기록돼 S1 403·WS 접근 필터로 아무도 받지 못하던 문제 — 를 고쳤다. `topic.deleted`를 그룹 메인 대화방 `conversation_events`에 기록하도록 옮기고(payload의 `topic_chatroom_id`는 그대로 유지), S1 v2 typed 투영 조건을 "payload `group_id`가 feed group과 같고 feed type이 `main`일 때만 허용"으로 바꿨다. 계약 discriminant·payload 필드는 바뀌지 않아 migration이 없다(pg_dump 백업도 생략, 1·2차 백업 보관 중). 필수 검사와 배포 전 안전 리뷰 PASS(LOW 1건 — 이미 삭제된 주제 대화방에 기록된 옛 `topic.deleted`는 계속 못 읽지만 회귀 아님) 뒤 커밋 `81e22d0` → PR #14 → merge `6dcb6d5`(02:04:55Z) → homelab PR #93 배포(02:21Z 시작)로 진행했다. 배포 뒤 기기 재확인: 그룹을 연 상태에서는 다른 기기의 주제 삭제가 실시간으로 반영되고, 그룹 밖에 있던 기기는 그룹을 열 때 메인 대화방 S1으로 `topic.deleted`를 받아 약 1.5초 뒤 알림 배지가 사라졌다(기존 설계상 열린 그룹만 실시간 구독).
+
+세 배포 모두 halt 조건에 해당하는 사건이 없었고 정상 완료됐다. 전체 기록(배포 전 게이트, 운영 호스트 확인, 사전·사후 집계, 중단·복구 규칙, 운영 smoke)은 `.agents/results/deploy-20260928-171401.md` §1차/§2차/§3차다. task-15와 task-16은 이제 완료된 task-14를 선행으로 두고 각각 별도 승인으로 착수한다(§11, §14).
 
 ## 14. 후속 과제 상세
 
@@ -332,9 +340,11 @@ D14·D15·D18·D19(모두 2026-09-22 locked)를 materialize한다(앱 M15 소프
 - **C. 삭제 API + 이벤트**: 메시지 삭제(가칭 C6)·주제 삭제(가칭 T8) REST endpoint, D18에 따른 realtime `message.deleted`/`topic.deleted` 이벤트, 삭제된 메시지/주제에 결합된 미디어 object 정리 규칙을 구현한다.
 - **D. 계정 삭제 유예·복구**: D15(30일 유예, 유예 중 같은 provider 재로그인 시 부활)를 endpoint/worker로 구현하고, 유예 만료 시 기존 D10 tombstone 전이 로직을 재사용하는 purge worker를 추가한다.
 
-구현 기록: 2026-09-28 task-14 서버 1차는 migration `0014`-`0016`과 함께 운영 배포됐다. 2차(`task-srv-14b`)는 남은 B 대상(`push_installations`, push delivery intents/occurrences, `notifications`, `chatroom_reads`, `invites`, `media_uploads`, `topic_tags`, 1차 밖 경로의 refresh/auth 연계)을 live-row partial unique와 `deleted_at IS NULL` 조회 필터로 전환하고, topic 공지 메시지 삭제 대상을 본문 LIKE가 아닌 `messages.announcement_for_topic_id` 구조 참조로 고정한다. 일반 사용자 동작(P4, T6/T8, C3 재생성 등)은 soft delete/live filter를 따른다. 단, 30일 유예 만료 뒤 purge는 기존 D10 의미를 유지해 unbound upload, push token/installation, refresh session, auth identity, invite, read marker, notification, target user row 같은 개인 상태를 실제 삭제한다. 계약 operation·응답 필드·realtime discriminant는 추가하지 않으며, 이 2차 구현 자체는 아직 운영 배포 기록이 아니다.
+구현 기록: task-14는 1·2·3차로 나눠 모두 운영 배포됐다(날짜·merge commit·migration 번호는 §0·§13). 1차(`task-srv-14a-*`)는 migration `0014`-`0016`으로 전 테이블 감사 컬럼, C6/T8 삭제 API·이벤트, 계정 삭제 유예/복구, S4 운영 조립, 계약 v2를 배포했다. 2차(`task-srv-14b`)는 남은 B 대상(`push_installations`, push delivery intents/occurrences, `notifications`, `chatroom_reads`, `invites`, `media_uploads`, `topic_tags`, 1차 밖 경로의 refresh/auth 연계)을 migration `0017`로 live-row partial unique와 `deleted_at IS NULL` 조회 필터로 전환하고, topic 공지 메시지 삭제 대상을 본문 LIKE가 아닌 `messages.announcement_for_topic_id` 구조 참조로 고정했다. 일반 사용자 동작(P4, T6/T8, C3 재생성 등)은 soft delete/live filter를 따른다. 단, 30일 유예 만료 뒤 purge는 기존 D10 의미를 유지해 unbound upload, push token/installation, refresh session, auth identity, invite, read marker, notification, target user row 같은 개인 상태를 실제 삭제한다. 3차(`task-srv-14c`)는 migration 없이, 기기 검증에서 찾은 결함(`topic.deleted`가 삭제되는 주제 대화방 피드에 기록돼 아무도 받지 못함)을 고쳐 그룹 메인 대화방 피드에 기록하도록 바꾸고 S1 v2 typed 투영 조건을 그에 맞춰 좁혔다. 1차는 새 계약을 추가했다 — C6/T8 삭제 operation, typed realtime/delta discriminant `message.deleted`/`topic.deleted`(계약 버전 v2에서만 typed, v1은 기존 `UnsupportedEventMarker` 유지), `X-Jamye-Contract-Version` `"2"`/`"1"` 협상, A2 응답 헤더 `X-Jamye-Account-Restored`(기존 REST 응답 body 모양은 설치된 v1 앱을 위해 닫힌 채로 유지). 2차는 새 operation·필드·discriminant를 추가하지 않고, `openapi.info.version`이 `CURRENT_CONTRACT_VERSION`을 실제로 반영하도록 표기 버그만 고쳤다. 3차도 새 operation·필드·discriminant 없이 `topic.deleted` 기록 위치와 S1 v2 투영 조건만 바꿨다(계약 산출물은 바이트 단위로 불변, `contract-check` 통과). 3차 배포 전 주제 대화방 피드에 기록된 `topic.deleted` 8건은 계속 읽을 수 없다(배포 전 리뷰에서 수용, backfill 없음).
 
-시작 조건: task-13 완료(충족) + D14/D15/D18/D19 확정(충족). 별도 승인: 각 forward-only migration 적용, C3 계약 publication, homelab 배포.
+후속 과제(사용자 결정 2026-09-29): 계정이 삭제된 사람이 보낸 삭제 표시 메시지 행은 그 사람의 살아 있는 메시지(C2)나 작성한 주제(T3/T4)를 다시 받아야 이름·사진이 갱신된다(앱 jamye-app 로드맵 M15 "후속 후보"와 jamye-app 저장소의 M15 증거 문서 §7 참고). 완전한 해결은 서버 계약 확장이 필요하다 — 예: 삭제된 메시지의 보낸 사람 identity를 위한 별도 source(버전 있는 C2의 sender stub 등)나 identity-change 신호. M15 범위가 아니라 후속 과제로 미룬다. 30일 뒤 purge의 과거 payload scrub(`src/adapters/postgres/account_deletion/payload_scrub.rs`)이 색인 없는 `payload::text LIKE`를 쓴다 — 테이블이 커지기 전 색인 추가 또는 대상 이벤트 id 추적으로 바꿔야 한다.
+
+시작 조건: task-13 완료(충족) + D14/D15/D18/D19 확정(충족). 별도 승인(모두 충족·완료): 사용자가 2026-09-28 착수·배포를 승인했고, 각 forward-only migration 적용·C3 계약 publication·homelab 배포를 1·2·3차 모두 마쳤다(§0, §13).
 
 ### task-15 — Sign in with Apple (M13)
 
