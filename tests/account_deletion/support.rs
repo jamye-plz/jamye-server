@@ -1,4 +1,12 @@
-use std::{fmt::Debug, io, sync::Arc, time::Duration};
+use std::{
+    fmt::Debug,
+    io,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
 use axum::{
     Router,
@@ -23,7 +31,15 @@ use jamye_server::{
         },
         users::UserService,
     },
-    ports::rate_limit::{RateLimitFuture, RateLimitOutcome, RateLimitRequest, RateLimiter},
+    ports::{
+        apple_identity_provider::{
+            AppleAuthorizationCodeRevocationRequest, AppleIdentity, AppleIdentityProvider,
+            AppleIdentityProviderError, AppleIdentityProviderFuture,
+            AppleIdentityVerificationRequest, AppleRevocationProvider,
+            AppleRevocationProviderError, AppleRevocationProviderFuture,
+        },
+        rate_limit::{RateLimitFuture, RateLimitOutcome, RateLimitRequest, RateLimiter},
+    },
     transport::http::{
         account_deletion::{AccountDeletionHttpState, router as account_deletion_router},
         users::{UserHttpState, router as user_router},
@@ -35,6 +51,14 @@ use uuid::Uuid;
 use crate::{TestResult, postgres_support::TestDatabase};
 
 pub(super) fn test_router(pool: PgPool) -> TestResult<Router> {
+    test_router_with_apple(pool, None, None)
+}
+
+pub(super) fn test_router_with_apple(
+    pool: PgPool,
+    apple_identity_provider: Option<Arc<FakeAppleIdentityProvider>>,
+    apple_revocation_provider: Option<Arc<FakeAppleRevocationProvider>>,
+) -> TestResult<Router> {
     let verifier: Arc<dyn AccessTokenVerifier> = Arc::new(TestAccessVerifier);
     let transactions = Arc::new(SqlxTransactionManager::new(pool.clone()));
     let groups = Arc::new(GroupsService::new(
@@ -61,6 +85,14 @@ pub(super) fn test_router(pool: PgPool) -> TestResult<Router> {
         groups,
         push_privacy_fence: Arc::new(PostgresPushRepository::new(pool.clone())),
         repository: Arc::new(PostgresAccountDeletionRepository::new(pool.clone())),
+        apple_identity_provider: apple_identity_provider.map(|provider| {
+            let provider: Arc<dyn AppleIdentityProvider> = provider;
+            provider
+        }),
+        apple_revocation_provider: apple_revocation_provider.map(|provider| {
+            let provider: Arc<dyn AppleRevocationProvider> = provider;
+            provider
+        }),
     }));
     let users = Arc::new(UserService::new(
         transactions,
@@ -72,6 +104,88 @@ pub(super) fn test_router(pool: PgPool) -> TestResult<Router> {
         verifier.clone(),
     ))
     .merge(user_router(UserHttpState::new(users, verifier))))
+}
+
+pub(super) struct FakeAppleIdentityProvider {
+    identity: AppleIdentity,
+    error: Option<AppleIdentityProviderError>,
+    calls: AtomicUsize,
+}
+
+impl FakeAppleIdentityProvider {
+    pub(super) fn new(identity: AppleIdentity, error: Option<AppleIdentityProviderError>) -> Self {
+        Self {
+            identity,
+            error,
+            calls: AtomicUsize::new(0),
+        }
+    }
+
+    pub(super) fn calls(&self) -> usize {
+        self.calls.load(Ordering::SeqCst)
+    }
+}
+
+impl AppleIdentityProvider for FakeAppleIdentityProvider {
+    fn verify_identity<'a>(
+        &'a self,
+        _request: &'a AppleIdentityVerificationRequest,
+    ) -> AppleIdentityProviderFuture<'a, AppleIdentity> {
+        Box::pin(async move {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if let Some(error) = self.error {
+                return Err(error);
+            }
+            Ok(self.identity.clone())
+        })
+    }
+}
+
+pub(super) struct FakeAppleRevocationProvider {
+    error: Option<AppleRevocationProviderError>,
+    calls: AtomicUsize,
+    requests: Mutex<Vec<AppleAuthorizationCodeRevocationRequest>>,
+}
+
+impl FakeAppleRevocationProvider {
+    pub(super) fn new(error: Option<AppleRevocationProviderError>) -> Self {
+        Self {
+            error,
+            calls: AtomicUsize::new(0),
+            requests: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub(super) fn calls(&self) -> usize {
+        self.calls.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn requests(&self) -> TestResult<Vec<AppleAuthorizationCodeRevocationRequest>> {
+        Ok(self
+            .requests
+            .lock()
+            .map_err(|_| io::Error::other("Apple revocation request lock poisoned"))?
+            .clone())
+    }
+}
+
+impl AppleRevocationProvider for FakeAppleRevocationProvider {
+    fn revoke_authorization_code<'a>(
+        &'a self,
+        request: &'a AppleAuthorizationCodeRevocationRequest,
+    ) -> AppleRevocationProviderFuture<'a> {
+        Box::pin(async move {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.requests
+                .lock()
+                .map_err(|_| AppleRevocationProviderError::Unavailable)?
+                .push(request.clone());
+            if let Some(error) = self.error {
+                return Err(error);
+            }
+            Ok(())
+        })
+    }
 }
 
 pub(super) fn delete_request(user_id: Uuid) -> TestResult<Request<Body>> {

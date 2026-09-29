@@ -1,6 +1,57 @@
 {
   "components": {
     "schemas": {
+      "AppleAccountDeletionProof": {
+        "additionalProperties": false,
+        "description": "Only Apple accounts may send this U3 body. Kakao and Google accounts continue to reject request bodies.",
+        "properties": {
+          "authorization_code": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "identity_token": {
+            "maxLength": 8192,
+            "minLength": 1,
+            "type": "string"
+          },
+          "raw_nonce": {
+            "maxLength": 256,
+            "minLength": 16,
+            "type": "string"
+          }
+        },
+        "required": [
+          "identity_token",
+          "authorization_code",
+          "raw_nonce"
+        ],
+        "type": "object"
+      },
+      "AppleExchangeIn": {
+        "additionalProperties": false,
+        "properties": {
+          "full_name": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "identity_token": {
+            "maxLength": 8192,
+            "minLength": 1,
+            "type": "string"
+          },
+          "raw_nonce": {
+            "maxLength": 256,
+            "minLength": 16,
+            "type": "string"
+          }
+        },
+        "required": [
+          "identity_token",
+          "raw_nonce"
+        ],
+        "type": "object"
+      },
       "CanonicalMessage": {
         "additionalProperties": false,
         "properties": {
@@ -2412,7 +2463,8 @@
           "provider": {
             "enum": [
               "kakao",
-              "google"
+              "google",
+              "apple"
             ],
             "type": "string"
           }
@@ -2468,6 +2520,60 @@
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/auth/apple/exchange": {
+      "post": {
+        "operationId": "A6",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppleExchangeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenPair"
+                }
+              }
+            },
+            "description": "Successful response or canonical idempotent retry",
+            "headers": {
+              "X-Jamye-Account-Restored": {
+                "description": "Present with value true when auth exchange restored an account inside the deletion grace period; TokenPair body is unchanged",
+                "schema": {
+                  "const": "true",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error response; inspect error.code for the stable machine-readable reason"
+          }
+        },
+        "summary": "Exchange an Apple identity token",
+        "tags": [
+          "auth"
+        ],
+        "x-jamye-behavior-test": "tests/auth/oauth.rs::apple_exchange_creates_reuses_and_restores_with_stable_nickname",
+        "x-jamye-errors": "EA6",
+        "x-jamye-fixture": "contracts/contributions/task-5/fixtures/mobile-auth-handoff.json",
+        "x-jamye-owner-contribution": "contracts/contributions/task-5/dto/operations.json"
+      }
+    },
     "/api/v1/auth/logout": {
       "post": {
         "operationId": "A4",
@@ -2720,7 +2826,7 @@
             "description": "Successful response or canonical idempotent retry",
             "headers": {
               "X-Jamye-Account-Restored": {
-                "description": "Present with value true when A2 restored an account inside the deletion grace period; TokenPair body is unchanged",
+                "description": "Present with value true when auth exchange restored an account inside the deletion grace period; TokenPair body is unchanged",
                 "schema": {
                   "const": "true",
                   "type": "string"
@@ -4523,6 +4629,16 @@
     "/api/v1/me": {
       "delete": {
         "operationId": "U3",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppleAccountDeletionProof"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "204": {
             "description": "Successful response with no body"

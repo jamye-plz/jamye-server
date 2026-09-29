@@ -14,9 +14,23 @@ pub type AccountDeletionRepositoryFuture<'a, T> =
     Pin<Box<dyn Future<Output = Result<T, AccountDeletionRepositoryError>> + Send + 'a>>;
 
 /// Defines the current account targeted by an account-deletion operation.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountDeletionCommand {
     pub user_id: Uuid,
+    pub apple_proof: Option<AppleReauthenticationProof>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AppleReauthenticationProof {
+    pub identity_token: String,
+    pub authorization_code: String,
+    pub raw_nonce: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AccountDeletionIdentity {
+    pub provider: String,
+    pub provider_id: String,
 }
 
 /// A stable membership enumeration collected after the ownership fence passes.
@@ -40,6 +54,13 @@ pub struct AccountDeletionReport {
 }
 
 pub trait AccountDeletionRepository: Send + Sync {
+    fn live_identity(
+        &self,
+        _user_id: Uuid,
+    ) -> AccountDeletionRepositoryFuture<'_, Option<AccountDeletionIdentity>> {
+        Box::pin(async { Err(AccountDeletionRepositoryError::Unavailable) })
+    }
+
     fn prepare_deletion<'a>(
         &'a self,
         transaction: &'a mut dyn TransactionHandle,

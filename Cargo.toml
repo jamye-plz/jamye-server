@@ -50,6 +50,7 @@ utoipa = { version = "5.5.0", features = ["time", "uuid"] }
 uuid = { version = "1.25.0", features = ["serde", "v4"] }
 
 [dev-dependencies]
+aws-lc-rs = "1.18.0"
 tokio-tungstenite = "0.29.0"
 
 [lints.rust]

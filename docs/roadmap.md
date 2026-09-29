@@ -1,9 +1,9 @@
 # jamye-server 로드맵 — FastAPI 전체 이관, 신뢰성 고도화, 모바일 계약
 
 > 세션: ultrawork/20260822-200110 · 후속 로드맵 등록: ultrawork/20260922-100557 · task-14 구현: ultrawork/20260928-171401
-> 현재 단계: task-14 1·2·3차 운영 배포 완료(soft delete 전 범위, 계정 삭제 유예·복구, 앱 M15 소프트 삭제 수용 연동). task-15·16은 여전히 착수 승인 대기(task-14를 선행으로 둠, §14)
-> 상태: Task 13이 완료됐다(근거는 §9). task-14(soft delete)는 세션 ultrawork/20260928-171401에서 구현해 1차(merge `c047e5a`)·2차(merge `b20a4d0`)·3차(merge `6dcb6d5`)를 모두 운영 배포했다(§0, §13, §14). task-15(Apple exchange)·task-16(서버측 잔여 백로그)는 2026-09-22 로드맵에 등록만 됐으며 착수는 별도 승인이 필요하다(task-14 완료가 둘의 선행 조건). task-17은 2026-09-26 앱 M14 라운드 1 지원 범위로 구현해 같은 날 운영 배포했고(merge `5b987a2`, migration `0012`), task-18은 2026-09-27 앱 M14 라운드 2 지원 범위로 구현해 같은 날 운영 배포했다(merge `a77cac5`, migration `0013`). 2026-09-28에는 HTTP 메시지 전송의 첨부 1개 제한을 푼 수정(merge `c7f71a8`)을 배포했다(§13).
-> 진행률: Task 1-14·17-18 구현·배포 완료, task-15-16은 등록(planned_unapproved) 단계
+> 현재 단계: task-14 1·2·3차 운영 배포 완료(soft delete 전 범위, 계정 삭제 유예·복구, 앱 M15 소프트 삭제 수용 연동). task-15는 2026-09-30 사용자 승인으로 서버 구현 중이며 검사·계약 재생성·배포는 아직 별도 단계다. task-16은 착수 승인 대기(§14)
+> 상태: Task 13이 완료됐다(근거는 §9). task-14(soft delete)는 세션 ultrawork/20260928-171401에서 구현해 1차(merge `c047e5a`)·2차(merge `b20a4d0`)·3차(merge `6dcb6d5`)를 모두 운영 배포했다(§0, §13, §14). task-15(Sign in with Apple)는 2026-09-30 세션 `20260930-000919`에서 A6 native identity-token exchange, Apple 계정 삭제 재인증·revoke, migration `0018`, 계약 contribution 갱신을 구현 대상으로 확정했다. task-16(서버측 잔여 백로그)은 2026-09-22 로드맵에 등록만 됐으며 착수는 별도 승인이 필요하다. task-17은 2026-09-26 앱 M14 라운드 1 지원 범위로 구현해 같은 날 운영 배포했고(merge `5b987a2`, migration `0012`), task-18은 2026-09-27 앱 M14 라운드 2 지원 범위로 구현해 같은 날 운영 배포했다(merge `a77cac5`, migration `0013`). 2026-09-28에는 HTTP 메시지 전송의 첨부 1개 제한을 푼 수정(merge `c7f71a8`)을 배포했다(§13).
+> 진행률: Task 1-14·17-18 구현·배포 완료, task-15는 구현/검사 진행 중, task-16은 등록(planned_unapproved) 단계
 > 기계 SSOT: .agents/results/plan-20260822-200110.json (task-1-13) · .agents/results/plan-20260926-181036.json (task-17) · .agents/results/plan-20260927-120934.json (task-18) · .agents/results/plan-20260928-171401.json (task-14) · task-15 이후는 착수 시 새 plan JSON 생성
 
 ## 0. 2026-09-28~29 task-14 서버 구현·배포 기록
@@ -245,7 +245,7 @@ M1은 /Users/poby/Developer/jamye-plz의 정확한 PF1 source set을 determinist
 | D14 | soft delete 범위 | **A 전 테이블 `created_at`/`updated_at`/`deleted_at` + hard→soft 전환 + 메시지/주제 삭제 API (사용자 승인 2026-09-22, locked; 단계 분할 허용)** | task-14가 §14 단계 A-D로 materialize |
 | D15 | 계정 삭제 유예·복구 | **A 30일 유예 후 기존 D10 tombstone 전이; 유예 중 삭제된 계정의 provider로 재로그인하면 계정 부활 (사용자 승인 2026-09-22, locked)** | task-14 §14 D단계가 materialize; D10의 전이 시점을 유예 만료 후로 옮김 |
 | D16 | Apple login (Sign in with Apple) | **A iOS native identity token 검증, provider별 별도 계정, Android 미지원 (사용자 승인 2026-09-22, locked; D4 갱신과 동일 결정의 단일 owner)** | task-15가 Apple exchange endpoint·JWKS 검증·`auth_identities` provider 확장으로 materialize |
-| D17 | Apple token revoke on account deletion (Guideline 5.1.1(v)) | 권고 A 필수 구현; task-15 착수 시 확인 | task-15가 계정 삭제 흐름과 결합해 materialize |
+| D17 | Apple token revoke on account deletion (Guideline 5.1.1(v)) | **A 필수 구현 (사용자 승인 2026-09-30, locked)** | task-15가 U3 Apple 재인증 proof 검증, `/auth/token` 교환, `/auth/revoke`, 기존 유예 transaction 순서로 materialize |
 | D18 | 삭제 이벤트 표현 | **A 새 realtime/delta 이벤트 `message.deleted`/`topic.deleted` (사용자 승인 2026-09-22, locked)**; unknown-event 복구 규칙과 version 협상은 task-14 PLAN에서 검토 | task-14 §4 C3 계약에 materialize |
 | D19 | `updated_at` 갱신 방식 | **A PostgreSQL `BEFORE UPDATE` 트리거 (사용자 승인 2026-09-22, locked)** — sqlx는 ORM이 아니라 entity lifecycle/auditing hook(JPA `@LastModifiedDate` 류)이 없으므로 한 migration의 트리거로 일괄 적용 | task-14 §14 A단계가 materialize |
 
@@ -329,7 +329,7 @@ Task 13은 완료됐다. 검증 체계·NixOS module·homelab midgard 배포의 
 
 ## 14. 후속 과제 상세
 
-이 절은 §11 표의 task-14-18을 위한 상세 명세다. task-14-16의 상태는 `planned_unapproved`이며, 이 등록 자체는 구현·migration 적용·contract publication·homelab 배포의 승인이 아니다. task-17-18은 구현과 운영 배포를 마쳤다(§13).
+이 절은 §11 표의 task-14-18을 위한 상세 명세다. task-14는 구현·운영 배포를 마쳤고, task-15는 2026-09-30 사용자 승인으로 구현 중이며 검사·migration 적용·contract publication·homelab 배포는 별도 단계다. task-16의 상태는 `planned_unapproved`이며, 이 등록 자체는 구현·migration 적용·contract publication·homelab 배포의 승인이 아니다. task-17-18은 구현과 운영 배포를 마쳤다(§13).
 
 ### task-14 — soft delete (M12)
 
@@ -348,9 +348,17 @@ D14·D15·D18·D19(모두 2026-09-22 locked)를 materialize한다(앱 M15 소프
 
 ### task-15 — Sign in with Apple (M13)
 
-D16(locked)·D17(권고 필수)을 materialize한다(앱 M16 Sign in with Apple과 연동). Apple exchange endpoint(가칭 A6), Apple identity token 서명·`iss`·`aud`(bundle id allowlist)·`exp`·nonce 검증, `auth_identities` provider 확장(`apple` 추가), config `JAMYE_APPLE_*`(Team ID, Key ID, `.p8` 경로, bundle id allowlist), 계정 삭제 시 Apple token revoke 호출(D17, Guideline 5.1.1(v))을 구현하고 C3 계약에 반영한다.
+상태: `implementation_pending_checks` (2026-09-30 사용자 승인, 세션 `20260930-000919`). D16(locked)·D17(2026-09-30 locked)을 materialize한다(앱 M16 Sign in with Apple과 연동). A6는 iOS native Sign in with Apple의 `identity_token`과 raw nonce만 검증한다. 로그인에서는 Apple API 호출·authorization code 수신·Apple token/code 저장이 없다. 기능이 꺼져 있으면 `404 oauth_provider_not_supported`이고, identity token 검증 실패는 원인별 public code를 나누지 않고 `422 apple_identity_token_invalid` 하나로 수렴한다.
 
-시작 조건: task-5(OAuth 기반, 충족) + task-14(계정 삭제 흐름과 결합, D17) + D16 확정(충족)·D17은 task-15 착수 시 확인. 별도 승인: Apple Developer 설정(App ID Sign in with Apple capability, key(.p8)/Team ID/Key ID)은 사용자가 직접 수행, migration 적용, C3 계약 publication, homelab 배포.
+구현 설계는 다음과 같다. `auth_identities.provider` CHECK에 `apple`만 추가하는 forward-only migration `0018`을 둔다. A6 신규 계정 nickname은 trimmed `full_name`이 1..64자면 사용하고, 아니면 기존 fallback 규칙의 `Apple` + 6자리 숫자를 사용한다. 재로그인과 유예 계정 복구는 nickname/avatar를 바꾸지 않으며 복구 시 `X-Jamye-Account-Restored: true`를 반환한다.
+
+Apple 계정 삭제는 U3 JSON body로 `identity_token`, `authorization_code`, `raw_nonce`를 요구한다. Server는 identity token을 검증하고 `sub`가 저장된 Apple `provider_id`와 같은지 확인한 뒤, SQL transaction 밖에서 ES256 client_secret으로 Apple `/auth/token`을 호출하고 `/auth/revoke`로 폐기한다. 그 다음 기존 계정 삭제 유예 transaction을 실행한다. revoke 전 실패는 DB mutation 0을 보장하고, revoke 뒤 유예 transaction 실패는 별도 `account_deletion_failed_after_revoke`로 보고한다. Kakao/Google 계정은 U3 body를 계속 거부한다.
+
+계약은 contract_version `"2"`를 유지하면서 A6 `POST /api/v1/auth/apple/exchange`, U3 Apple proof body, `User.provider = "apple"`을 추가한다. `provider_path_deferred`는 빈 배열이 된다. 계약 산출물 재생성은 검사 단계에서 수행한다.
+
+사용자가 수행해야 하는 Apple Developer/운영 준비: App ID의 Sign in with Apple capability 활성화, bundle id audience 확정, Apple private key 발급, Team ID와 Key ID 확인, homelab SOPS에 다음 secret key를 값 없이 준비한다: `JAMYE_APPLE_SIGNIN_ENABLED`, `JAMYE_APPLE_AUDIENCES`, `JAMYE_APPLE_TEAM_ID`, `JAMYE_APPLE_KEY_ID`, `JAMYE_APPLE_PRIVATE_KEY`.
+
+시작 조건: task-5(OAuth 기반, 충족) + task-14(계정 삭제 흐름과 결합, 충족) + D16/D17 확정(충족). 별도 승인: migration 적용, C3 계약 publication, homelab 배포.
 
 ### task-16 — 서버측 잔여 백로그 (M14)
 

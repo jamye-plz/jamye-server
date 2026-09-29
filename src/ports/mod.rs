@@ -1,6 +1,7 @@
 //! Replaceable external-system and transaction interfaces.
 
 pub mod account_deletion;
+pub mod apple_identity_provider;
 pub mod auth;
 pub mod chatrooms;
 pub mod groups;

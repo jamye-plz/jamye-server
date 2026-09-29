@@ -12,6 +12,7 @@ pub type OAuthProviderFuture<'a, T> =
 pub enum ProviderKind {
     Kakao,
     Google,
+    Apple,
 }
 
 impl ProviderKind {
@@ -19,6 +20,7 @@ impl ProviderKind {
         match value {
             "kakao" => Some(Self::Kakao),
             "google" => Some(Self::Google),
+            "apple" => Some(Self::Apple),
             _ => None,
         }
     }
@@ -27,6 +29,7 @@ impl ProviderKind {
         match self {
             Self::Kakao => "kakao",
             Self::Google => "google",
+            Self::Apple => "apple",
         }
     }
 }

@@ -97,6 +97,14 @@ pub(crate) const REST_SURFACES: &[RestSurface] = &[
         "contracts/contributions/task-5/fixtures/mobile-auth-handoff.json"
     ),
     row!(
+        "A6",
+        "post",
+        "/api/v1/auth/apple/exchange",
+        "src/transport/http/auth/api.rs::exchange_apple",
+        "tests/auth/oauth.rs::apple_exchange_creates_reuses_and_restores_with_stable_nickname",
+        "contracts/contributions/task-5/fixtures/mobile-auth-handoff.json"
+    ),
+    row!(
         "U1",
         "get",
         "/api/v1/me",

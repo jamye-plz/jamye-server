@@ -28,8 +28,8 @@ use jamye_server::{
     },
     ports::{
         account_deletion::{
-            AccountDeletionCommand, AccountDeletionPreparation, AccountDeletionReport,
-            AccountDeletionRepository, AccountDeletionRepositoryError,
+            AccountDeletionCommand, AccountDeletionIdentity, AccountDeletionPreparation,
+            AccountDeletionReport, AccountDeletionRepository, AccountDeletionRepositoryError,
             AccountDeletionRepositoryFuture,
         },
         groups::{
@@ -88,7 +88,10 @@ async fn live_owned_group_blocks_with_one_rollback_and_byte_equivalent_zero_muta
         let harness = service_harness(&pool, RepositoryMode::Normal)?;
         let deletion = harness
             .service
-            .delete_account(AccountDeletionCommand { user_id: target_id })
+            .delete_account(AccountDeletionCommand {
+                user_id: target_id,
+                apple_proof: None,
+            })
             .await;
         require_eq(
             deletion,
@@ -126,6 +129,7 @@ async fn grace_then_purge_reassigns_retained_content_removes_private_state_and_e
             .service
             .delete_account(AccountDeletionCommand {
                 user_id: fixture.target_id,
+                apple_proof: None,
             })
             .await;
         require_eq(
@@ -489,6 +493,7 @@ async fn delete_and_assert_source_authored_occurrence(
             .service
             .delete_account(AccountDeletionCommand {
                 user_id: fixture.target_id,
+                apple_proof: None,
             })
             .await,
         Ok(AccountDeletionReport {
@@ -708,7 +713,10 @@ async fn target_routed_membership_revocation_control_intent_remains_exact_and_de
         require_eq(
             harness
                 .service
-                .delete_account(AccountDeletionCommand { user_id: target_id })
+                .delete_account(AccountDeletionCommand {
+                    user_id: target_id,
+                    apple_proof: None,
+                })
                 .await,
             Ok(AccountDeletionReport {
                 memberships_removed: 0,
@@ -790,7 +798,10 @@ async fn memberships_are_removed_and_fenced_in_membership_id_order_on_one_handle
         let harness = service_harness(&pool, RepositoryMode::Normal)?;
         let report = harness
             .service
-            .delete_account(AccountDeletionCommand { user_id: target_id })
+            .delete_account(AccountDeletionCommand {
+                user_id: target_id,
+                apple_proof: None,
+            })
             .await;
         require_eq(
             report,
@@ -849,6 +860,7 @@ async fn finalize_failure_rolls_back_group_fences_tombstone_and_cleanup_intents(
             .service
             .delete_account(AccountDeletionCommand {
                 user_id: fixture.target_id,
+                apple_proof: None,
             })
             .await;
         require_eq(
@@ -903,7 +915,10 @@ async fn archived_owned_group_is_reassigned_to_tombstone_without_live_d5_conflic
         let harness = service_harness(&pool, RepositoryMode::Normal)?;
         let report = harness
             .service
-            .delete_account(AccountDeletionCommand { user_id: target_id })
+            .delete_account(AccountDeletionCommand {
+                user_id: target_id,
+                apple_proof: None,
+            })
             .await;
         require_eq(
             report,
@@ -1063,6 +1078,8 @@ fn service_harness(pool: &PgPool, repository_mode: RepositoryMode) -> TestResult
         groups,
         push_privacy_fence,
         repository,
+        apple_identity_provider: None,
+        apple_revocation_provider: None,
     });
     Ok(ServiceHarness {
         service,
@@ -1297,6 +1314,13 @@ struct FailAfterFinalizeRepository {
 }
 
 impl AccountDeletionRepository for FailAfterFinalizeRepository {
+    fn live_identity(
+        &self,
+        user_id: Uuid,
+    ) -> AccountDeletionRepositoryFuture<'_, Option<AccountDeletionIdentity>> {
+        self.inner.live_identity(user_id)
+    }
+
     fn prepare_deletion<'a>(
         &'a self,
         transaction: &'a mut dyn TransactionHandle,

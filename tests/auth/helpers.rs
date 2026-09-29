@@ -12,10 +12,15 @@ use jamye_server::{
         postgres::{auth::PostgresAuthRepository, transactions::SqlxTransactionManager},
     },
     application::auth::{
-        AuthDependencies, AuthLifetimePolicy, AuthRateLimitPolicy, AuthService, AuthorizeInput,
-        EndpointRateLimit, ExchangeInput, OAuthProviderSlot, TokenPair,
+        AppleIdentityProviderSlot, AuthDependencies, AuthLifetimePolicy, AuthRateLimitPolicy,
+        AuthService, AuthorizeInput, EndpointRateLimit, ExchangeInput, OAuthProviderSlot,
+        TokenPair,
     },
     ports::{
+        apple_identity_provider::{
+            AppleIdentity, AppleIdentityProvider, AppleIdentityProviderError,
+            AppleIdentityProviderFuture, AppleIdentityVerificationRequest,
+        },
         auth::{AuthClock, CredentialDigest, CredentialSource},
         oauth_attempt::{
             ConsumeAttemptOutcome, CreateAttemptOutcome, OAuthAttempt, OAuthAttemptError,
@@ -44,6 +49,7 @@ pub struct TestAuthHarness {
     pub codec: Arc<ProductionTokenCodec>,
     pub attempts: Arc<MemoryAttemptStore>,
     pub provider: Arc<FakeProvider>,
+    pub apple_provider: Option<Arc<FakeAppleIdentityProvider>>,
 }
 
 pub fn harness(
@@ -56,6 +62,7 @@ pub fn harness(
         Arc::new(AllowRateLimiter),
         None,
         None,
+        None,
     )
 }
 
@@ -64,21 +71,90 @@ pub fn harness_with_rate_limiter(
     provider_barrier: Option<Arc<Barrier>>,
     rate_limiter: Arc<dyn RateLimiter>,
 ) -> TestResult<TestAuthHarness> {
-    harness_with_options(pool, provider_barrier, rate_limiter, None, None)
+    harness_with_options(pool, provider_barrier, rate_limiter, None, None, None)
 }
 
 pub fn harness_with_provider_error(
     pool: PgPool,
     error: OAuthProviderError,
 ) -> TestResult<TestAuthHarness> {
-    harness_with_options(pool, None, Arc::new(AllowRateLimiter), Some(error), None)
+    harness_with_options(
+        pool,
+        None,
+        Arc::new(AllowRateLimiter),
+        Some(error),
+        None,
+        None,
+    )
 }
 
 pub fn harness_with_provider_identity(
     pool: PgPool,
     identity: ProviderIdentity,
 ) -> TestResult<TestAuthHarness> {
-    harness_with_options(pool, None, Arc::new(AllowRateLimiter), None, Some(identity))
+    harness_with_options(
+        pool,
+        None,
+        Arc::new(AllowRateLimiter),
+        None,
+        Some(identity),
+        None,
+    )
+}
+
+pub fn harness_with_apple_identity(
+    pool: PgPool,
+    apple_identity: AppleIdentity,
+) -> TestResult<TestAuthHarness> {
+    harness_with_options(
+        pool,
+        None,
+        Arc::new(AllowRateLimiter),
+        None,
+        None,
+        Some(Arc::new(FakeAppleIdentityProvider::new(
+            apple_identity,
+            None,
+        ))),
+    )
+}
+
+pub fn harness_with_apple_identity_and_rate_limiter(
+    pool: PgPool,
+    apple_identity: AppleIdentity,
+    rate_limiter: Arc<dyn RateLimiter>,
+) -> TestResult<TestAuthHarness> {
+    harness_with_options(
+        pool,
+        None,
+        rate_limiter,
+        None,
+        None,
+        Some(Arc::new(FakeAppleIdentityProvider::new(
+            apple_identity,
+            None,
+        ))),
+    )
+}
+
+pub fn harness_with_apple_error(
+    pool: PgPool,
+    error: AppleIdentityProviderError,
+) -> TestResult<TestAuthHarness> {
+    harness_with_options(
+        pool,
+        None,
+        Arc::new(AllowRateLimiter),
+        None,
+        None,
+        Some(Arc::new(FakeAppleIdentityProvider::new(
+            AppleIdentity {
+                provider_id: "apple-subject-42".to_owned(),
+                client_id: "dev.local.jamyeapp".to_owned(),
+            },
+            Some(error),
+        ))),
+    )
 }
 
 fn harness_with_options(
@@ -87,6 +163,7 @@ fn harness_with_options(
     rate_limiter: Arc<dyn RateLimiter>,
     provider_error: Option<OAuthProviderError>,
     provider_identity: Option<ProviderIdentity>,
+    apple_provider: Option<Arc<FakeAppleIdentityProvider>>,
 ) -> TestResult<TestAuthHarness> {
     let repository = Arc::new(PostgresAuthRepository::new(pool.clone()));
     let transactions = Arc::new(SqlxTransactionManager::new(pool));
@@ -123,6 +200,13 @@ fn harness_with_options(
             provider.clone(),
         )?,
         OAuthProviderSlot::disabled(ProviderKind::Google),
+        apple_provider
+            .as_ref()
+            .map(|provider| {
+                let provider: Arc<dyn AppleIdentityProvider> = provider.clone();
+                AppleIdentityProviderSlot::enabled(provider)
+            })
+            .unwrap_or_else(AppleIdentityProviderSlot::disabled),
         AuthLifetimePolicy {
             access: Duration::from_secs(900),
             refresh: Duration::from_secs(2_592_000),
@@ -151,6 +235,7 @@ fn harness_with_options(
         codec,
         attempts,
         provider,
+        apple_provider,
     })
 }
 
@@ -297,6 +382,41 @@ impl OAuthProvider for FakeProvider {
             if let Some(barrier) = &self.barrier {
                 barrier.wait().await;
             }
+            if let Some(error) = self.error {
+                return Err(error);
+            }
+            Ok(self.identity.clone())
+        })
+    }
+}
+
+pub struct FakeAppleIdentityProvider {
+    identity: AppleIdentity,
+    error: Option<AppleIdentityProviderError>,
+    verify_calls: AtomicUsize,
+}
+
+impl FakeAppleIdentityProvider {
+    fn new(identity: AppleIdentity, error: Option<AppleIdentityProviderError>) -> Self {
+        Self {
+            identity,
+            error,
+            verify_calls: AtomicUsize::new(0),
+        }
+    }
+
+    pub fn verify_calls(&self) -> usize {
+        self.verify_calls.load(Ordering::SeqCst)
+    }
+}
+
+impl AppleIdentityProvider for FakeAppleIdentityProvider {
+    fn verify_identity<'a>(
+        &'a self,
+        _request: &'a AppleIdentityVerificationRequest,
+    ) -> AppleIdentityProviderFuture<'a, AppleIdentity> {
+        Box::pin(async move {
+            self.verify_calls.fetch_add(1, Ordering::SeqCst);
             if let Some(error) = self.error {
                 return Err(error);
             }

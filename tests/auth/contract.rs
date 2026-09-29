@@ -9,12 +9,12 @@ fn feature_contract_contribution_is_the_exact_selected_auth_wire() -> TestResult
     let operations: Value = serde_json::from_str(include_str!(
         "../../contracts/contributions/task-5/dto/operations.json"
     ))?;
-    assert_eq!(operations["contract_version"], "1");
+    assert_eq!(operations["contract_version"], "2");
     assert_eq!(
         operations["provider_path_allowlist"],
         json!(["kakao", "google"])
     );
-    assert_eq!(operations["provider_path_deferred"], json!(["apple"]));
+    assert_eq!(operations["provider_path_deferred"], json!([]));
     let operation_rows = operations["operations"]
         .as_array()
         .ok_or_else(|| io::Error::other("task-5 operation contribution must be an array"))?;
@@ -30,6 +30,7 @@ fn feature_contract_contribution_is_the_exact_selected_auth_wire() -> TestResult
             Some("A3"),
             Some("A4"),
             Some("A5"),
+            Some("A6"),
             Some("U1"),
             Some("U2")
         ]
@@ -46,6 +47,9 @@ fn feature_contract_contribution_is_the_exact_selected_auth_wire() -> TestResult
         "/api/v1/auth/oauth/{provider}/callback"
     );
     assert_eq!(operation_rows[4]["success_status"], 302);
+    assert_eq!(operation_rows[5]["id"], "A6");
+    assert_eq!(operation_rows[5]["request"], "AppleExchangeIn");
+    assert_eq!(operation_rows[5]["response"], "TokenPair");
 
     let schema: Value = serde_json::from_str(include_str!(
         "../../contracts/contributions/task-5/schemas/auth-wire.schema.json"
@@ -75,6 +79,22 @@ fn feature_contract_contribution_is_the_exact_selected_auth_wire() -> TestResult
     assert_eq!(
         schema["$defs"]["TokenPair"]["properties"]["token_type"]["const"],
         "Bearer"
+    );
+    assert_eq!(
+        schema["$defs"]["AppleExchangeIn"]["required"],
+        json!(["identity_token", "raw_nonce"])
+    );
+    assert_eq!(
+        schema["$defs"]["AppleExchangeIn"]["properties"]["full_name"]["maxLength"],
+        256
+    );
+    assert_eq!(
+        schema["$defs"]["AppleAccountDeletionProof"]["required"],
+        json!(["identity_token", "authorization_code", "raw_nonce"])
+    );
+    assert_eq!(
+        schema["$defs"]["User"]["properties"]["provider"]["enum"],
+        json!(["kakao", "google", "apple"])
     );
     Ok(())
 }

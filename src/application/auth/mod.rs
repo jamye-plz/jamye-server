@@ -5,7 +5,8 @@ mod service;
 
 pub use access_identity::{AccessIdentity, AccessTokenVerifier, AuthenticationError};
 pub use service::{
-    AuthDependencies, AuthError, AuthExchangeOutput, AuthLifetimePolicy, AuthRateLimitPolicy,
-    AuthService, AuthorizeInput, AuthorizeOutput, EndpointRateLimit, ExchangeInput,
-    OAUTH_ATTEMPT_TTL, OAuthProviderSlot, SystemAuthClock, TokenPair,
+    AppleExchangeInput, AppleIdentityProviderSlot, AuthDependencies, AuthError, AuthExchangeOutput,
+    AuthLifetimePolicy, AuthRateLimitPolicy, AuthService, AuthorizeInput, AuthorizeOutput,
+    EndpointRateLimit, ExchangeInput, OAUTH_ATTEMPT_TTL, OAuthProviderSlot, SystemAuthClock,
+    TokenPair,
 };

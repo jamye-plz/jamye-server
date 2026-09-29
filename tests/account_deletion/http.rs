@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::Arc};
 
 use axum::{
     body::{Body, to_bytes},
@@ -10,6 +10,9 @@ use jamye_server::{
         postgres::{auth::PostgresAuthRepository, transactions::SqlxTransactionManager},
     },
     ports::{
+        apple_identity_provider::{
+            AppleIdentity, AppleIdentityProviderError, AppleRevocationProviderError,
+        },
         auth::{AuthRepository, CredentialSource, NewRotatedSession, RotationOutcome},
         transactions::TransactionManager,
     },
@@ -23,8 +26,9 @@ use crate::{
     TestResult,
     postgres_support::TestDatabase,
     support::{
-        authenticated_request, bearer, delete_request, finish_database_test, require, require_eq,
-        test_router,
+        FakeAppleIdentityProvider, FakeAppleRevocationProvider, authenticated_request, bearer,
+        delete_request, finish_database_test, require, require_eq, test_router,
+        test_router_with_apple,
     },
 };
 
@@ -307,6 +311,314 @@ async fn live_owned_group_returns_409_without_mutating_the_account_graph() -> Te
     finish_database_test(database, pool, result).await
 }
 
+#[tokio::test]
+async fn apple_live_owned_group_returns_409_before_apple_io_and_zero_mutation() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let result: TestResult = async {
+        let target_id = Uuid::new_v4();
+        insert_user(&pool, target_id, "Apple D5 owner").await?;
+        sqlx::query(
+            "INSERT INTO auth_identities (id, user_id, provider, provider_id) \
+             VALUES ($1, $2, 'apple', 'apple-owned-group-subject')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(target_id)
+        .execute(&pool)
+        .await?;
+        let group_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO groups (id, name, owner_id) VALUES ($1, 'Apple D5 live', $2)")
+            .bind(group_id)
+            .bind(target_id)
+            .execute(&pool)
+            .await?;
+        sqlx::query(
+            "INSERT INTO memberships (id, group_id, user_id, role) VALUES ($1, $2, $3, 'owner')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(group_id)
+        .bind(target_id)
+        .execute(&pool)
+        .await?;
+        let before_private = apple_account_graph(&pool, target_id).await?;
+        let before_group = account_graph(&pool, target_id).await?;
+        let identity = Arc::new(FakeAppleIdentityProvider::new(
+            AppleIdentity {
+                provider_id: "apple-owned-group-subject".to_owned(),
+                client_id: "dev.local.jamyeapp".to_owned(),
+            },
+            None,
+        ));
+        let revocation = Arc::new(FakeAppleRevocationProvider::new(None));
+
+        let response = test_router_with_apple(
+            pool.clone(),
+            Some(identity.clone()),
+            Some(revocation.clone()),
+        )?
+        .oneshot(apple_delete_request(target_id)?)
+        .await?;
+        assert_error(
+            response,
+            StatusCode::CONFLICT,
+            "group_ownership_transfer_required",
+        )
+        .await?;
+        require_eq(
+            identity.calls(),
+            0,
+            "Apple identity verification ran before group-ownership preflight",
+        )?;
+        require_eq(
+            revocation.calls(),
+            0,
+            "Apple revoke ran before group-ownership preflight",
+        )?;
+        require_eq(
+            apple_account_graph(&pool, target_id).await?,
+            before_private,
+            "Apple owned-group conflict mutated private account graph",
+        )?;
+        require_eq(
+            account_graph(&pool, target_id).await?,
+            before_group,
+            "Apple owned-group conflict mutated group graph",
+        )?;
+
+        Ok(())
+    }
+    .await;
+    finish_database_test(database, pool, result).await
+}
+
+#[tokio::test]
+async fn apple_delete_body_limit_accepts_contract_max_proof_and_rejects_larger_body() -> TestResult
+{
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let result: TestResult = async {
+        let target_id = Uuid::new_v4();
+        insert_user(&pool, target_id, "Apple max proof").await?;
+        sqlx::query(
+            "INSERT INTO auth_identities (id, user_id, provider, provider_id) \
+             VALUES ($1, $2, 'apple', 'apple-max-proof-subject')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(target_id)
+        .execute(&pool)
+        .await?;
+        let identity = Arc::new(FakeAppleIdentityProvider::new(
+            AppleIdentity {
+                provider_id: "apple-max-proof-subject".to_owned(),
+                client_id: "dev.local.jamyeapp".to_owned(),
+            },
+            Some(AppleIdentityProviderError::InvalidIdentity),
+        ));
+        let revocation = Arc::new(FakeAppleRevocationProvider::new(None));
+        let router = test_router_with_apple(
+            pool.clone(),
+            Some(identity.clone()),
+            Some(revocation.clone()),
+        )?;
+        let max_proof = router
+            .clone()
+            .oneshot(apple_delete_request_with_proof(
+                target_id,
+                &"i".repeat(8192),
+                &"c".repeat(4096),
+                &"r".repeat(256),
+            )?)
+            .await?;
+        assert_error(
+            max_proof,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "apple_identity_token_invalid",
+        )
+        .await?;
+        require_eq(
+            identity.calls(),
+            1,
+            "contract-max Apple proof did not reach identity validation",
+        )?;
+        require_eq(
+            revocation.calls(),
+            0,
+            "invalid identity unexpectedly attempted revoke",
+        )?;
+
+        let oversized = router
+            .oneshot(authenticated_request(
+                "DELETE",
+                "/api/v1/me",
+                target_id,
+                Body::from("x".repeat((16 * 1024) + 1)),
+            )?)
+            .await?;
+        assert_error(
+            oversized,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "request_validation_failed",
+        )
+        .await?;
+
+        Ok(())
+    }
+    .await;
+    finish_database_test(database, pool, result).await
+}
+
+#[tokio::test]
+async fn apple_delete_requires_reauthentication_proof_before_mutating() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let result: TestResult = async {
+        let fixture = seed_deletable_account(&pool).await?;
+        make_target_identity_apple(&pool, fixture.target_id, "apple-delete-subject").await?;
+        let before = apple_account_graph(&pool, fixture.target_id).await?;
+
+        let response = test_router(pool.clone())?
+            .oneshot(delete_request(fixture.target_id)?)
+            .await?;
+        assert_error(
+            response,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "apple_reauthentication_required",
+        )
+        .await?;
+        require_eq(
+            apple_account_graph(&pool, fixture.target_id).await?,
+            before,
+            "Apple deletion without proof mutated account state",
+        )
+    }
+    .await;
+    finish_database_test(database, pool, result).await
+}
+
+#[tokio::test]
+async fn apple_delete_rejects_subject_mismatch_invalid_code_and_provider_outage_without_mutation()
+-> TestResult {
+    for scenario in [
+        (
+            "subject mismatch",
+            AppleIdentity {
+                provider_id: "other-apple-subject".to_owned(),
+                client_id: "dev.local.jamyeapp".to_owned(),
+            },
+            None,
+            StatusCode::FORBIDDEN,
+            "apple_subject_mismatch",
+        ),
+        (
+            "invalid code",
+            AppleIdentity {
+                provider_id: "apple-delete-subject".to_owned(),
+                client_id: "dev.local.jamyeapp".to_owned(),
+            },
+            Some(AppleRevocationProviderError::InvalidAuthorizationCode),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "apple_authorization_code_invalid",
+        ),
+        (
+            "provider outage",
+            AppleIdentity {
+                provider_id: "apple-delete-subject".to_owned(),
+                client_id: "dev.local.jamyeapp".to_owned(),
+            },
+            Some(AppleRevocationProviderError::Unavailable),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "provider_unavailable",
+        ),
+    ] {
+        let database = TestDatabase::migrated().await?;
+        let pool = database.pool()?;
+        let result: TestResult = async {
+            let fixture = seed_deletable_account(&pool).await?;
+            make_target_identity_apple(&pool, fixture.target_id, "apple-delete-subject").await?;
+            let before = apple_account_graph(&pool, fixture.target_id).await?;
+            let identity = Arc::new(FakeAppleIdentityProvider::new(scenario.1, None));
+            let revocation = Arc::new(FakeAppleRevocationProvider::new(scenario.2));
+            let response = test_router_with_apple(
+                pool.clone(),
+                Some(identity.clone()),
+                Some(revocation.clone()),
+            )?
+            .oneshot(apple_delete_request(fixture.target_id)?)
+            .await?;
+            assert_error(response, scenario.3, scenario.4).await?;
+            require_eq(
+                apple_account_graph(&pool, fixture.target_id).await?,
+                before,
+                scenario.0,
+            )?;
+            require_eq(identity.calls(), 1, "Apple identity proof was not checked")?;
+            if scenario.4 == "apple_subject_mismatch" {
+                require_eq(
+                    revocation.calls(),
+                    0,
+                    "subject mismatch still attempted revoke",
+                )?;
+            }
+            Ok(())
+        }
+        .await;
+        finish_database_test(database, pool, result).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn apple_delete_exchanges_revokes_then_enters_grace_deletion() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let result: TestResult = async {
+        let fixture = seed_deletable_account(&pool).await?;
+        make_target_identity_apple(&pool, fixture.target_id, "apple-delete-subject").await?;
+        let identity = Arc::new(FakeAppleIdentityProvider::new(
+            AppleIdentity {
+                provider_id: "apple-delete-subject".to_owned(),
+                client_id: "dev.local.jamyeapp".to_owned(),
+            },
+            None,
+        ));
+        let revocation = Arc::new(FakeAppleRevocationProvider::new(None));
+        let response = test_router_with_apple(
+            pool.clone(),
+            Some(identity.clone()),
+            Some(revocation.clone()),
+        )?
+        .oneshot(apple_delete_request(fixture.target_id)?)
+        .await?;
+        assert_empty(response, StatusCode::NO_CONTENT).await?;
+        require_eq(identity.calls(), 1, "Apple identity proof was not verified")?;
+        require_eq(revocation.calls(), 1, "Apple revoke was not called")?;
+        require_eq(
+            revocation.requests()?,
+            vec![jamye_server::ports::apple_identity_provider::AppleAuthorizationCodeRevocationRequest {
+                client_id: "dev.local.jamyeapp".to_owned(),
+                authorization_code: "APPLE_AUTHORIZATION_CODE_SENTINEL".to_owned(),
+            }],
+            "Apple revoke request shape differed",
+        )?;
+        let live_private_references = sqlx::query_scalar::<_, i64>(
+            "SELECT \
+            (SELECT count(*) FROM users WHERE id = $1 AND deleted_at IS NULL) + \
+            (SELECT count(*) FROM auth_identities WHERE user_id = $1 AND deleted_at IS NULL) + \
+            (SELECT count(*) FROM refresh_sessions WHERE user_id = $1 AND deleted_at IS NULL)",
+        )
+        .bind(fixture.target_id)
+        .fetch_one(&pool)
+        .await?;
+        require_eq(
+            live_private_references,
+            0,
+            "Apple delete did not enter grace deletion",
+        )
+    }
+    .await;
+    finish_database_test(database, pool, result).await
+}
+
 async fn seed_deletable_account(pool: &PgPool) -> TestResult<DeletionFixture> {
     let target_id = Uuid::new_v4();
     let owner_id = Uuid::new_v4();
@@ -473,6 +785,46 @@ async fn seed_deletable_account(pool: &PgPool) -> TestResult<DeletionFixture> {
     })
 }
 
+async fn make_target_identity_apple(pool: &PgPool, user_id: Uuid, provider_id: &str) -> TestResult {
+    sqlx::query(
+        "UPDATE auth_identities \
+         SET provider = 'apple', provider_id = $2 \
+         WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .bind(provider_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+fn apple_delete_request(user_id: Uuid) -> TestResult<Request<Body>> {
+    apple_delete_request_with_proof(
+        user_id,
+        "APPLE_DELETE_IDENTITY_TOKEN_SENTINEL",
+        "APPLE_AUTHORIZATION_CODE_SENTINEL",
+        "raw-nonce-delete",
+    )
+}
+
+fn apple_delete_request_with_proof(
+    user_id: Uuid,
+    identity_token: &str,
+    authorization_code: &str,
+    raw_nonce: &str,
+) -> TestResult<Request<Body>> {
+    authenticated_request(
+        "DELETE",
+        "/api/v1/me",
+        user_id,
+        Body::from(serde_json::to_vec(&json!({
+            "identity_token": identity_token,
+            "authorization_code": authorization_code,
+            "raw_nonce": raw_nonce
+        }))?),
+    )
+}
+
 async fn insert_user(pool: &PgPool, user_id: Uuid, nickname: &str) -> TestResult {
     sqlx::query("INSERT INTO users (id, nickname, avatar_url) VALUES ($1, $2, $3)")
         .bind(user_id)
@@ -481,6 +833,21 @@ async fn insert_user(pool: &PgPool, user_id: Uuid, nickname: &str) -> TestResult
         .execute(pool)
         .await?;
     Ok(())
+}
+
+async fn apple_account_graph(pool: &PgPool, user_id: Uuid) -> TestResult<String> {
+    Ok(sqlx::query_scalar(
+        "SELECT jsonb_build_object( \
+            'users', (SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id) FROM users r), \
+            'auth_identities', (SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id) FROM auth_identities r), \
+            'refresh_sessions', (SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id) FROM refresh_sessions r), \
+            'memberships', (SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id) FROM memberships r), \
+            'target', $1 \
+         )::TEXT",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?)
 }
 
 async fn account_graph(pool: &PgPool, user_id: Uuid) -> TestResult<String> {
@@ -539,6 +906,14 @@ fn expected_error_message(code: &str) -> TestResult<&'static str> {
         }
         "request_validation_failed" => Ok("요청 형식이 올바르지 않습니다."),
         "database_unavailable" => Ok("데이터베이스를 사용할 수 없습니다."),
+        "apple_reauthentication_required" => Ok("Apple 인증을 다시 진행해야 합니다."),
+        "apple_identity_token_invalid" => Ok("Apple 인증 정보를 확인할 수 없습니다."),
+        "apple_subject_mismatch" => Ok("다른 Apple 계정으로는 삭제할 수 없습니다."),
+        "apple_authorization_code_invalid" => Ok("Apple 인증 코드를 확인할 수 없습니다."),
+        "provider_unavailable" => Ok("로그인 제공자를 일시적으로 사용할 수 없습니다."),
+        "account_deletion_failed_after_revoke" => {
+            Ok("Apple 연결 폐기 뒤 계정 삭제를 완료하지 못했습니다.")
+        }
         _ => Err(std::io::Error::other(format!(
             "test requested an unknown account-deletion error code: {code}"
         ))
