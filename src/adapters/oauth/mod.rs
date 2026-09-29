@@ -1,9 +1,11 @@
 //! Fixed-origin OAuth and production token adapters.
 
+mod apple;
 mod credentials;
 mod providers;
 mod token;
 
+pub use apple::{AppleIdTokenVerifier, AppleOAuthConfig, AppleOAuthProvider};
 pub use credentials::OsCredentialSource;
 pub use providers::{
     GOOGLE_AUTHORIZE_URL, GOOGLE_IDENTITY_URL, GOOGLE_ISSUER, GOOGLE_JWKS_URL, GOOGLE_TOKEN_URL,

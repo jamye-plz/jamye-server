@@ -38,6 +38,7 @@
     "A3",
     "A4",
     "A5",
+    "A6",
     "U1",
     "U2",
     "U3",
@@ -83,5 +84,5 @@
     "message.deleted",
     "topic.deleted"
   ],
-  "sha256": "65da7e8e7b496eafcaf2a8ac8b95337f5941bebb51d299e4b1f994e498b2a23c"
+  "sha256": "3a9278661f82d069f60acca7d9a63df08d198296592a24f507618662ee0071ed"
 }

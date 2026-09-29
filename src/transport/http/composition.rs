@@ -39,8 +39,8 @@ use crate::{
 use crate::{
     adapters::{
         oauth::{
-            GoogleOAuthProvider, KakaoOAuthProvider, OAuthClientConfig, OsCredentialSource,
-            ProductionTokenCodec,
+            AppleOAuthConfig, AppleOAuthProvider, GoogleOAuthProvider, KakaoOAuthProvider,
+            OAuthClientConfig, OsCredentialSource, ProductionTokenCodec,
         },
         object_storage::media::S3MediaObjectStorage,
         postgres::{
@@ -63,7 +63,8 @@ use crate::{
     application::{
         account_deletion::{AccountDeletionDependencies, AccountDeletionService},
         auth::{
-            AuthDependencies, AuthLifetimePolicy, AuthService, OAuthProviderSlot, SystemAuthClock,
+            AppleIdentityProviderSlot, AuthDependencies, AuthLifetimePolicy, AuthService,
+            OAuthProviderSlot, SystemAuthClock,
         },
         chatrooms::ChatroomsService,
         groups::{GroupsDependencies, GroupsService, SystemGroupsClock},
@@ -171,6 +172,15 @@ pub fn router_with_runtime(
         Arc::new(RedisRateLimiter::new(redis_url).map_err(|_| CompositionError::Redis)?);
     let attempts =
         Arc::new(RedisOAuthAttemptStore::new(redis_url).map_err(|_| CompositionError::Redis)?);
+    let apple_provider = apple_provider(auth)?;
+    let apple_identity_slot = apple_provider
+        .as_ref()
+        .map(|provider| {
+            let provider: Arc<dyn crate::ports::apple_identity_provider::AppleIdentityProvider> =
+                provider.clone();
+            AppleIdentityProviderSlot::enabled(provider)
+        })
+        .unwrap_or_else(AppleIdentityProviderSlot::disabled);
     let auth_service = Arc::new(
         AuthService::new(
             AuthDependencies {
@@ -184,6 +194,7 @@ pub fn router_with_runtime(
             },
             oauth_slot(&auth.kakao, auth.provider_timeout)?,
             oauth_slot(&auth.google, auth.provider_timeout)?,
+            apple_identity_slot,
             AuthLifetimePolicy {
                 access: auth.access_token_ttl,
                 refresh: auth.refresh_token_ttl,
@@ -269,6 +280,16 @@ pub fn router_with_runtime(
         groups: groups_service.clone(),
         push_privacy_fence: push_repository.clone(),
         repository: Arc::new(PostgresAccountDeletionRepository::new(pool.clone())),
+        apple_identity_provider: apple_provider.as_ref().map(|provider| {
+            let provider: Arc<dyn crate::ports::apple_identity_provider::AppleIdentityProvider> =
+                provider.clone();
+            provider
+        }),
+        apple_revocation_provider: apple_provider.as_ref().map(|provider| {
+            let provider: Arc<dyn crate::ports::apple_identity_provider::AppleRevocationProvider> =
+                provider.clone();
+            provider
+        }),
     }));
     let redis =
         Arc::new(RedisRealtimeAdapter::new(redis_url).map_err(|_| CompositionError::Redis)?);
@@ -382,7 +403,38 @@ fn oauth_slot(
             Arc::new(GoogleOAuthProvider::new(client).map_err(|_| CompositionError::Auth)?),
         )
         .map_err(|_| CompositionError::Auth),
+        ProviderKind::Apple => Err(CompositionError::Auth),
     }
+}
+
+fn apple_provider(auth: &AuthConfig) -> Result<Option<Arc<AppleOAuthProvider>>, CompositionError> {
+    if !auth.apple.enabled {
+        return Ok(None);
+    }
+    let config = AppleOAuthConfig::new(
+        auth.apple.audiences.clone(),
+        auth.apple
+            .team_id
+            .as_ref()
+            .ok_or(CompositionError::Auth)?
+            .expose_secret(),
+        auth.apple
+            .key_id
+            .as_ref()
+            .ok_or(CompositionError::Auth)?
+            .expose_secret(),
+        auth.apple
+            .private_key_der
+            .as_ref()
+            .ok_or(CompositionError::Auth)?
+            .expose_secret()
+            .to_vec(),
+        auth.provider_timeout,
+    )
+    .map_err(|_| CompositionError::Auth)?;
+    Ok(Some(Arc::new(
+        AppleOAuthProvider::new(config).map_err(|_| CompositionError::Auth)?,
+    )))
 }
 
 /// Builds the exact fixed worker root invoked by `src/bin/worker.rs`.

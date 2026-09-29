@@ -10,12 +10,15 @@ use jamye_server::{
         GOOGLE_TOKEN_URL, GoogleOAuthProvider, KAKAO_AUTHORIZE_URL, KAKAO_IDENTITY_URL,
         KAKAO_TOKEN_URL, KakaoOAuthProvider, OAuthClientConfig, ProductionTokenCodec,
     },
-    application::auth::{AccessTokenVerifier, AuthError, AuthorizeInput, ExchangeInput},
+    application::auth::{
+        AccessTokenVerifier, AppleExchangeInput, AuthError, AuthorizeInput, ExchangeInput,
+    },
     config::{
         auth::{AuthConfig, AuthConfigInput, OAUTH_ATTEMPT_TTL},
         rate_limit::{RateLimitConfig, RateLimitConfigInput},
     },
     ports::{
+        apple_identity_provider::{AppleIdentity, AppleIdentityProviderError},
         auth::AccessTokenIssuer,
         oauth_provider::{AuthorizationRequest, OAuthProvider, OAuthProviderError},
         rate_limit::{
@@ -34,7 +37,9 @@ use crate::{
     TestResult,
     auth_helpers::{
         GOOGLE_REDIRECT, KAKAO_REDIRECT, TEST_VERIFIER, authorize, harness,
-        harness_with_provider_error, harness_with_provider_identity, harness_with_rate_limiter,
+        harness_with_apple_error, harness_with_apple_identity,
+        harness_with_apple_identity_and_rate_limiter, harness_with_provider_error,
+        harness_with_provider_identity, harness_with_rate_limiter,
     },
     postgres_support::TestDatabase,
 };
@@ -137,6 +142,414 @@ async fn unsupported_and_disabled_providers_have_zero_side_effects() -> TestResu
     );
     assert_eq!(fixture.attempts.len()?, 0);
     assert_eq!(fixture.provider.exchange_calls(), 0);
+    let rows: i64 = sqlx::query_scalar(
+        "SELECT (SELECT count(*) FROM users) + \
+                (SELECT count(*) FROM auth_identities) + \
+                (SELECT count(*) FROM refresh_sessions)",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(rows, 0);
+    pool.close().await;
+    database.dispose().await
+}
+
+#[tokio::test]
+async fn apple_exchange_disabled_returns_404_and_zero_mutation() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let fixture = harness(pool.clone(), None)?;
+    let router = auth_router(AuthHttpState::new(
+        fixture.service.clone(),
+        fixture.codec.clone(),
+    ));
+
+    let response = router
+        .oneshot(apple_exchange_request(
+            "APPLE_IDENTITY_TOKEN_SENTINEL",
+            "raw-nonce-123456",
+            Some("김철수"),
+        )?)
+        .await?;
+    assert_error_code(
+        response,
+        StatusCode::NOT_FOUND,
+        "oauth_provider_not_supported",
+    )
+    .await?;
+    let rows: i64 = sqlx::query_scalar(
+        "SELECT (SELECT count(*) FROM users) + \
+                (SELECT count(*) FROM auth_identities) + \
+                (SELECT count(*) FROM refresh_sessions)",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(rows, 0);
+
+    pool.close().await;
+    database.dispose().await
+}
+
+#[tokio::test]
+async fn apple_exchange_creates_reuses_and_restores_with_stable_nickname() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let fixture = harness_with_apple_identity(
+        pool.clone(),
+        AppleIdentity {
+            provider_id: "apple-subject-42".to_owned(),
+            client_id: "dev.local.jamyeapp".to_owned(),
+        },
+    )?;
+    let router = auth_router(AuthHttpState::new(
+        fixture.service.clone(),
+        fixture.codec.clone(),
+    ));
+
+    let created = fixture
+        .service
+        .exchange_apple_identity(
+            AppleExchangeInput {
+                identity_token: "APPLE_CREATE_TOKEN_SENTINEL".to_owned(),
+                raw_nonce: "raw-nonce-123456".to_owned(),
+                full_name: Some("  김철수  ".to_owned()),
+            },
+            "ip:apple-create",
+        )
+        .await?;
+    assert!(!created.account_restored);
+    let user_id: Uuid = sqlx::query_scalar(
+        "SELECT user_id FROM auth_identities \
+         WHERE provider = 'apple' AND provider_id = 'apple-subject-42'",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(
+        user_nickname(&pool, user_id).await?,
+        "김철수",
+        "Apple full_name was not trimmed for the first nickname"
+    );
+    let avatar_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM users WHERE id = $1 AND avatar_url IS NOT NULL")
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(avatar_count, 0);
+
+    let reused = fixture
+        .service
+        .exchange_apple_identity(
+            AppleExchangeInput {
+                identity_token: "APPLE_RELOGIN_TOKEN_SENTINEL".to_owned(),
+                raw_nonce: "raw-nonce-abcdef".to_owned(),
+                full_name: Some("바뀐 이름".to_owned()),
+            },
+            "ip:apple-relogin",
+        )
+        .await?;
+    assert!(!reused.account_restored);
+    assert_eq!(user_nickname(&pool, user_id).await?, "김철수");
+
+    sqlx::query("UPDATE users SET deleted_at = clock_timestamp() WHERE id = $1")
+        .bind(user_id)
+        .execute(&pool)
+        .await?;
+    sqlx::query(
+        "UPDATE auth_identities SET deleted_at = clock_timestamp() \
+         WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .execute(&pool)
+    .await?;
+    sqlx::query(
+        "UPDATE refresh_sessions \
+         SET revoked_at = COALESCE(revoked_at, clock_timestamp()), \
+             deleted_at = COALESCE(deleted_at, clock_timestamp()) \
+         WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .execute(&pool)
+    .await?;
+
+    let restored = router
+        .oneshot(apple_exchange_request(
+            "APPLE_RESTORE_TOKEN_SENTINEL",
+            "raw-nonce-restore",
+            Some("복구 이름"),
+        )?)
+        .await?;
+    assert_eq!(restored.status(), StatusCode::OK);
+    assert_eq!(
+        restored
+            .headers()
+            .get("x-jamye-account-restored")
+            .and_then(|value| value.to_str().ok()),
+        Some("true")
+    );
+    let restored_body: Value =
+        serde_json::from_slice(&to_bytes(restored.into_body(), 8192).await?)?;
+    let _ = assert_exact_token_pair(&restored_body)?;
+    assert_eq!(user_nickname(&pool, user_id).await?, "김철수");
+
+    pool.close().await;
+    database.dispose().await
+}
+
+#[tokio::test]
+async fn apple_exchange_fallback_nickname_and_invalid_identity_are_stable() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let fixture = harness_with_apple_identity(
+        pool.clone(),
+        AppleIdentity {
+            provider_id: "apple-fallback-subject".to_owned(),
+            client_id: "dev.local.jamyeapp".to_owned(),
+        },
+    )?;
+    let output = fixture
+        .service
+        .exchange_apple_identity(
+            AppleExchangeInput {
+                identity_token: "APPLE_FALLBACK_TOKEN_SENTINEL".to_owned(),
+                raw_nonce: "raw-nonce-fallback".to_owned(),
+                full_name: Some("가".repeat(256)),
+            },
+            "ip:apple-fallback",
+        )
+        .await?;
+    assert!(!output.account_restored);
+    let nickname: String = sqlx::query_scalar(
+        "SELECT account.nickname \
+         FROM users account \
+         JOIN auth_identities identity ON identity.user_id = account.id \
+         WHERE identity.provider = 'apple' AND identity.provider_id = 'apple-fallback-subject'",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert!(
+        nickname.starts_with("Apple")
+            && nickname.len() == 11
+            && nickname["Apple".len()..]
+                .bytes()
+                .all(|byte| byte.is_ascii_digit()),
+        "unexpected Apple fallback nickname: {nickname}"
+    );
+    pool.close().await;
+    database.dispose().await?;
+
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let fixture = harness_with_apple_identity(
+        pool.clone(),
+        AppleIdentity {
+            provider_id: "apple-no-name-subject".to_owned(),
+            client_id: "dev.local.jamyeapp".to_owned(),
+        },
+    )?;
+    let output = fixture
+        .service
+        .exchange_apple_identity(
+            AppleExchangeInput {
+                identity_token: "APPLE_NO_NAME_TOKEN_SENTINEL".to_owned(),
+                raw_nonce: "raw-nonce-no-name".to_owned(),
+                full_name: None,
+            },
+            "ip:apple-no-name",
+        )
+        .await?;
+    assert!(!output.account_restored);
+    let nickname: String = sqlx::query_scalar(
+        "SELECT account.nickname \
+         FROM users account \
+         JOIN auth_identities identity ON identity.user_id = account.id \
+         WHERE identity.provider = 'apple' AND identity.provider_id = 'apple-no-name-subject'",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert!(
+        nickname.starts_with("Apple")
+            && nickname.len() == 11
+            && nickname["Apple".len()..]
+                .bytes()
+                .all(|byte| byte.is_ascii_digit()),
+        "unexpected Apple no-name fallback nickname: {nickname}"
+    );
+    pool.close().await;
+    database.dispose().await?;
+
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let fixture =
+        harness_with_apple_error(pool.clone(), AppleIdentityProviderError::InvalidIdentity)?;
+    let router = auth_router(AuthHttpState::new(
+        fixture.service.clone(),
+        fixture.codec.clone(),
+    ));
+    let response = router
+        .oneshot(apple_exchange_request(
+            "APPLE_INVALID_TOKEN_SENTINEL",
+            "raw-nonce-invalid",
+            None,
+        )?)
+        .await?;
+    assert_error_code(
+        response,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "apple_identity_token_invalid",
+    )
+    .await?;
+    assert_eq!(
+        fixture
+            .apple_provider
+            .as_ref()
+            .map(|provider| provider.verify_calls()),
+        Some(1)
+    );
+    let rows: i64 = sqlx::query_scalar(
+        "SELECT (SELECT count(*) FROM users) + \
+                (SELECT count(*) FROM auth_identities) + \
+                (SELECT count(*) FROM refresh_sessions)",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(rows, 0);
+
+    let unavailable =
+        harness_with_apple_error(pool.clone(), AppleIdentityProviderError::Unavailable)?;
+    let unavailable_router = auth_router(AuthHttpState::new(
+        unavailable.service.clone(),
+        unavailable.codec.clone(),
+    ));
+    let unavailable_response = unavailable_router
+        .oneshot(apple_exchange_request(
+            "APPLE_UNAVAILABLE_TOKEN_SENTINEL",
+            "raw-nonce-unavailable",
+            None,
+        )?)
+        .await?;
+    assert_error_code(
+        unavailable_response,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "provider_unavailable",
+    )
+    .await?;
+    let rows: i64 = sqlx::query_scalar(
+        "SELECT (SELECT count(*) FROM users) + \
+                (SELECT count(*) FROM auth_identities) + \
+                (SELECT count(*) FROM refresh_sessions)",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(rows, 0);
+
+    pool.close().await;
+    database.dispose().await
+}
+
+#[tokio::test]
+async fn apple_exchange_rejects_full_name_over_contract_limit_or_control_chars() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let result: TestResult = async {
+        let fixture = harness_with_apple_identity(
+            pool.clone(),
+            AppleIdentity {
+                provider_id: "apple-full-name-boundary".to_owned(),
+                client_id: "dev.local.jamyeapp".to_owned(),
+            },
+        )?;
+        let router = auth_router(AuthHttpState::new(
+            fixture.service.clone(),
+            fixture.codec.clone(),
+        ));
+
+        for (label, full_name) in [
+            ("257 characters", "가".repeat(257)),
+            ("control character", "김\n철수".to_owned()),
+        ] {
+            let response = router
+                .clone()
+                .oneshot(apple_exchange_request(
+                    "APPLE_FULL_NAME_INVALID_TOKEN_SENTINEL",
+                    "raw-nonce-full-name",
+                    Some(&full_name),
+                )?)
+                .await?;
+            assert_error_code(
+                response,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "request_validation_failed",
+            )
+            .await?;
+            assert_eq!(
+                fixture
+                    .apple_provider
+                    .as_ref()
+                    .map(|provider| provider.verify_calls()),
+                Some(0),
+                "{label} reached Apple verification"
+            );
+        }
+        let rows: i64 = sqlx::query_scalar(
+            "SELECT (SELECT count(*) FROM users) + \
+                    (SELECT count(*) FROM auth_identities) + \
+                    (SELECT count(*) FROM refresh_sessions)",
+        )
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(rows, 0);
+        Ok(())
+    }
+    .await;
+    pool.close().await;
+    result?;
+    database.dispose().await
+}
+
+#[tokio::test]
+async fn apple_exchange_rate_limit_fails_before_provider_verification() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let fixture = harness_with_apple_identity_and_rate_limiter(
+        pool.clone(),
+        AppleIdentity {
+            provider_id: "apple-rate-limit-subject".to_owned(),
+            client_id: "dev.local.jamyeapp".to_owned(),
+        },
+        Arc::new(DenyRateLimiter(Duration::from_secs(4))),
+    )?;
+    let router = auth_router(AuthHttpState::new(
+        fixture.service.clone(),
+        fixture.codec.clone(),
+    ));
+    let response = router
+        .oneshot(apple_exchange_request(
+            "APPLE_RATE_LIMIT_TOKEN_SENTINEL",
+            "raw-nonce-rate-limit",
+            None,
+        )?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        response
+            .headers()
+            .get(RETRY_AFTER)
+            .and_then(|value| value.to_str().ok()),
+        Some("4")
+    );
+    assert_error_code(
+        response,
+        StatusCode::TOO_MANY_REQUESTS,
+        "rate_limit_exceeded",
+    )
+    .await?;
+    assert_eq!(
+        fixture
+            .apple_provider
+            .as_ref()
+            .map(|provider| provider.verify_calls()),
+        Some(0)
+    );
     let rows: i64 = sqlx::query_scalar(
         "SELECT (SELECT count(*) FROM users) + \
                 (SELECT count(*) FROM auth_identities) + \
@@ -683,6 +1096,7 @@ fn enabled_provider_configuration_is_complete_exact_and_secret_safe() -> TestRes
     })?;
     assert!(config.kakao.enabled);
     assert!(!config.google.enabled);
+    assert!(!config.apple.enabled);
     assert_eq!(config.kakao.redirect_uris, vec![KAKAO_REDIRECT]);
     assert_eq!(format!("{:?}", config.access_token_secret), "[REDACTED]");
 
@@ -707,6 +1121,32 @@ fn enabled_provider_configuration_is_complete_exact_and_secret_safe() -> TestRes
         ..AuthConfigInput::default()
     });
     assert!(wildcard.is_err());
+    let missing_apple_values = AuthConfig::try_from(AuthConfigInput {
+        apple_signin_enabled: Some("true".to_owned()),
+        access_token_secret: Some("a-secret-with-at-least-thirty-two-bytes".to_owned()),
+        access_token_issuer: Some("https://api.jamye.test".to_owned()),
+        access_token_audience: Some("jamye-mobile".to_owned()),
+        ..AuthConfigInput::default()
+    });
+    assert_eq!(
+        missing_apple_values.as_ref().err().map(|error| error.key()),
+        Some("JAMYE_APPLE_AUDIENCES")
+    );
+    let invalid_apple_key = AuthConfig::try_from(AuthConfigInput {
+        apple_signin_enabled: Some("true".to_owned()),
+        apple_audiences: Some("dev.local.jamyeapp".to_owned()),
+        apple_team_id: Some("team-id".to_owned()),
+        apple_key_id: Some("key-id".to_owned()),
+        apple_private_key: Some("not-base64".to_owned()),
+        access_token_secret: Some("a-secret-with-at-least-thirty-two-bytes".to_owned()),
+        access_token_issuer: Some("https://api.jamye.test".to_owned()),
+        access_token_audience: Some("jamye-mobile".to_owned()),
+        ..AuthConfigInput::default()
+    });
+    assert_eq!(
+        invalid_apple_key.as_ref().err().map(|error| error.key()),
+        Some("JAMYE_APPLE_PRIVATE_KEY")
+    );
     Ok(())
 }
 
@@ -774,6 +1214,32 @@ fn authorize_request(
             "code_challenge": code_challenge,
             "code_challenge_method": code_challenge_method
         }))?))?)
+}
+
+fn apple_exchange_request(
+    identity_token: &str,
+    raw_nonce: &str,
+    full_name: Option<&str>,
+) -> TestResult<Request<Body>> {
+    let mut body = json!({
+        "identity_token": identity_token,
+        "raw_nonce": raw_nonce
+    });
+    if let Some(full_name) = full_name {
+        body["full_name"] = json!(full_name);
+    }
+    Ok(Request::post("/api/v1/auth/apple/exchange")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&body)?))?)
+}
+
+async fn user_nickname(pool: &sqlx::PgPool, user_id: Uuid) -> TestResult<String> {
+    Ok(
+        sqlx::query_scalar::<_, String>("SELECT nickname FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await?,
+    )
 }
 
 async fn assert_error_code(

@@ -1,11 +1,15 @@
 use std::{fmt, sync::Arc, time::Duration};
 
+use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
     domain::profile::valid_avatar_url,
     ports::{
+        apple_identity_provider::{
+            AppleIdentityProvider, AppleIdentityProviderError, AppleIdentityVerificationRequest,
+        },
         auth::{
             AccessTokenIssuer, AuthClock, AuthRepository, CredentialSource, NewProviderIdentity,
             NewRefreshSession, NewRotatedSession, RotationOutcome,
@@ -31,6 +35,7 @@ pub struct AuthService {
     dependencies: AuthDependencies,
     kakao: OAuthProviderSlot,
     google: OAuthProviderSlot,
+    apple: AppleIdentityProviderSlot,
     lifetimes: AuthLifetimePolicy,
     rate_limits: AuthRateLimitPolicy,
 }
@@ -44,6 +49,28 @@ pub struct AuthDependencies {
     pub credentials: Arc<dyn CredentialSource>,
     pub token_issuer: Arc<dyn AccessTokenIssuer>,
     pub clock: Arc<dyn AuthClock>,
+}
+
+#[derive(Clone)]
+pub struct AppleIdentityProviderSlot {
+    enabled: bool,
+    provider: Option<Arc<dyn AppleIdentityProvider>>,
+}
+
+impl AppleIdentityProviderSlot {
+    pub fn disabled() -> Self {
+        Self {
+            enabled: false,
+            provider: None,
+        }
+    }
+
+    pub fn enabled(provider: Arc<dyn AppleIdentityProvider>) -> Self {
+        Self {
+            enabled: true,
+            provider: Some(provider),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -97,6 +124,7 @@ impl AuthService {
         dependencies: AuthDependencies,
         kakao: OAuthProviderSlot,
         google: OAuthProviderSlot,
+        apple: AppleIdentityProviderSlot,
         lifetimes: AuthLifetimePolicy,
         rate_limits: AuthRateLimitPolicy,
     ) -> Result<Self, AuthError> {
@@ -112,6 +140,7 @@ impl AuthService {
             dependencies,
             kakao,
             google,
+            apple,
             lifetimes,
             rate_limits,
         })
@@ -240,12 +269,62 @@ impl AuthService {
         if !valid_provider_identity(&provider_identity) {
             return Err(AuthError::OAuthProviderUnavailable);
         }
+        let identity = NewProviderIdentity {
+            provider: slot.kind.as_str().to_owned(),
+            provider_id: provider_identity.provider_id,
+            nickname: provider_identity.nickname,
+            avatar_url: provider_identity.avatar_url,
+        };
+        self.create_or_restore_session(identity, self.dependencies.clock.now())
+            .await
+    }
+
+    pub async fn exchange_apple_identity(
+        &self,
+        input: AppleExchangeInput,
+        network_subject: &str,
+    ) -> Result<AuthExchangeOutput, AuthError> {
+        validate_apple_exchange_input(&input)?;
+        if !self.apple.enabled {
+            return Err(AuthError::OAuthProviderNotSupported);
+        }
+        self.check_rate_limit(
+            "oauth_exchange",
+            network_subject,
+            &self.rate_limits.exchange,
+        )
+        .await?;
+        let apple_identity = self
+            .apple
+            .provider
+            .as_ref()
+            .ok_or(AuthError::InvalidConfiguration)?
+            .verify_identity(&AppleIdentityVerificationRequest {
+                identity_token: input.identity_token,
+                raw_nonce: input.raw_nonce,
+            })
+            .await
+            .map_err(map_apple_identity_error)?;
+        let identity = NewProviderIdentity {
+            provider: ProviderKind::Apple.as_str().to_owned(),
+            provider_id: apple_identity.provider_id.clone(),
+            nickname: apple_nickname(input.full_name.as_deref(), &apple_identity.provider_id),
+            avatar_url: None,
+        };
+        self.create_or_restore_session(identity, self.dependencies.clock.now())
+            .await
+    }
+
+    async fn create_or_restore_session(
+        &self,
+        identity: NewProviderIdentity,
+        now: OffsetDateTime,
+    ) -> Result<AuthExchangeOutput, AuthError> {
         let refresh = self
             .dependencies
             .credentials
             .generate()
             .map_err(|_| AuthError::DatabaseUnavailable)?;
-        let now = self.dependencies.clock.now();
         let access_expires_at = add_duration(now, self.lifetimes.access)?;
         let refresh_expires_at = add_duration(now, self.lifetimes.refresh)?;
         let session_id = Uuid::new_v4();
@@ -255,12 +334,6 @@ impl AuthService {
             parent_session_id: None,
             token_hash: refresh.digest,
             expires_at: refresh_expires_at,
-        };
-        let identity = NewProviderIdentity {
-            provider: slot.kind.as_str().to_owned(),
-            provider_id: provider_identity.provider_id,
-            nickname: provider_identity.nickname,
-            avatar_url: provider_identity.avatar_url,
         };
         let mut transaction = self.begin().await?;
         let restored = match self
@@ -402,7 +475,7 @@ impl AuthService {
         let slot = match ProviderKind::parse(provider_path) {
             Some(ProviderKind::Kakao) => &self.kakao,
             Some(ProviderKind::Google) => &self.google,
-            None => return Err(AuthError::OAuthProviderNotSupported),
+            Some(ProviderKind::Apple) | None => return Err(AuthError::OAuthProviderNotSupported),
         };
         if !slot.enabled {
             return Err(AuthError::OAuthProviderNotAvailable);
@@ -508,12 +581,42 @@ fn validate_exchange_input(input: &ExchangeInput) -> Result<(), AuthError> {
     Ok(())
 }
 
+fn validate_apple_exchange_input(input: &AppleExchangeInput) -> Result<(), AuthError> {
+    if input.identity_token.is_empty()
+        || input.identity_token.len() > 8192
+        || input.raw_nonce.len() < 16
+        || input.raw_nonce.len() > 256
+        || input.raw_nonce.chars().any(char::is_control)
+        || input
+            .full_name
+            .as_deref()
+            .is_some_and(|name| name.chars().count() > 256 || name.chars().any(char::is_control))
+    {
+        return Err(AuthError::RequestValidation);
+    }
+    Ok(())
+}
+
 fn validate_refresh_token(token: &str) -> Result<(), AuthError> {
     if valid_base64url_credential(token) {
         Ok(())
     } else {
         Err(AuthError::RequestValidation)
     }
+}
+
+fn apple_nickname(full_name: Option<&str>, provider_id: &str) -> String {
+    if let Some(name) = full_name.map(str::trim).filter(|name| {
+        let length = name.chars().count();
+        (1..=64).contains(&length)
+    }) {
+        return name.to_owned();
+    }
+    let digest = Sha256::digest(provider_id.as_bytes());
+    let mut bytes = [0_u8; 8];
+    bytes.copy_from_slice(&digest[..8]);
+    let number = u64::from_be_bytes(bytes) % 1_000_000;
+    format!("Apple{number:06}")
 }
 
 fn valid_provider_identity(identity: &crate::ports::oauth_provider::ProviderIdentity) -> bool {
@@ -557,6 +660,14 @@ fn map_provider_error(error: OAuthProviderError) -> AuthError {
     }
 }
 
+fn map_apple_identity_error(error: AppleIdentityProviderError) -> AuthError {
+    match error {
+        AppleIdentityProviderError::Unavailable => AuthError::AppleProviderUnavailable,
+        AppleIdentityProviderError::InvalidIdentity => AuthError::AppleIdentityTokenInvalid,
+        AppleIdentityProviderError::InvalidConfiguration => AuthError::InvalidConfiguration,
+    }
+}
+
 fn add_duration(now: OffsetDateTime, duration: Duration) -> Result<OffsetDateTime, AuthError> {
     let seconds = i64::try_from(duration.as_secs()).map_err(|_| AuthError::InvalidConfiguration)?;
     now.checked_add(time::Duration::seconds(seconds))
@@ -583,6 +694,13 @@ pub struct ExchangeInput {
     pub state: String,
     pub code_verifier: String,
     pub redirect_uri: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AppleExchangeInput {
+    pub identity_token: String,
+    pub raw_nonce: String,
+    pub full_name: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -649,6 +767,8 @@ pub enum AuthError {
     OAuthExchangeInvalid,
     OAuthCoordinationUnavailable,
     OAuthProviderUnavailable,
+    AppleIdentityTokenInvalid,
+    AppleProviderUnavailable,
     RateLimited { retry_after: Duration },
     RateLimitUnavailable,
     RefreshTokenInvalid,

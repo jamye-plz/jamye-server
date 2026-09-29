@@ -1,5 +1,5 @@
 {
-  "contract_version": "1",
+  "contract_version": "2",
   "feature": "mobile_authentication",
   "operations": [
     {
@@ -45,6 +45,14 @@
       "success_status": 302
     },
     {
+      "errors": "EA6",
+      "id": "A6",
+      "method": "POST",
+      "path": "/api/v1/auth/apple/exchange",
+      "request": "AppleExchangeIn",
+      "response": "TokenPair"
+    },
+    {
       "errors": "E1",
       "id": "U1",
       "method": "GET",
@@ -65,7 +73,5 @@
     "kakao",
     "google"
   ],
-  "provider_path_deferred": [
-    "apple"
-  ]
+  "provider_path_deferred": []
 }

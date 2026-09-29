@@ -10,6 +10,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::delete,
 };
+use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
@@ -17,11 +18,11 @@ use crate::{
         account_deletion::{AccountDeletionError, AccountDeletionService},
         auth::AccessTokenVerifier,
     },
-    ports::account_deletion::AccountDeletionCommand,
+    ports::account_deletion::{AccountDeletionCommand, AppleReauthenticationProof},
     transport::http::auth::{AuthVerifierState, AuthenticatedAccess, error_response, request_id},
 };
 
-const MAX_ACCOUNT_DELETION_BODY_BYTES: usize = 8 * 1024;
+const MAX_ACCOUNT_DELETION_BODY_BYTES: usize = 16 * 1024;
 
 #[derive(Clone)]
 pub struct AccountDeletionHttpState {
@@ -61,7 +62,7 @@ async fn delete_account(
 ) -> Response {
     let (parts, body) = request.into_parts();
     let request_id = request_id(&parts);
-    if raw_query.is_some() || body_is_nonempty(body).await {
+    if raw_query.is_some() {
         return account_deletion_error(
             StatusCode::UNPROCESSABLE_ENTITY,
             "request_validation_failed",
@@ -69,15 +70,33 @@ async fn delete_account(
             request_id,
         );
     }
+    let proof = match parse_optional_apple_proof(body).await {
+        Ok(proof) => proof,
+        Err(()) => {
+            return account_deletion_error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "request_validation_failed",
+                "요청 형식이 올바르지 않습니다.",
+                request_id,
+            );
+        }
+    };
 
     match state
         .service
         .delete_account(AccountDeletionCommand {
             user_id: identity.user_id,
+            apple_proof: proof,
         })
         .await
     {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(AccountDeletionError::RequestValidation) => account_deletion_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "request_validation_failed",
+            "요청 형식이 올바르지 않습니다.",
+            request_id,
+        ),
         Err(AccountDeletionError::AccountNotFound) => account_deletion_error(
             StatusCode::UNAUTHORIZED,
             "authentication_required",
@@ -90,6 +109,42 @@ async fn delete_account(
             "소유권 이양이 필요한 그룹이 있어 계정을 삭제할 수 없습니다.",
             request_id,
         ),
+        Err(AccountDeletionError::AppleReauthenticationRequired) => account_deletion_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "apple_reauthentication_required",
+            "Apple 인증을 다시 진행해야 합니다.",
+            request_id,
+        ),
+        Err(AccountDeletionError::AppleIdentityTokenInvalid) => account_deletion_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "apple_identity_token_invalid",
+            "Apple 인증 정보를 확인할 수 없습니다.",
+            request_id,
+        ),
+        Err(AccountDeletionError::AppleSubjectMismatch) => account_deletion_error(
+            StatusCode::FORBIDDEN,
+            "apple_subject_mismatch",
+            "다른 Apple 계정으로는 삭제할 수 없습니다.",
+            request_id,
+        ),
+        Err(AccountDeletionError::AppleAuthorizationCodeInvalid) => account_deletion_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "apple_authorization_code_invalid",
+            "Apple 인증 코드를 확인할 수 없습니다.",
+            request_id,
+        ),
+        Err(AccountDeletionError::ProviderUnavailable) => account_deletion_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "provider_unavailable",
+            "로그인 제공자를 일시적으로 사용할 수 없습니다.",
+            request_id,
+        ),
+        Err(AccountDeletionError::DeletionFailedAfterRevoke) => account_deletion_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "account_deletion_failed_after_revoke",
+            "Apple 연결 폐기 뒤 계정 삭제를 완료하지 못했습니다.",
+            request_id,
+        ),
         Err(AccountDeletionError::DatabaseUnavailable) => account_deletion_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "database_unavailable",
@@ -99,11 +154,19 @@ async fn delete_account(
     }
 }
 
-async fn body_is_nonempty(body: Body) -> bool {
-    match to_bytes(body, MAX_ACCOUNT_DELETION_BODY_BYTES).await {
-        Ok(bytes) => !bytes.is_empty(),
-        Err(_) => true,
+async fn parse_optional_apple_proof(body: Body) -> Result<Option<AppleReauthenticationProof>, ()> {
+    let bytes = to_bytes(body, MAX_ACCOUNT_DELETION_BODY_BYTES)
+        .await
+        .map_err(|_| ())?;
+    if bytes.is_empty() {
+        return Ok(None);
     }
+    let body = serde_json::from_slice::<AppleProofBody>(&bytes).map_err(|_| ())?;
+    Ok(Some(AppleReauthenticationProof {
+        identity_token: body.identity_token,
+        authorization_code: body.authorization_code,
+        raw_nonce: body.raw_nonce,
+    }))
 }
 
 fn account_deletion_error(
@@ -118,4 +181,12 @@ fn account_deletion_error(
         "account-deletion request rejected"
     );
     error_response(status, code, message, request_id)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AppleProofBody {
+    identity_token: String,
+    authorization_code: String,
+    raw_nonce: String,
 }

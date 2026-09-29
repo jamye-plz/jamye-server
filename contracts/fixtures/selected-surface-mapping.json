@@ -102,6 +102,15 @@
       "path": "/api/v1/auth/oauth/{provider}/callback"
     },
     {
+      "feature_behavior_test": "tests/auth/oauth.rs::apple_exchange_creates_reuses_and_restores_with_stable_nickname",
+      "fixture": "contracts/contributions/task-5/fixtures/mobile-auth-handoff.json",
+      "handler": "src/transport/http/auth/api.rs::exchange_apple",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "post",
+      "operation_id": "A6",
+      "path": "/api/v1/auth/apple/exchange"
+    },
+    {
       "feature_behavior_test": "tests/profile.rs::get_and_patch_me_use_the_shared_production_bearer_extractor",
       "fixture": "contracts/fixtures/c2-health-profile-account.json",
       "handler": "src/transport/http/users/mod.rs::get_me",

@@ -17,8 +17,8 @@ use uuid::Uuid;
 
 use crate::{
     application::auth::{
-        AccessTokenVerifier, AuthError, AuthExchangeOutput, AuthService, AuthorizeInput,
-        ExchangeInput, TokenPair,
+        AccessTokenVerifier, AppleExchangeInput, AuthError, AuthExchangeOutput, AuthService,
+        AuthorizeInput, ExchangeInput, TokenPair,
     },
     transport::http::auth::{AuthVerifierState, AuthenticatedAccess, error_response, request_id},
 };
@@ -55,6 +55,7 @@ impl FromRef<AuthHttpState> for AuthVerifierState {
 
 pub fn router(state: AuthHttpState) -> Router {
     Router::new()
+        .route("/api/v1/auth/apple/exchange", post(exchange_apple))
         .route("/api/v1/auth/oauth/{provider}/authorize", post(authorize))
         .route("/api/v1/auth/oauth/{provider}/exchange", post(exchange))
         .route("/api/v1/auth/oauth/{provider}/callback", get(callback))
@@ -240,6 +241,29 @@ fn valid_callback_error(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_CALLBACK_METADATA_BYTES
         && !value.chars().any(char::is_control)
+}
+
+async fn exchange_apple(State(state): State<AuthHttpState>, request: Request) -> Response {
+    let (parts, body) = request.into_parts();
+    let request_id = request_id(&parts);
+    let network_subject = network_subject(&parts);
+    let result = parse_json::<AppleExchangeBody>(body)
+        .await
+        .map(|body| AppleExchangeInput {
+            identity_token: body.identity_token,
+            raw_nonce: body.raw_nonce,
+            full_name: body.full_name,
+        });
+    let result = match result {
+        Ok(input) => {
+            state
+                .service
+                .exchange_apple_identity(input, &network_subject)
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    exchange_result(result, request_id)
 }
 
 async fn authorize(
@@ -446,6 +470,16 @@ fn error_profile(error: AuthError) -> (StatusCode, &'static str, &'static str) {
             "oauth_provider_unavailable",
             "로그인 제공자를 일시적으로 사용할 수 없습니다.",
         ),
+        AuthError::AppleIdentityTokenInvalid => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "apple_identity_token_invalid",
+            "Apple 인증 정보를 확인할 수 없습니다.",
+        ),
+        AuthError::AppleProviderUnavailable => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "provider_unavailable",
+            "로그인 제공자를 일시적으로 사용할 수 없습니다.",
+        ),
         AuthError::RateLimited { .. } => (
             StatusCode::TOO_MANY_REQUESTS,
             "rate_limit_exceeded",
@@ -506,6 +540,14 @@ struct OAuthExchangeBody {
     state: String,
     code_verifier: String,
     redirect_uri: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AppleExchangeBody {
+    identity_token: String,
+    raw_nonce: String,
+    full_name: Option<String>,
 }
 
 #[derive(Deserialize)]

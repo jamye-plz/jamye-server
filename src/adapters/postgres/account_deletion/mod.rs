@@ -20,9 +20,9 @@ use crate::{
     adapters::postgres::transactions::connection,
     ports::{
         account_deletion::{
-            AccountDeletionPreparation, AccountDeletionReport, AccountDeletionRepository,
-            AccountDeletionRepositoryError, AccountDeletionRepositoryFuture, AccountPurgeClaim,
-            AccountPurgeClaimRequest,
+            AccountDeletionIdentity, AccountDeletionPreparation, AccountDeletionReport,
+            AccountDeletionRepository, AccountDeletionRepositoryError,
+            AccountDeletionRepositoryFuture, AccountPurgeClaim, AccountPurgeClaimRequest,
         },
         transactions::TransactionHandle,
     },
@@ -43,6 +43,32 @@ impl PostgresAccountDeletionRepository {
 }
 
 impl AccountDeletionRepository for PostgresAccountDeletionRepository {
+    fn live_identity(
+        &self,
+        user_id: Uuid,
+    ) -> AccountDeletionRepositoryFuture<'_, Option<AccountDeletionIdentity>> {
+        Box::pin(async move {
+            let row = sqlx::query_as::<_, (String, String)>(
+                "SELECT identity.provider, identity.provider_id \
+                 FROM auth_identities identity \
+                 JOIN users account ON account.id = identity.user_id \
+                 WHERE identity.user_id = $1 \
+                   AND identity.deleted_at IS NULL \
+                   AND account.deleted_at IS NULL \
+                 ORDER BY identity.created_at, identity.id \
+                 LIMIT 1",
+            )
+            .bind(user_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|error| database_error("account_identity_lookup", error))?;
+            Ok(row.map(|(provider, provider_id)| AccountDeletionIdentity {
+                provider,
+                provider_id,
+            }))
+        })
+    }
+
     fn prepare_deletion<'a>(
         &'a self,
         transaction: &'a mut dyn TransactionHandle,

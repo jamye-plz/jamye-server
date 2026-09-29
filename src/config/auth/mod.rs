@@ -2,10 +2,18 @@
 
 use std::{env, fmt, time::Duration};
 
+use base64::{Engine, engine::general_purpose::STANDARD};
+use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+use serde::Serialize;
 use url::Url;
 
 pub use crate::application::auth::OAUTH_ATTEMPT_TTL;
 use crate::ports::oauth_provider::ProviderKind;
+
+pub const APPLE_ISSUER: &str = "https://appleid.apple.com";
+pub const APPLE_JWKS_URL: &str = "https://appleid.apple.com/auth/keys";
+pub const APPLE_TOKEN_URL: &str = "https://appleid.apple.com/auth/token";
+pub const APPLE_REVOKE_URL: &str = "https://appleid.apple.com/auth/revoke";
 
 #[derive(Clone, Default)]
 pub struct AuthConfigInput {
@@ -17,6 +25,11 @@ pub struct AuthConfigInput {
     pub google_client_id: Option<String>,
     pub google_client_secret: Option<String>,
     pub google_redirect_uris: Option<String>,
+    pub apple_signin_enabled: Option<String>,
+    pub apple_audiences: Option<String>,
+    pub apple_team_id: Option<String>,
+    pub apple_key_id: Option<String>,
+    pub apple_private_key: Option<String>,
     pub provider_timeout_ms: Option<String>,
     pub access_token_secret: Option<String>,
     pub access_token_issuer: Option<String>,
@@ -36,6 +49,11 @@ impl AuthConfigInput {
             google_client_id: read("JAMYE_GOOGLE_CLIENT_ID"),
             google_client_secret: read("JAMYE_GOOGLE_CLIENT_SECRET"),
             google_redirect_uris: read("JAMYE_GOOGLE_REDIRECT_URIS"),
+            apple_signin_enabled: read("JAMYE_APPLE_SIGNIN_ENABLED"),
+            apple_audiences: read("JAMYE_APPLE_AUDIENCES"),
+            apple_team_id: read("JAMYE_APPLE_TEAM_ID"),
+            apple_key_id: read("JAMYE_APPLE_KEY_ID"),
+            apple_private_key: read("JAMYE_APPLE_PRIVATE_KEY"),
             provider_timeout_ms: read("JAMYE_OAUTH_PROVIDER_TIMEOUT_MS"),
             access_token_secret: read("JAMYE_ACCESS_TOKEN_SECRET"),
             access_token_issuer: read("JAMYE_ACCESS_TOKEN_ISSUER"),
@@ -50,6 +68,7 @@ impl AuthConfigInput {
 pub struct AuthConfig {
     pub kakao: ProviderConfig,
     pub google: ProviderConfig,
+    pub apple: AppleConfig,
     pub provider_timeout: Duration,
     pub access_token_secret: SensitiveValue,
     pub access_token_issuer: String,
@@ -89,6 +108,13 @@ impl TryFrom<AuthConfigInput> for AuthConfig {
             input.google_client_secret,
             "JAMYE_GOOGLE_REDIRECT_URIS",
             input.google_redirect_uris,
+        )?;
+        let apple = apple_config(
+            input.apple_signin_enabled,
+            input.apple_audiences,
+            input.apple_team_id,
+            input.apple_key_id,
+            input.apple_private_key,
         )?;
         let provider_timeout = duration(
             "JAMYE_OAUTH_PROVIDER_TIMEOUT_MS",
@@ -139,6 +165,7 @@ impl TryFrom<AuthConfigInput> for AuthConfig {
         Ok(Self {
             kakao,
             google,
+            apple,
             provider_timeout,
             access_token_secret: SensitiveValue(access_token_secret),
             access_token_issuer,
@@ -147,6 +174,15 @@ impl TryFrom<AuthConfigInput> for AuthConfig {
             refresh_token_ttl,
         })
     }
+}
+
+#[derive(Clone)]
+pub struct AppleConfig {
+    pub enabled: bool,
+    pub audiences: Vec<String>,
+    pub team_id: Option<SensitiveValue>,
+    pub key_id: Option<SensitiveValue>,
+    pub private_key_der: Option<SensitiveBytes>,
 }
 
 #[derive(Clone)]
@@ -164,6 +200,21 @@ pub struct SensitiveValue(String);
 impl SensitiveValue {
     pub(crate) fn expose_secret(&self) -> &str {
         &self.0
+    }
+}
+
+#[derive(Clone)]
+pub struct SensitiveBytes(Vec<u8>);
+
+impl SensitiveBytes {
+    pub(crate) fn expose_secret(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl fmt::Debug for SensitiveBytes {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("[REDACTED]")
     }
 }
 
@@ -235,6 +286,106 @@ fn provider_config(
     })
 }
 
+fn apple_config(
+    enabled: Option<String>,
+    audiences: Option<String>,
+    team_id: Option<String>,
+    key_id: Option<String>,
+    private_key: Option<String>,
+) -> Result<AppleConfig, AuthConfigError> {
+    let enabled = boolean(
+        "JAMYE_APPLE_SIGNIN_ENABLED",
+        enabled.as_deref().unwrap_or("false"),
+    )?;
+    if !enabled {
+        return Ok(AppleConfig {
+            enabled,
+            audiences: Vec::new(),
+            team_id: None,
+            key_id: None,
+            private_key_der: None,
+        });
+    }
+    let audiences = parse_list("JAMYE_APPLE_AUDIENCES", audiences)?;
+    let team_id = SensitiveValue(required("JAMYE_APPLE_TEAM_ID", team_id)?);
+    let key_id = SensitiveValue(required("JAMYE_APPLE_KEY_ID", key_id)?);
+    let private_key_der = SensitiveBytes(parse_apple_private_key(private_key)?);
+    validate_apple_signing_key(
+        team_id.expose_secret(),
+        key_id.expose_secret(),
+        private_key_der.expose_secret(),
+    )?;
+    Ok(AppleConfig {
+        enabled,
+        audiences,
+        team_id: Some(team_id),
+        key_id: Some(key_id),
+        private_key_der: Some(private_key_der),
+    })
+}
+
+fn parse_list(key: &'static str, value: Option<String>) -> Result<Vec<String>, AuthConfigError> {
+    let values = required(key, value)?
+        .split(',')
+        .map(str::trim)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if values.is_empty() || values.iter().any(String::is_empty) {
+        return Err(AuthConfigError::new(
+            key,
+            "must be a comma-separated non-empty list",
+        ));
+    }
+    let mut unique = values.clone();
+    unique.sort();
+    unique.dedup();
+    if unique.len() != values.len() {
+        return Err(AuthConfigError::new(
+            key,
+            "must not contain duplicate values",
+        ));
+    }
+    Ok(values)
+}
+
+fn parse_apple_private_key(value: Option<String>) -> Result<Vec<u8>, AuthConfigError> {
+    let value = required("JAMYE_APPLE_PRIVATE_KEY", value)?;
+    let normalized = value
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with("-----BEGIN") && !line.starts_with("-----END"))
+        .collect::<String>();
+    if normalized.is_empty() {
+        return Err(AuthConfigError::new(
+            "JAMYE_APPLE_PRIVATE_KEY",
+            "must be base64 PKCS#8 DER",
+        ));
+    }
+    STANDARD
+        .decode(normalized.as_bytes())
+        .map_err(|_| AuthConfigError::new("JAMYE_APPLE_PRIVATE_KEY", "must be base64 PKCS#8 DER"))
+}
+
+fn validate_apple_signing_key(
+    team_id: &str,
+    key_id: &str,
+    private_key_der: &[u8],
+) -> Result<(), AuthConfigError> {
+    let mut header = Header::new(Algorithm::ES256);
+    header.kid = Some(key_id.to_owned());
+    let key = EncodingKey::from_ec_der(private_key_der);
+    let claims = AppleSigningProbeClaims {
+        iss: team_id,
+        sub: "jamye-config-validation",
+        aud: APPLE_ISSUER,
+        iat: 1,
+        exp: 2,
+    };
+    encode(&header, &claims, &key).map(|_| ()).map_err(|_| {
+        AuthConfigError::new("JAMYE_APPLE_PRIVATE_KEY", "must be a valid EC private key")
+    })
+}
+
 fn parse_redirects(
     key: &'static str,
     value: Option<String>,
@@ -265,6 +416,15 @@ fn parse_redirects(
         return Err(AuthConfigError::new(key, "must not contain duplicate URIs"));
     }
     Ok(redirects)
+}
+
+#[derive(Serialize)]
+struct AppleSigningProbeClaims<'a> {
+    iss: &'a str,
+    sub: &'a str,
+    aud: &'a str,
+    iat: u64,
+    exp: u64,
 }
 
 fn read(key: &'static str) -> Option<String> {

@@ -78,6 +78,57 @@
       ],
       "type": "object"
     },
+    "AppleExchangeIn": {
+      "additionalProperties": false,
+      "properties": {
+        "full_name": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "identity_token": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "raw_nonce": {
+          "maxLength": 256,
+          "minLength": 16,
+          "type": "string"
+        }
+      },
+      "required": [
+        "identity_token",
+        "raw_nonce"
+      ],
+      "type": "object"
+    },
+    "AppleAccountDeletionProof": {
+      "additionalProperties": false,
+      "description": "Only Apple accounts may send this U3 body. Kakao and Google accounts continue to reject request bodies.",
+      "properties": {
+        "authorization_code": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "identity_token": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "raw_nonce": {
+          "maxLength": 256,
+          "minLength": 16,
+          "type": "string"
+        }
+      },
+      "required": [
+        "identity_token",
+        "authorization_code",
+        "raw_nonce"
+      ],
+      "type": "object"
+    },
     "RefreshIn": {
       "additionalProperties": false,
       "properties": {
@@ -155,7 +206,8 @@
         "provider": {
           "enum": [
             "kakao",
-            "google"
+            "google",
+            "apple"
           ],
           "type": "string"
         }

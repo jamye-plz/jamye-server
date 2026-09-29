@@ -19,9 +19,9 @@ use super::{BoxError, invalid_data, selected};
 
 pub const C0_OPERATION_IDS: &[&str] = &["H1", "H2", "C4", "S1", "R1"];
 pub const OPERATION_IDS: &[&str] = &[
-    "H1", "H2", "A1", "A2", "A3", "A4", "A5", "U1", "U2", "U3", "G1", "G2", "G3", "G4", "G5", "G6",
-    "G7", "G8", "I1", "I2", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "MD1", "MD2", "C1",
-    "C2", "C3", "C4", "C5", "C6", "MD4", "MD5", "S1", "R1", "P2", "P3", "P4", "N1", "N2",
+    "H1", "H2", "A1", "A2", "A3", "A4", "A5", "A6", "U1", "U2", "U3", "G1", "G2", "G3", "G4", "G5",
+    "G6", "G7", "G8", "I1", "I2", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "MD1", "MD2",
+    "C1", "C2", "C3", "C4", "C5", "C6", "MD4", "MD5", "S1", "R1", "P2", "P3", "P4", "N1", "N2",
 ];
 
 struct OwnerOperationContribution {
@@ -101,7 +101,7 @@ const OWNER_SCHEMA_CONTRIBUTIONS: &[OwnerSchemaContribution] = &[
 ];
 
 const PRODUCTION_SERVER_URL: &str = "https://jamye-api.ridewithmin.com";
-const PUBLIC_OPERATION_IDS: &[&str] = &["H1", "H2", "A1", "A2", "A3", "A5"];
+const PUBLIC_OPERATION_IDS: &[&str] = &["H1", "H2", "A1", "A2", "A3", "A5", "A6"];
 
 #[utoipa::path(
     get,
@@ -382,10 +382,11 @@ fn release_candidate_operation(surface: &selected::RestSurface) -> Result<Value,
         operation.insert("parameters".to_owned(), Value::Array(parameters));
     }
     if let Some(component) = request_component(surface.operation_id) {
+        let required = surface.operation_id != "U3";
         operation.insert(
             "requestBody".to_owned(),
             json!({
-                "required": true,
+                "required": required,
                 "content": {
                     "application/json": {
                         "schema": component_ref(component)
@@ -581,7 +582,9 @@ fn request_component(operation_id: &str) -> Option<&'static str> {
     match operation_id {
         "A1" => Some("OAuthAuthorizeIn"),
         "A2" => Some("OAuthExchangeIn"),
+        "A6" => Some("AppleExchangeIn"),
         "A3" => Some("RefreshIn"),
+        "U3" => Some("AppleAccountDeletionProof"),
         "U2" => Some("UserPatch"),
         "G1" => Some("GroupCreate"),
         "G5" => Some("GroupPatch"),
@@ -602,7 +605,7 @@ fn request_component(operation_id: &str) -> Option<&'static str> {
 fn response_component(operation_id: &str) -> Option<&'static str> {
     match operation_id {
         "A1" => Some("OAuthAuthorizeOut"),
-        "A2" | "A3" => Some("TokenPair"),
+        "A2" | "A3" | "A6" => Some("TokenPair"),
         "U1" | "U2" => Some("User"),
         "G1" | "G3" | "G5" => Some("Group"),
         "G2" => Some("GroupPage"),
@@ -765,12 +768,12 @@ fn success_and_error_responses(operation_id: &str) -> Result<Value, BoxError> {
                 }),
             );
         }
-        if operation_id == "A2" {
+        if operation_id == "A2" || operation_id == "A6" {
             response.insert(
                 "headers".to_owned(),
                 json!({
                     "X-Jamye-Account-Restored": {
-                        "description": "Present with value true when A2 restored an account inside the deletion grace period; TokenPair body is unchanged",
+                        "description": "Present with value true when auth exchange restored an account inside the deletion grace period; TokenPair body is unchanged",
                         "schema": {"const": "true", "type": "string"}
                     }
                 }),
@@ -820,10 +823,9 @@ fn callback_safety_headers() -> Value {
 
 fn success_statuses(operation_id: &str) -> Result<&'static [&'static str], BoxError> {
     match operation_id {
-        "A1" | "A2" | "A3" | "U1" | "U2" | "G2" | "G3" | "G4" | "G5" | "I2" | "T2" | "T3"
-        | "T4" | "T5" | "T6" | "T7" | "MD2" | "C1" | "C2" | "C3" | "C5" | "MD4" | "P3" | "N1" => {
-            Ok(&["200"])
-        }
+        "A1" | "A2" | "A3" | "A6" | "U1" | "U2" | "G2" | "G3" | "G4" | "G5" | "I2" | "T2"
+        | "T3" | "T4" | "T5" | "T6" | "T7" | "MD2" | "C1" | "C2" | "C3" | "C5" | "MD4" | "P3"
+        | "N1" => Ok(&["200"]),
         "G1" | "I1" | "MD1" => Ok(&["201"]),
         "T1" | "P2" => Ok(&["200", "201"]),
         "A4" | "U3" | "G6" | "G7" | "G8" | "T8" | "C6" | "P4" | "N2" => Ok(&["204"]),
@@ -850,7 +852,7 @@ fn success_description(status: &str) -> &'static str {
 fn operation_tag(operation_id: &str) -> Result<&'static str, BoxError> {
     match operation_id {
         "H1" | "H2" => Ok("health"),
-        "A1" | "A2" | "A3" | "A4" | "A5" => Ok("auth"),
+        "A1" | "A2" | "A3" | "A4" | "A5" | "A6" => Ok("auth"),
         "U1" | "U2" | "U3" => Ok("users"),
         "G1" | "G2" | "G3" | "G4" | "G5" | "G6" | "G7" | "G8" => Ok("groups"),
         "I1" | "I2" => Ok("invites"),
@@ -878,6 +880,7 @@ fn operation_summary(operation_id: &str) -> Result<&'static str, BoxError> {
         "A3" => Ok("Rotate a refresh token"),
         "A4" => Ok("Log out the current session"),
         "A5" => Ok("Bridge an OAuth provider callback to the fixed Jamye app URI"),
+        "A6" => Ok("Exchange an Apple identity token"),
         "U1" => Ok("Get the current user profile"),
         "U2" => Ok("Update the current user profile"),
         "U3" => Ok("Delete the current account"),

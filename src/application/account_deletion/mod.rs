@@ -9,7 +9,12 @@ use crate::{
     ports::{
         account_deletion::{
             AccountDeletionCommand, AccountDeletionReport, AccountDeletionRepository,
-            AccountDeletionRepositoryError,
+            AccountDeletionRepositoryError, AppleReauthenticationProof,
+        },
+        apple_identity_provider::{
+            AppleAuthorizationCodeRevocationRequest, AppleIdentityProvider,
+            AppleIdentityProviderError, AppleIdentityVerificationRequest, AppleRevocationProvider,
+            AppleRevocationProviderError,
         },
         push::{FenceMembershipPushCommand, PushPrivacyFence},
         transactions::{BoxTransactionHandle, TransactionManager},
@@ -29,6 +34,8 @@ pub struct AccountDeletionDependencies {
     pub groups: Arc<GroupsService>,
     pub push_privacy_fence: Arc<dyn PushPrivacyFence>,
     pub repository: Arc<dyn AccountDeletionRepository>,
+    pub apple_identity_provider: Option<Arc<dyn AppleIdentityProvider>>,
+    pub apple_revocation_provider: Option<Arc<dyn AppleRevocationProvider>>,
 }
 
 impl AccountDeletionService {
@@ -45,11 +52,104 @@ impl AccountDeletionService {
         &self,
         command: AccountDeletionCommand,
     ) -> Result<AccountDeletionReport, AccountDeletionError> {
+        let identity = self
+            .dependencies
+            .repository
+            .live_identity(command.user_id)
+            .await
+            .map_err(AccountDeletionError::from)?;
+        if let Some(identity) = identity {
+            if identity.provider == "apple" {
+                let proof = command
+                    .apple_proof
+                    .ok_or(AccountDeletionError::AppleReauthenticationRequired)?;
+                validate_apple_proof(&proof)?;
+                self.verify_grace_deletion_preconditions(command.user_id)
+                    .await?;
+                self.verify_and_revoke_apple(&identity.provider_id, proof)
+                    .await?;
+                return self
+                    .delete_account_after_apple_revoke(command.user_id)
+                    .await;
+            }
+            if command.apple_proof.is_some() {
+                return Err(AccountDeletionError::RequestValidation);
+            }
+        } else if command.apple_proof.is_some() {
+            return Err(AccountDeletionError::RequestValidation);
+        }
+        self.delete_account_grace(command.user_id).await
+    }
+
+    async fn verify_and_revoke_apple(
+        &self,
+        expected_provider_id: &str,
+        proof: AppleReauthenticationProof,
+    ) -> Result<(), AccountDeletionError> {
+        let identity = self
+            .dependencies
+            .apple_identity_provider
+            .as_ref()
+            .ok_or(AccountDeletionError::ProviderUnavailable)?
+            .verify_identity(&AppleIdentityVerificationRequest {
+                identity_token: proof.identity_token,
+                raw_nonce: proof.raw_nonce,
+            })
+            .await
+            .map_err(map_apple_identity_error)?;
+        if identity.provider_id != expected_provider_id {
+            return Err(AccountDeletionError::AppleSubjectMismatch);
+        }
+        self.dependencies
+            .apple_revocation_provider
+            .as_ref()
+            .ok_or(AccountDeletionError::ProviderUnavailable)?
+            .revoke_authorization_code(&AppleAuthorizationCodeRevocationRequest {
+                client_id: identity.client_id,
+                authorization_code: proof.authorization_code,
+            })
+            .await
+            .map_err(map_apple_revocation_error)
+    }
+
+    async fn verify_grace_deletion_preconditions(
+        &self,
+        user_id: uuid::Uuid,
+    ) -> Result<(), AccountDeletionError> {
+        let mut transaction = self.begin().await?;
+        let result = self
+            .dependencies
+            .repository
+            .prepare_deletion(transaction.as_mut(), user_id)
+            .await
+            .map(|_| ())
+            .map_err(AccountDeletionError::from);
+        let rollback = self.dependencies.transactions.rollback(transaction).await;
+        match (result, rollback) {
+            (Err(error), _) => Err(error),
+            (Ok(()), Ok(())) => Ok(()),
+            (Ok(()), Err(_)) => Err(AccountDeletionError::DatabaseUnavailable),
+        }
+    }
+
+    async fn delete_account_after_apple_revoke(
+        &self,
+        user_id: uuid::Uuid,
+    ) -> Result<AccountDeletionReport, AccountDeletionError> {
+        self.delete_account_grace(user_id)
+            .await
+            .map_err(map_post_apple_revoke_deletion_error)
+    }
+
+    async fn delete_account_grace(
+        &self,
+        user_id: uuid::Uuid,
+    ) -> Result<AccountDeletionReport, AccountDeletionError> {
         let mut transaction = self.begin().await?;
         let preparation = match self
             .dependencies
             .repository
-            .prepare_deletion(transaction.as_mut(), command.user_id)
+            .prepare_deletion(transaction.as_mut(), user_id)
             .await
         {
             Ok(preparation) => preparation,
@@ -68,7 +168,7 @@ impl AccountDeletionService {
         let result = self
             .dependencies
             .repository
-            .start_grace_period(transaction.as_mut(), command.user_id)
+            .start_grace_period(transaction.as_mut(), user_id)
             .await
             .map_err(AccountDeletionError::from)
             .and_then(|mut report| {
@@ -91,7 +191,7 @@ impl AccountDeletionService {
                     transaction.as_mut(),
                     &FenceMembershipPushCommand {
                         group_id: membership.group_id,
-                        user_id: command.user_id,
+                        user_id,
                     },
                 )
                 .await;
@@ -139,10 +239,66 @@ impl AccountDeletionService {
     }
 }
 
+fn validate_apple_proof(proof: &AppleReauthenticationProof) -> Result<(), AccountDeletionError> {
+    if proof.identity_token.is_empty()
+        || proof.identity_token.len() > 8192
+        || proof.identity_token.chars().any(char::is_control)
+        || proof.authorization_code.is_empty()
+        || proof.authorization_code.len() > 4096
+        || proof.authorization_code.chars().any(char::is_control)
+        || proof.raw_nonce.len() < 16
+        || proof.raw_nonce.len() > 256
+        || proof.raw_nonce.chars().any(char::is_control)
+    {
+        return Err(AccountDeletionError::RequestValidation);
+    }
+    Ok(())
+}
+
+fn map_apple_identity_error(error: AppleIdentityProviderError) -> AccountDeletionError {
+    match error {
+        AppleIdentityProviderError::Unavailable => AccountDeletionError::ProviderUnavailable,
+        AppleIdentityProviderError::InvalidIdentity => {
+            AccountDeletionError::AppleIdentityTokenInvalid
+        }
+        AppleIdentityProviderError::InvalidConfiguration => {
+            AccountDeletionError::ProviderUnavailable
+        }
+    }
+}
+
+fn map_apple_revocation_error(error: AppleRevocationProviderError) -> AccountDeletionError {
+    match error {
+        AppleRevocationProviderError::Unavailable => AccountDeletionError::ProviderUnavailable,
+        AppleRevocationProviderError::InvalidAuthorizationCode => {
+            AccountDeletionError::AppleAuthorizationCodeInvalid
+        }
+        AppleRevocationProviderError::InvalidConfiguration => {
+            AccountDeletionError::ProviderUnavailable
+        }
+    }
+}
+
+fn map_post_apple_revoke_deletion_error(error: AccountDeletionError) -> AccountDeletionError {
+    match error {
+        AccountDeletionError::GroupOwnershipTransferRequired => {
+            AccountDeletionError::GroupOwnershipTransferRequired
+        }
+        _ => AccountDeletionError::DeletionFailedAfterRevoke,
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AccountDeletionError {
+    RequestValidation,
     GroupOwnershipTransferRequired,
     AccountNotFound,
+    AppleReauthenticationRequired,
+    AppleIdentityTokenInvalid,
+    AppleSubjectMismatch,
+    AppleAuthorizationCodeInvalid,
+    ProviderUnavailable,
+    DeletionFailedAfterRevoke,
     DatabaseUnavailable,
 }
 
@@ -166,3 +322,26 @@ impl fmt::Display for AccountDeletionError {
 }
 
 impl std::error::Error for AccountDeletionError {}
+
+#[cfg(test)]
+mod tests {
+    use super::{AccountDeletionError, map_post_apple_revoke_deletion_error};
+
+    #[test]
+    fn post_apple_revoke_error_mapping_keeps_group_conflict_actionable() {
+        assert_eq!(
+            map_post_apple_revoke_deletion_error(
+                AccountDeletionError::GroupOwnershipTransferRequired
+            ),
+            AccountDeletionError::GroupOwnershipTransferRequired
+        );
+        assert_eq!(
+            map_post_apple_revoke_deletion_error(AccountDeletionError::AccountNotFound),
+            AccountDeletionError::DeletionFailedAfterRevoke
+        );
+        assert_eq!(
+            map_post_apple_revoke_deletion_error(AccountDeletionError::DatabaseUnavailable),
+            AccountDeletionError::DeletionFailedAfterRevoke
+        );
+    }
+}
