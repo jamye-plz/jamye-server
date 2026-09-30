@@ -133,6 +133,10 @@ async fn apple_auth_and_deletion_logs_exclude_transient_credentials() -> TestRes
         let output = writer.clone();
         let subscriber = build_json_subscriber(writer, "info")?;
         let _guard = tracing::subscriber::set_default(subscriber);
+        // Keep a second dispatcher registered so a parallel test thread that
+        // reaches the same callsite first cannot cache it as disabled.
+        let _interest_sentinel =
+            tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
         let forbidden = [
             "APPLE_LOG_EXCHANGE_TOKEN_SENTINEL",
             "APPLE_LOG_EXCHANGE_RAW_NONCE_SENTINEL",

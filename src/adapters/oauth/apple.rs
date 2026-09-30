@@ -682,6 +682,10 @@ mod tests {
         let output = writer.clone();
         let subscriber = build_json_subscriber(writer, "info")?;
         let _guard = tracing::subscriber::set_default(subscriber);
+        // Keep a second dispatcher registered so a parallel test thread that
+        // reaches the same callsite first cannot cache it as disabled.
+        let _interest_sentinel =
+            tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
         let rsa = RsaKeyPair::generate(KeySize::Rsa2048)?;
         let rsa_private_der = rsa.as_der()?;
         let jwks = jwks_for_rsa(&rsa, "apple-key-1")?;
