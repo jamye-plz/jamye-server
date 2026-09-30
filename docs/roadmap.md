@@ -1,10 +1,10 @@
 # jamye-server 로드맵 — FastAPI 전체 이관, 신뢰성 고도화, 모바일 계약
 
-> 세션: ultrawork/20260822-200110 · 후속 로드맵 등록: ultrawork/20260922-100557 · task-14 구현: ultrawork/20260928-171401
-> 현재 단계: task-14 1·2·3차 운영 배포 완료(soft delete 전 범위, 계정 삭제 유예·복구, 앱 M15 소프트 삭제 수용 연동). task-15는 2026-09-30 사용자 승인으로 서버 구현 중이며 검사·계약 재생성·배포는 아직 별도 단계다. task-16은 착수 승인 대기(§14)
-> 상태: Task 13이 완료됐다(근거는 §9). task-14(soft delete)는 세션 ultrawork/20260928-171401에서 구현해 1차(merge `c047e5a`)·2차(merge `b20a4d0`)·3차(merge `6dcb6d5`)를 모두 운영 배포했다(§0, §13, §14). task-15(Sign in with Apple)는 2026-09-30 세션 `20260930-000919`에서 A6 native identity-token exchange, Apple 계정 삭제 재인증·revoke, migration `0018`, 계약 contribution 갱신을 구현 대상으로 확정했다. task-16(서버측 잔여 백로그)은 2026-09-22 로드맵에 등록만 됐으며 착수는 별도 승인이 필요하다. task-17은 2026-09-26 앱 M14 라운드 1 지원 범위로 구현해 같은 날 운영 배포했고(merge `5b987a2`, migration `0012`), task-18은 2026-09-27 앱 M14 라운드 2 지원 범위로 구현해 같은 날 운영 배포했다(merge `a77cac5`, migration `0013`). 2026-09-28에는 HTTP 메시지 전송의 첨부 1개 제한을 푼 수정(merge `c7f71a8`)을 배포했다(§13).
-> 진행률: Task 1-14·17-18 구현·배포 완료, task-15는 구현/검사 진행 중, task-16은 등록(planned_unapproved) 단계
-> 기계 SSOT: .agents/results/plan-20260822-200110.json (task-1-13) · .agents/results/plan-20260926-181036.json (task-17) · .agents/results/plan-20260927-120934.json (task-18) · .agents/results/plan-20260928-171401.json (task-14) · task-15 이후는 착수 시 새 plan JSON 생성
+> 세션: ultrawork/20260822-200110 · 후속 로드맵 등록: ultrawork/20260922-100557 · task-14 구현: ultrawork/20260928-171401 · task-15 구현·배포: ultrawork/20260930-000919
+> 현재 단계: task-14 1·2·3차 운영 배포 완료(soft delete 전 범위, 계정 삭제 유예·복구, 앱 M15 소프트 삭제 수용 연동). task-15(Sign in with Apple)는 2026-09-30 세션에서 구현·검사·배포 전 안전 리뷰·운영 배포(기능 꺼짐 → 사용자 SOPS 입력 → 활성화)를 모두 마쳤다(§13, §14). task-16은 착수 승인 대기(§14)
+> 상태: Task 13이 완료됐다(근거는 §9). task-14(soft delete)는 세션 ultrawork/20260928-171401에서 구현해 1차(merge `c047e5a`)·2차(merge `b20a4d0`)·3차(merge `6dcb6d5`)를 모두 운영 배포했다(§0, §13, §14). task-15(Sign in with Apple)는 2026-09-30 세션 `20260930-000919`에서 A6 native identity-token exchange, Apple 계정 삭제 재인증·revoke, migration `0018`, 계약 contribution 갱신을 구현하고, 필수 검사와 배포 전 안전 리뷰(1·2차) PASS 뒤 커밋 `b4ae432` → PR #16 → merge `2c93ed1` → homelab PR #95(`6d916dc`, 기능 꺼짐)·PR #96(`fe6a4e9`, Apple 활성화)로 운영 배포했다(§13, §14). task-16(서버측 잔여 백로그)은 2026-09-22 로드맵에 등록만 됐으며 착수는 별도 승인이 필요하다. task-17은 2026-09-26 앱 M14 라운드 1 지원 범위로 구현해 같은 날 운영 배포했고(merge `5b987a2`, migration `0012`), task-18은 2026-09-27 앱 M14 라운드 2 지원 범위로 구현해 같은 날 운영 배포했다(merge `a77cac5`, migration `0013`). 2026-09-28에는 HTTP 메시지 전송의 첨부 1개 제한을 푼 수정(merge `c7f71a8`)을 배포했다(§13).
+> 진행률: Task 1-15·17-18 구현·배포 완료, task-16은 등록(planned_unapproved) 단계
+> 기계 SSOT: .agents/results/plan-20260822-200110.json (task-1-13) · .agents/results/plan-20260926-181036.json (task-17) · .agents/results/plan-20260927-120934.json (task-18) · .agents/results/plan-20260928-171401.json (task-14) · .agents/results/plan-20260930-000919.json (task-15) · task-16 이후는 착수 시 새 plan JSON 생성
 
 ## 0. 2026-09-28~29 task-14 서버 구현·배포 기록
 
@@ -327,9 +327,21 @@ Task 13은 완료됐다. 검증 체계·NixOS module·homelab midgard 배포의 
 
 세 배포 모두 halt 조건에 해당하는 사건이 없었고 정상 완료됐다. 전체 기록(배포 전 게이트, 운영 호스트 확인, 사전·사후 집계, 중단·복구 규칙, 운영 smoke)은 `.agents/results/deploy-20260928-171401.md` §1차/§2차/§3차다. task-15와 task-16은 이제 완료된 task-14를 선행으로 두고 각각 별도 승인으로 착수한다(§11, §14).
 
+2026-09-29~30 task-15(Sign in with Apple)는 배포 전 안전 리뷰를 두 차례 거쳤다. 1차 리뷰(PASS, CRITICAL/HIGH 0)에서 찾은 MEDIUM 3건(Apple 계정 삭제 때 그룹 소유권 충돌이 500으로 뭉개지던 문제, 삭제 body 크기 제한이 계약 최대 증명 크기보다 작던 문제, SRV15-AC11 로그 수집 테스트 누락)을 배포 전에 고쳤다(fix1). 최종 트리 전체를 다시 본 2차 리뷰도 PASS(CRITICAL/HIGH 0)했고, 남은 MEDIUM 1건(SRV15-AC10 실패 주입 테스트 부재)은 동작이 단일 트랜잭션 rollback으로 이미 안전함을 코드로 확인한 뒤 test-only 후속(fix2)으로 미루기로 했다. 필수 검사 7개(format-check, clippy, contract-check, test, docs verify ×2, diff-check)가 모두 exit 0임을 확인한 뒤, 운영 호스트(midgard `jamye-server-api`/`worker` active, 적용된 migration 최대 17)를 확인하고 `pg_dump` 백업(`pre-0018-20260929T192515Z.dump`)과 사전 집계(개수만: users 2, auth_identities 2, refresh_sessions 1,137, `apple` 허용 0)를 거쳐 배포를 시작했다.
+
+배포는 두 단계로 나눴다. 1단계(Apple 기능 꺼짐)는 커밋 `b4ae432`(40개 파일 지정 staging) → PR #16 → CI `contract-drift` pass → merge `2c93ed1`(2026-09-29 19:30:12Z) → homelab PR #95 `flake: update jamye-server input to 2c93ed1637eb`(auto-merge `6d916dc`) → `Deploy` success 순서로 진행했다. migration `0018`이 성공했고(2026-09-30 04:59:23 KST, `auth_identities_provider_check`가 `apple`을 허용하는 것을 확인, 행 수 불변), 기능 꺼짐 smoke에서 A6가 `404 oauth_provider_not_supported`를 반환했다. 2단계는 사용자가 homelab worktree의 SOPS 파일에 Apple Team ID·Key ID·private key 3개 값을 직접 입력한 뒤(coordinator는 평문을 보지 않았다), `services/jamye-server.nix`에 해당 SOPS secret과 `JAMYE_APPLE_SIGNIN_ENABLED=true`, `JAMYE_APPLE_AUDIENCES=dev.local.jamyeapp` 연결을 커밋 `2726e0e` → PR #96(squash auto-merge `fe6a4e9`) → `Deploy` success로 배포했다. 활성화 뒤 서비스가 재시작했고(ERROR/WARN 0건), 활성화 smoke는 형식이 잘못된 토큰과 가짜 kid를 가진 JWT 모두 `422 apple_identity_token_invalid`로 응답해 실제 Apple JWKS 조회 경로가 살아 있음을 확인했다. 두 단계 모두 halt 조건에 해당하는 사건이 없었다. 기록은 `.agents/results/deploy-20260930-000919.md`다.
+
+기기 검증(jamye-app M16, 2026-09-30) 중 사용자가 두 가지 Apple Developer 설정 누락을 찾아 직접 고쳤다: 개발 bundle id(`dev.local.jamyeapp`) App ID의 Sign in with Apple capability와, 서버가 쓰는 .p8 키 Services의 Sign in with Apple. 이 두 설정이 없으면 각각 로그인 `-24000 Invalid client`와 삭제 `apple_authorization_code_invalid`로 막힌다. M18 production bundle id에도 같은 두 설정이 필요하다(jamye-app 로드맵 M16, evidence M16.md).
+
+test-only 후속 fix2는 이 문서 갱신과 함께 브랜치 `docs/task-15-closure`의 PR로 반영한다(운영 코드 변경 없음): SRV15-AC10 실패 주입 통합 테스트(`tests/account_deletion/http.rs::apple_delete_revoke_success_then_grace_failure_reports_500_without_mutation` — Apple revoke 성공 뒤 유예 트랜잭션이 실패하면 500 `account_deletion_failed_after_revoke`와 함께 계정·identity·refresh session·membership 그래프가 무변경임을 확인)와, 병렬 테스트 실행에서 tracing dispatch가 새 Apple 로그 수집 테스트의 callsite를 subscriber 없이 먼저 지나가 disabled로 캐싱하는 이 프로젝트의 기존 경쟁(`tests/media.rs`의 `logging_interest_sentinel`과 같은 부류)을 막기 위해 `src/adapters/oauth/apple.rs`·`tests/auth/logging.rs`·`tests/account_deletion/http.rs`의 새 로그 수집 테스트 3곳에 `_interest_sentinel` 보조 dispatcher를 추가했다. `src/adapters/oauth/apple.rs`의 변경도 `#[cfg(test)]` 테스트 모듈 안이라 운영 코드는 바뀌지 않았다. 필수 검사 7개 모두 exit 0(run `f11892ae`, 915 tests)이며, 이로써 SRV15-AC10을 test-only로 충족한다.
+
+같은 ultrawork 세션의 격리 리뷰(VERIFY 3건·REFINE 2건·SHIP 4건)는 모두 PASS했다(CRITICAL/HIGH 0, 집계 `.agents/results/result-qa-20260930-000919.md`). REFINE은 앱 쪽 정리만 반영했고 서버 코드는 바꾸지 않았다 — 운영 재배포가 필요한 중복 정리는 아래 후속 후보로 미뤘다. 2026-09-30 사용자 요청("앱과 서버 전부 커밋하고 문서 기록도 지금 상태로 전부 업데이트해", 이어서 "push pr 머지까지 전부 다 진행해")으로 fix2와 이 문서를 브랜치 `docs/task-15-closure`에 커밋해 PR로 main에 반영했고, ultrawork 세션을 종료했다. 같은 날 앱 M16도 사용자 종료 승인으로 닫혔다. main 반영은 homelab 입력 갱신과 배포를 자동으로 일으키지만, 이번 반영은 런타임 코드가 `2c93ed1`과 같은 재배포다.
+
+후속 후보(task-15): Apple 서버 간 알림(server-to-server notifications, consent-revoked) endpoint — 사용자가 Apple ID 설정에서 앱 연결을 끊어도 서버가 그 신호를 받아 계정을 정리하지 못한다(범위 밖, 요구사항 §5, 별도 승인 필요). Apple 어댑터가 `/auth/token`·`/auth/revoke`의 4xx를 모두 `apple_authorization_code_invalid` 하나로 뭉뚱그리고 Apple이 준 `error` 값(invalid_client/invalid_grant 등)을 범주형으로도 남기지 않는다 — 로그에 범주만 추가하면 설정 문제와 실제 코드 무효를 구분하기 쉬워진다(기기 검증 중 발견). Apple identity token 검증의 "JWKS 조회 → RS256 JWT 검증" 흐름이 Google 검증(`src/adapters/oauth/providers.rs`의 `verify_google_id_token`·`GoogleIdTokenVerifier::verify_subject`)과 겹친다 — 공통 helper로 모을 수 있지만 운영 코드 변경이라 재배포와 함께 한다(REFINE 재사용 리뷰). 테스트 fake `FakeAppleIdentityProvider`가 `tests/auth/helpers.rs`와 `tests/account_deletion/support.rs`에 거의 같은 내용으로 두 번 있다 — `tests/auth/logging.rs`가 이미 쓰는 `#[path]` 포함 방식으로 하나로 모을 수 있다.
+
 ## 14. 후속 과제 상세
 
-이 절은 §11 표의 task-14-18을 위한 상세 명세다. task-14는 구현·운영 배포를 마쳤고, task-15는 2026-09-30 사용자 승인으로 구현 중이며 검사·migration 적용·contract publication·homelab 배포는 별도 단계다. task-16의 상태는 `planned_unapproved`이며, 이 등록 자체는 구현·migration 적용·contract publication·homelab 배포의 승인이 아니다. task-17-18은 구현과 운영 배포를 마쳤다(§13).
+이 절은 §11 표의 task-14-18을 위한 상세 명세다. task-14·task-15는 구현·운영 배포를 마쳤다(§13). task-16의 상태는 `planned_unapproved`이며, 이 등록 자체는 구현·migration 적용·contract publication·homelab 배포의 승인이 아니다. task-17-18은 구현과 운영 배포를 마쳤다(§13).
 
 ### task-14 — soft delete (M12)
 
@@ -348,7 +360,7 @@ D14·D15·D18·D19(모두 2026-09-22 locked)를 materialize한다(앱 M15 소프
 
 ### task-15 — Sign in with Apple (M13)
 
-상태: `implementation_pending_checks` (2026-09-30 사용자 승인, 세션 `20260930-000919`). D16(locked)·D17(2026-09-30 locked)을 materialize한다(앱 M16 Sign in with Apple과 연동). A6는 iOS native Sign in with Apple의 `identity_token`과 raw nonce만 검증한다. 로그인에서는 Apple API 호출·authorization code 수신·Apple token/code 저장이 없다. 기능이 꺼져 있으면 `404 oauth_provider_not_supported`이고, identity token 검증 실패는 원인별 public code를 나누지 않고 `422 apple_identity_token_invalid` 하나로 수렴한다.
+상태: `deployed` (2026-09-30 사용자 승인, 세션 `20260930-000919`; 운영 배포 완료 — 커밋 `b4ae432`/merge `2c93ed1`, homelab PR #95 `6d916dc`(기능 꺼짐)·PR #96 `fe6a4e9`(Apple 활성화), migration `0018`. 배포 절차·smoke·test-only 후속 fix2는 §13). D16(locked)·D17(2026-09-30 locked)을 materialize한다(앱 M16 Sign in with Apple과 연동). A6는 iOS native Sign in with Apple의 `identity_token`과 raw nonce만 검증한다. 로그인에서는 Apple API 호출·authorization code 수신·Apple token/code 저장이 없다. 기능이 꺼져 있으면 `404 oauth_provider_not_supported`이고, identity token 검증 실패는 원인별 public code를 나누지 않고 `422 apple_identity_token_invalid` 하나로 수렴한다.
 
 구현 설계는 다음과 같다. `auth_identities.provider` CHECK에 `apple`만 추가하는 forward-only migration `0018`을 둔다. A6 신규 계정 nickname은 trimmed `full_name`이 1..64자면 사용하고, 아니면 기존 fallback 규칙의 `Apple` + 6자리 숫자를 사용한다. 재로그인과 유예 계정 복구는 nickname/avatar를 바꾸지 않으며 복구 시 `X-Jamye-Account-Restored: true`를 반환한다.
 
@@ -358,7 +370,7 @@ Apple 계정 삭제는 U3 JSON body로 `identity_token`, `authorization_code`, `
 
 사용자가 수행해야 하는 Apple Developer/운영 준비: App ID의 Sign in with Apple capability 활성화, bundle id audience 확정, Apple private key 발급, Team ID와 Key ID 확인, homelab SOPS에 다음 secret key를 값 없이 준비한다: `JAMYE_APPLE_SIGNIN_ENABLED`, `JAMYE_APPLE_AUDIENCES`, `JAMYE_APPLE_TEAM_ID`, `JAMYE_APPLE_KEY_ID`, `JAMYE_APPLE_PRIVATE_KEY`.
 
-시작 조건: task-5(OAuth 기반, 충족) + task-14(계정 삭제 흐름과 결합, 충족) + D16/D17 확정(충족). 별도 승인: migration 적용, C3 계약 publication, homelab 배포.
+시작 조건(모두 충족): task-5(OAuth 기반) + task-14(계정 삭제 흐름과 결합) + D16/D17 확정. 별도 승인(모두 충족·완료): migration `0018` 적용, 계약 재생성·publication, homelab 배포를 기능 꺼짐·SOPS 입력·활성화 순서로 모두 마쳤다(§13).
 
 ### task-16 — 서버측 잔여 백로그 (M14)
 
