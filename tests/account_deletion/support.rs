@@ -32,6 +32,11 @@ use jamye_server::{
         users::UserService,
     },
     ports::{
+        account_deletion::{
+            AccountDeletionIdentity, AccountDeletionPreparation, AccountDeletionReport,
+            AccountDeletionRepository, AccountDeletionRepositoryError,
+            AccountDeletionRepositoryFuture,
+        },
         apple_identity_provider::{
             AppleAuthorizationCodeRevocationRequest, AppleIdentity, AppleIdentityProvider,
             AppleIdentityProviderError, AppleIdentityProviderFuture,
@@ -39,6 +44,7 @@ use jamye_server::{
             AppleRevocationProviderError, AppleRevocationProviderFuture,
         },
         rate_limit::{RateLimitFuture, RateLimitOutcome, RateLimitRequest, RateLimiter},
+        transactions::TransactionHandle,
     },
     transport::http::{
         account_deletion::{AccountDeletionHttpState, router as account_deletion_router},
@@ -58,6 +64,20 @@ pub(super) fn test_router_with_apple(
     pool: PgPool,
     apple_identity_provider: Option<Arc<FakeAppleIdentityProvider>>,
     apple_revocation_provider: Option<Arc<FakeAppleRevocationProvider>>,
+) -> TestResult<Router> {
+    test_router_with_apple_repository(
+        pool.clone(),
+        apple_identity_provider,
+        apple_revocation_provider,
+        Arc::new(PostgresAccountDeletionRepository::new(pool)),
+    )
+}
+
+pub(super) fn test_router_with_apple_repository(
+    pool: PgPool,
+    apple_identity_provider: Option<Arc<FakeAppleIdentityProvider>>,
+    apple_revocation_provider: Option<Arc<FakeAppleRevocationProvider>>,
+    repository: Arc<dyn AccountDeletionRepository>,
 ) -> TestResult<Router> {
     let verifier: Arc<dyn AccessTokenVerifier> = Arc::new(TestAccessVerifier);
     let transactions = Arc::new(SqlxTransactionManager::new(pool.clone()));
@@ -84,7 +104,7 @@ pub(super) fn test_router_with_apple(
         transactions: transactions.clone(),
         groups,
         push_privacy_fence: Arc::new(PostgresPushRepository::new(pool.clone())),
-        repository: Arc::new(PostgresAccountDeletionRepository::new(pool.clone())),
+        repository,
         apple_identity_provider: apple_identity_provider.map(|provider| {
             let provider: Arc<dyn AppleIdentityProvider> = provider;
             provider
@@ -104,6 +124,51 @@ pub(super) fn test_router_with_apple(
         verifier.clone(),
     ))
     .merge(user_router(UserHttpState::new(users, verifier))))
+}
+
+pub(super) struct FailGraceAfterPrepareRepository {
+    inner: Arc<PostgresAccountDeletionRepository>,
+}
+
+impl FailGraceAfterPrepareRepository {
+    pub(super) fn new(pool: PgPool) -> Self {
+        Self {
+            inner: Arc::new(PostgresAccountDeletionRepository::new(pool)),
+        }
+    }
+}
+
+impl AccountDeletionRepository for FailGraceAfterPrepareRepository {
+    fn live_identity(
+        &self,
+        user_id: Uuid,
+    ) -> AccountDeletionRepositoryFuture<'_, Option<AccountDeletionIdentity>> {
+        self.inner.live_identity(user_id)
+    }
+
+    fn prepare_deletion<'a>(
+        &'a self,
+        transaction: &'a mut dyn TransactionHandle,
+        user_id: Uuid,
+    ) -> AccountDeletionRepositoryFuture<'a, AccountDeletionPreparation> {
+        self.inner.prepare_deletion(transaction, user_id)
+    }
+
+    fn finalize_deletion<'a>(
+        &'a self,
+        transaction: &'a mut dyn TransactionHandle,
+        user_id: Uuid,
+    ) -> AccountDeletionRepositoryFuture<'a, AccountDeletionReport> {
+        self.inner.finalize_deletion(transaction, user_id)
+    }
+
+    fn start_grace_period<'a>(
+        &'a self,
+        _transaction: &'a mut dyn TransactionHandle,
+        _user_id: Uuid,
+    ) -> AccountDeletionRepositoryFuture<'a, AccountDeletionReport> {
+        Box::pin(async { Err(AccountDeletionRepositoryError::Unavailable) })
+    }
 }
 
 pub(super) struct FakeAppleIdentityProvider {

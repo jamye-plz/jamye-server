@@ -1,4 +1,8 @@
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::BTreeSet,
+    io,
+    sync::{Arc, Mutex},
+};
 
 use axum::{
     body::{Body, to_bytes},
@@ -9,6 +13,7 @@ use jamye_server::{
         oauth::OsCredentialSource,
         postgres::{auth::PostgresAuthRepository, transactions::SqlxTransactionManager},
     },
+    platform::logging::build_json_subscriber,
     ports::{
         apple_identity_provider::{
             AppleIdentity, AppleIdentityProviderError, AppleRevocationProviderError,
@@ -20,15 +25,16 @@ use jamye_server::{
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tower::ServiceExt;
+use tracing_subscriber::fmt::MakeWriter;
 use uuid::Uuid;
 
 use crate::{
     TestResult,
     postgres_support::TestDatabase,
     support::{
-        FakeAppleIdentityProvider, FakeAppleRevocationProvider, authenticated_request, bearer,
-        delete_request, finish_database_test, require, require_eq, test_router,
-        test_router_with_apple,
+        FailGraceAfterPrepareRepository, FakeAppleIdentityProvider, FakeAppleRevocationProvider,
+        authenticated_request, bearer, delete_request, finish_database_test, require, require_eq,
+        test_router, test_router_with_apple, test_router_with_apple_repository,
     },
 };
 
@@ -567,6 +573,87 @@ async fn apple_delete_rejects_subject_mismatch_invalid_code_and_provider_outage_
     Ok(())
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn apple_delete_revoke_success_then_grace_failure_reports_500_without_mutation() -> TestResult
+{
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let result: TestResult = async {
+        let writer = SharedWriter::default();
+        let output = writer.clone();
+        let subscriber = build_json_subscriber(writer, "info")?;
+        let _guard = tracing::subscriber::set_default(subscriber);
+        // Keep a second dispatcher registered so a parallel test thread that
+        // reaches the same callsite first cannot cache it as disabled.
+        let _interest_sentinel =
+            tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
+        let forbidden = [
+            "APPLE_GRACE_FAIL_IDENTITY_TOKEN_SENTINEL",
+            "APPLE_GRACE_FAIL_AUTHORIZATION_CODE_SENTINEL",
+            "APPLE_GRACE_FAIL_RAW_NONCE_SENTINEL",
+        ];
+
+        let fixture = seed_deletable_account(&pool).await?;
+        make_target_identity_apple(&pool, fixture.target_id, "apple-grace-fail-subject").await?;
+        let before = apple_account_graph(&pool, fixture.target_id).await?;
+        let identity = Arc::new(FakeAppleIdentityProvider::new(
+            AppleIdentity {
+                provider_id: "apple-grace-fail-subject".to_owned(),
+                client_id: "dev.local.jamyeapp".to_owned(),
+            },
+            None,
+        ));
+        let revocation = Arc::new(FakeAppleRevocationProvider::new(None));
+        let repository = Arc::new(FailGraceAfterPrepareRepository::new(pool.clone()));
+
+        let response = test_router_with_apple_repository(
+            pool.clone(),
+            Some(identity.clone()),
+            Some(revocation.clone()),
+            repository,
+        )?
+        .oneshot(apple_delete_request_with_proof(
+            fixture.target_id,
+            forbidden[0],
+            forbidden[1],
+            forbidden[2],
+        )?)
+        .await?;
+        assert_error(
+            response,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "account_deletion_failed_after_revoke",
+        )
+        .await?;
+        require_eq(identity.calls(), 1, "Apple identity proof was not verified")?;
+        require_eq(
+            revocation.calls(),
+            1,
+            "Apple revoke did not run before grace failure",
+        )?;
+        require_eq(
+            apple_account_graph(&pool, fixture.target_id).await?,
+            before,
+            "post-revoke grace failure mutated account graph",
+        )?;
+
+        let logs = output.snapshot()?;
+        require(
+            logs.contains("account_deletion_failed_after_revoke"),
+            "post-revoke grace failure was not logged",
+        )?;
+        for forbidden in forbidden {
+            require(
+                !logs.contains(forbidden),
+                "logs leaked Apple deletion credential material after grace failure",
+            )?;
+        }
+        Ok(())
+    }
+    .await;
+    finish_database_test(database, pool, result).await
+}
+
 #[tokio::test]
 async fn apple_delete_exchanges_revokes_then_enters_grace_deletion() -> TestResult {
     let database = TestDatabase::migrated().await?;
@@ -947,6 +1034,44 @@ fn assert_exact_keys(value: &Value, expected: &[&str]) -> TestResult {
     let actual = object.keys().map(String::as_str).collect::<BTreeSet<_>>();
     let expected = expected.iter().copied().collect::<BTreeSet<_>>();
     require_eq(actual, expected, "JSON object keys differed")
+}
+
+#[derive(Clone, Default)]
+struct SharedWriter(Arc<Mutex<Vec<u8>>>);
+
+impl SharedWriter {
+    fn snapshot(&self) -> io::Result<String> {
+        let bytes = self
+            .0
+            .lock()
+            .map_err(|_| io::Error::other("account-deletion log writer lock poisoned"))?
+            .clone();
+        String::from_utf8(bytes).map_err(io::Error::other)
+    }
+}
+
+impl<'writer> MakeWriter<'writer> for SharedWriter {
+    type Writer = SharedWriterGuard;
+
+    fn make_writer(&'writer self) -> Self::Writer {
+        SharedWriterGuard(self.0.clone())
+    }
+}
+
+struct SharedWriterGuard(Arc<Mutex<Vec<u8>>>);
+
+impl io::Write for SharedWriterGuard {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        self.0
+            .lock()
+            .map_err(|_| io::Error::other("account-deletion log writer lock poisoned"))?
+            .extend_from_slice(buffer);
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 struct DeletionFixture {
