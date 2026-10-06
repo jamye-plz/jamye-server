@@ -26,7 +26,11 @@ pub(super) async fn finalize_deletion(
     let archived_memberships_removed = delete_purgeable_memberships(connection, user_id).await?;
     ensure_no_live_memberships_remain(connection, user_id).await?;
 
-    let cleanup_intents_enqueued = enqueue_and_delete_unbound_uploads(connection, user_id).await?;
+    let unbound_intents = enqueue_and_delete_unbound_uploads(connection, user_id).await?;
+    let avatar_intents = enqueue_and_delete_avatar_uploads(connection, user_id).await?;
+    let cleanup_intents_enqueued = unbound_intents
+        .checked_add(avatar_intents)
+        .ok_or(AccountDeletionRepositoryError::InvalidData)?;
     delete_private_account_rows(connection, user_id).await?;
 
     Ok(AccountDeletionReport {
@@ -239,6 +243,48 @@ async fn enqueue_and_delete_unbound_uploads(
     } else {
         Err(AccountDeletionRepositoryError::InvalidData)
     }
+}
+
+/// Queue the objects of the user's pending and active avatar uploads, then hard-delete every
+/// avatar row. Released rows were queued when they were released, so only live ones remain.
+async fn enqueue_and_delete_avatar_uploads(
+    connection: &mut PgConnection,
+    user_id: Uuid,
+) -> Result<u64, AccountDeletionRepositoryError> {
+    let object_keys = sqlx::query_scalar::<_, String>(
+        "SELECT object_key FROM user_avatar_uploads \
+         WHERE user_id = $1 AND status IN ('pending', 'active') \
+         ORDER BY id \
+         FOR UPDATE",
+    )
+    .bind(user_id)
+    .fetch_all(&mut *connection)
+    .await
+    .map_err(|error| database_error("account_deletion_avatar_upload_lock", error))?;
+
+    let mut cleanup_intents_enqueued = 0_u64;
+    for object_key in &object_keys {
+        let result = sqlx::query(
+            "INSERT INTO account_object_deletion_intents (id, object_key) \
+             VALUES ($1, $2) \
+             ON CONFLICT (object_key) DO NOTHING",
+        )
+        .bind(Uuid::new_v4())
+        .bind(object_key)
+        .execute(&mut *connection)
+        .await
+        .map_err(|error| database_error("account_deletion_avatar_intent_insert", error))?;
+        cleanup_intents_enqueued = cleanup_intents_enqueued
+            .checked_add(result.rows_affected())
+            .ok_or(AccountDeletionRepositoryError::InvalidData)?;
+    }
+
+    sqlx::query("DELETE FROM user_avatar_uploads WHERE user_id = $1")
+        .bind(user_id)
+        .execute(connection)
+        .await
+        .map_err(|error| database_error("account_deletion_avatar_upload_delete", error))?;
+    Ok(cleanup_intents_enqueued)
 }
 
 async fn delete_private_account_rows(

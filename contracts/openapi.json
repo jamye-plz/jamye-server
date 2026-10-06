@@ -52,6 +52,65 @@
         ],
         "type": "object"
       },
+      "AvatarPresignedPut": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_in": {
+            "const": 900,
+            "type": "integer"
+          },
+          "url": {
+            "format": "uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "expires_in"
+        ],
+        "type": "object"
+      },
+      "AvatarUploadCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "byte_size": {
+            "maximum": 1048576,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "content_type": {
+            "const": "image/jpeg",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content_type",
+          "byte_size"
+        ],
+        "type": "object"
+      },
+      "AvatarUploadFinalize": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "AvatarUploadIntent": {
+        "additionalProperties": false,
+        "properties": {
+          "presigned_put": {
+            "$ref": "#/components/schemas/AvatarPresignedPut"
+          },
+          "upload_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_id",
+          "presigned_put"
+        ],
+        "type": "object"
+      },
       "CanonicalMessage": {
         "additionalProperties": false,
         "properties": {
@@ -2900,6 +2959,90 @@
         "x-jamye-owner-contribution": "contracts/contributions/task-5/dto/operations.json"
       }
     },
+    "/api/v1/avatars/{avatar_id}": {
+      "get": {
+        "operationId": "U6",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "avatar_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful response or canonical idempotent retry",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "public, max-age=31536000, immutable",
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unknown, malformed, replaced, cleared, or purged avatar id; never cached",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error response; inspect error.code for the stable machine-readable reason"
+          }
+        },
+        "summary": "Read a public avatar image",
+        "tags": [
+          "users"
+        ],
+        "x-jamye-authorization": "none (public; unguessable avatar id)",
+        "x-jamye-behavior-test": "tests/avatar/public_read.rs::u6_serves_the_active_jpeg_without_authentication_and_only_the_three_headers",
+        "x-jamye-errors": [
+          "404 avatar_not_found",
+          "429 rate_limit_exceeded",
+          "503 object_storage_degraded"
+        ],
+        "x-jamye-fixture": "contracts/contributions/task-8/fixtures/media-flow.json",
+        "x-jamye-owner-contribution": "contracts/contributions/task-8/dto/operations.json"
+      }
+    },
     "/api/v1/chatrooms/{chatroom_id}/media": {
       "get": {
         "operationId": "C5",
@@ -4751,6 +4894,131 @@
         "x-jamye-errors": "E1",
         "x-jamye-fixture": "contracts/fixtures/c2-health-profile-account.json",
         "x-jamye-owner-contribution": "contracts/contributions/task-5/dto/operations.json"
+      }
+    },
+    "/api/v1/me/avatar/uploads": {
+      "post": {
+        "operationId": "U4",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AvatarUploadCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvatarUploadIntent"
+                }
+              }
+            },
+            "description": "Resource created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error response; inspect error.code for the stable machine-readable reason"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "Create an avatar upload intent",
+        "tags": [
+          "users"
+        ],
+        "x-jamye-authorization": "bearer access token; own avatar only",
+        "x-jamye-behavior-test": "tests/avatar/upload_intent.rs::u4_returns_a_server_minted_uuid_v4_upload_and_a_900_second_put",
+        "x-jamye-errors": [
+          "401 authentication_required",
+          "422 request_validation_failed",
+          "429 rate_limit_exceeded",
+          "503 object_storage_degraded"
+        ],
+        "x-jamye-fixture": "contracts/contributions/task-8/fixtures/media-flow.json",
+        "x-jamye-owner-contribution": "contracts/contributions/task-8/dto/operations.json"
+      }
+    },
+    "/api/v1/me/avatar/uploads/{upload_id}/finalize": {
+      "post": {
+        "operationId": "U5",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AvatarUploadFinalize"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            },
+            "description": "Successful response or canonical idempotent retry"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error response; inspect error.code for the stable machine-readable reason"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "Finalize an avatar upload",
+        "tags": [
+          "users"
+        ],
+        "x-jamye-authorization": "bearer access token; upload owner",
+        "x-jamye-behavior-test": "tests/avatar/finalize.rs::u5_activates_the_upload_and_returns_the_user_with_the_public_url",
+        "x-jamye-errors": [
+          "401 authentication_required",
+          "404 avatar_upload_not_found",
+          "409 avatar_upload_not_pending",
+          "422 avatar_object_invalid",
+          "422 request_validation_failed",
+          "503 object_storage_degraded"
+        ],
+        "x-jamye-fixture": "contracts/contributions/task-8/fixtures/media-flow.json",
+        "x-jamye-owner-contribution": "contracts/contributions/task-8/dto/operations.json"
       }
     },
     "/api/v1/media/uploads": {

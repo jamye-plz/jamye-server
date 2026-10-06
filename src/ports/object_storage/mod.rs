@@ -38,6 +38,16 @@ pub trait MediaObjectStorage: Send + Sync {
     ) -> MediaObjectStorageFuture<'a, PresignedGet> {
         Box::pin(async { Err(ObjectStorageProviderError::Unavailable) })
     }
+
+    /// Read one private object fully into memory. Implementations must fail with
+    /// `UnexpectedResponse` when the object is larger than `max_bytes`.
+    fn get_object<'a>(
+        &'a self,
+        _object_key: &'a str,
+        _max_bytes: u64,
+    ) -> MediaObjectStorageFuture<'a, Vec<u8>> {
+        Box::pin(async { Err(ObjectStorageProviderError::Unavailable) })
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

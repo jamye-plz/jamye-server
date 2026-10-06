@@ -41,6 +41,52 @@
       "request": null,
       "response": "307 short signed URL with safe Content-Disposition",
       "success_status": 307
+    },
+    {
+      "auth": "bearer access token; own avatar only",
+      "errors": [
+        "401 authentication_required",
+        "422 request_validation_failed",
+        "429 rate_limit_exceeded",
+        "503 object_storage_degraded"
+      ],
+      "id": "U4",
+      "method": "POST",
+      "path": "/api/v1/me/avatar/uploads",
+      "request": "AvatarUploadCreate",
+      "response": "AvatarUploadIntent",
+      "success_status": 201
+    },
+    {
+      "auth": "bearer access token; upload owner",
+      "errors": [
+        "401 authentication_required",
+        "404 avatar_upload_not_found",
+        "409 avatar_upload_not_pending",
+        "422 avatar_object_invalid",
+        "422 request_validation_failed",
+        "503 object_storage_degraded"
+      ],
+      "id": "U5",
+      "method": "POST",
+      "path": "/api/v1/me/avatar/uploads/{upload_id}/finalize",
+      "request": "AvatarUploadFinalize",
+      "response": "User",
+      "success_status": 200
+    },
+    {
+      "auth": "none (public; unguessable avatar id)",
+      "errors": [
+        "404 avatar_not_found",
+        "429 rate_limit_exceeded",
+        "503 object_storage_degraded"
+      ],
+      "id": "U6",
+      "method": "GET",
+      "path": "/api/v1/avatars/{avatar_id}",
+      "request": null,
+      "response": "image/jpeg bytes",
+      "success_status": 200
     }
   ]
 }

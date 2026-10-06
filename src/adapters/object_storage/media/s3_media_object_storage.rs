@@ -171,6 +171,47 @@ impl MediaObjectStorage for S3MediaObjectStorage {
             })
         })
     }
+
+    fn get_object<'a>(
+        &'a self,
+        object_key: &'a str,
+        max_bytes: u64,
+    ) -> MediaObjectStorageFuture<'a, Vec<u8>> {
+        Box::pin(async move {
+            let limit = usize::try_from(max_bytes)
+                .map_err(|_| ObjectStorageProviderError::UnexpectedResponse)?;
+            let object = self
+                .object_client
+                .get_object()
+                .bucket(&self.bucket)
+                .key(object_key)
+                .send()
+                .await
+                .map_err(|error| classify_provider_error(&error))?;
+            if let Some(length) = object.content_length()
+                && !matches!(u64::try_from(length), Ok(length) if length <= max_bytes)
+            {
+                return Err(ObjectStorageProviderError::UnexpectedResponse);
+            }
+            let mut stream = object.body;
+            let mut body = Vec::new();
+            while let Some(chunk) = stream
+                .try_next()
+                .await
+                .map_err(|_| ObjectStorageProviderError::Unavailable)?
+            {
+                let next_size = body
+                    .len()
+                    .checked_add(chunk.len())
+                    .ok_or(ObjectStorageProviderError::UnexpectedResponse)?;
+                if next_size > limit {
+                    return Err(ObjectStorageProviderError::UnexpectedResponse);
+                }
+                body.extend_from_slice(&chunk);
+            }
+            Ok(body)
+        })
+    }
 }
 
 fn inspect_audio_duration(

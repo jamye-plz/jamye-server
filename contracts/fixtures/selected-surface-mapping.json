@@ -138,6 +138,33 @@
       "path": "/api/v1/me"
     },
     {
+      "feature_behavior_test": "tests/avatar/upload_intent.rs::u4_returns_a_server_minted_uuid_v4_upload_and_a_900_second_put",
+      "fixture": "contracts/contributions/task-8/fixtures/media-flow.json",
+      "handler": "src/transport/http/avatar/mod.rs::create_upload",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "post",
+      "operation_id": "U4",
+      "path": "/api/v1/me/avatar/uploads"
+    },
+    {
+      "feature_behavior_test": "tests/avatar/finalize.rs::u5_activates_the_upload_and_returns_the_user_with_the_public_url",
+      "fixture": "contracts/contributions/task-8/fixtures/media-flow.json",
+      "handler": "src/transport/http/avatar/mod.rs::finalize_upload",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "post",
+      "operation_id": "U5",
+      "path": "/api/v1/me/avatar/uploads/{upload_id}/finalize"
+    },
+    {
+      "feature_behavior_test": "tests/avatar/public_read.rs::u6_serves_the_active_jpeg_without_authentication_and_only_the_three_headers",
+      "fixture": "contracts/contributions/task-8/fixtures/media-flow.json",
+      "handler": "src/transport/http/avatar/mod.rs::read_avatar",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "get",
+      "operation_id": "U6",
+      "path": "/api/v1/avatars/{avatar_id}"
+    },
+    {
       "feature_behavior_test": "tests/groups/http.rs::group_http_crud_paginates_and_enforces_membership_without_disclosure",
       "fixture": "contracts/contributions/task-6/fixtures/group-invite-flow.json",
       "handler": "src/transport/http/groups/mod.rs::create_group",

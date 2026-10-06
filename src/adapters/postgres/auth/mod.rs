@@ -335,6 +335,17 @@ impl PostgresAuthRepository {
             AvatarPatch::Set(value) => (true, Some(value.as_str())),
             AvatarPatch::Clear => (true, None),
         };
+        if apply_avatar {
+            // A cleared or replaced avatar releases the hosted upload (and queues its object
+            // for deletion) in this same transaction.
+            crate::adapters::postgres::avatar::release_active_for_profile_change(
+                &mut *connection,
+                user_id,
+                avatar_url,
+            )
+            .await
+            .map_err(|_| database_failure("avatar_release"))?;
+        }
         sqlx::query_as::<_, (Uuid, String, String, Option<String>, OffsetDateTime)>(
             "WITH updated AS ( \
                  UPDATE users \

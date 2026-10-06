@@ -15,6 +15,8 @@ use url::Url;
 const DEFAULT_LISTEN_ADDRESS: &str = "127.0.0.1:3000";
 const DEFAULT_SHUTDOWN_GRACE_SECONDS: &str = "20";
 const DEFAULT_READINESS_TIMEOUT_MS: &str = "1000";
+const AVATAR_PUBLIC_BASE_URL_KEY: &str = "JAMYE_AVATAR_PUBLIC_BASE_URL";
+const MAX_AVATAR_PUBLIC_BASE_URL_CHARS: usize = 256;
 
 /// Deployment environment used only for safe behavior selection and logging.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -38,6 +40,7 @@ pub struct ConfigInput {
     pub database_url: Option<String>,
     pub redis_url: Option<String>,
     pub minio_health_url: Option<String>,
+    pub avatar_public_base_url: Option<String>,
 }
 
 impl ConfigInput {
@@ -50,6 +53,7 @@ impl ConfigInput {
             database_url: read_env("DATABASE_URL"),
             redis_url: read_env("REDIS_URL"),
             minio_health_url: read_env("JAMYE_MINIO_HEALTH_URL"),
+            avatar_public_base_url: read_env(AVATAR_PUBLIC_BASE_URL_KEY),
         }
     }
 }
@@ -64,6 +68,7 @@ pub struct AppConfig {
     database_url: SensitiveUrl,
     redis_url: Option<SensitiveUrl>,
     minio_health_url: Option<SensitiveUrl>,
+    avatar_public_base_url: Option<String>,
 }
 
 impl AppConfig {
@@ -100,6 +105,12 @@ impl AppConfig {
         self.minio_health_url
             .as_ref()
             .map(SensitiveUrl::expose_secret)
+    }
+
+    /// Public https origin (no trailing slash) of hosted avatar URLs. `None` keeps the
+    /// avatar upload and public-read routes unmounted.
+    pub fn avatar_public_base_url(&self) -> Option<&str> {
+        self.avatar_public_base_url.as_deref()
     }
 }
 
@@ -153,6 +164,7 @@ impl TryFrom<ConfigInput> for AppConfig {
             &["http", "https"],
             UrlPolicy::MinioHealth,
         )?;
+        let avatar_public_base_url = optional_avatar_public_base_url(input.avatar_public_base_url)?;
 
         Ok(Self {
             environment,
@@ -162,6 +174,7 @@ impl TryFrom<ConfigInput> for AppConfig {
             database_url,
             redis_url,
             minio_health_url,
+            avatar_public_base_url,
         })
     }
 }
@@ -295,6 +308,38 @@ fn validate_url(
         validate_minio_health_url(key, &parsed)?;
     }
     Ok(SensitiveUrl(value))
+}
+
+/// Reuses the object-storage origin validator and `validate_url`; hosted avatar URLs
+/// append 52 characters, so a 256-character base always satisfies `valid_avatar_url`.
+fn optional_avatar_public_base_url(value: Option<String>) -> Result<Option<String>, ConfigError> {
+    let Some(value) = value.filter(|value| !value.trim().is_empty()) else {
+        return Ok(None);
+    };
+    if value.chars().count() > MAX_AVATAR_PUBLIC_BASE_URL_CHARS {
+        return Err(ConfigError::new(
+            AVATAR_PUBLIC_BASE_URL_KEY,
+            "must be at most 256 characters",
+        ));
+    }
+    let checked = validate_url(
+        AVATAR_PUBLIC_BASE_URL_KEY,
+        value,
+        &["https"],
+        UrlPolicy::SecretService,
+    )?;
+    let origin = object_storage::parse_endpoint(
+        AVATAR_PUBLIC_BASE_URL_KEY,
+        checked.expose_secret().to_owned(),
+    )?;
+    let normalized = origin.as_str().trim_end_matches('/').to_owned();
+    if normalized.chars().count() > MAX_AVATAR_PUBLIC_BASE_URL_CHARS {
+        return Err(ConfigError::new(
+            AVATAR_PUBLIC_BASE_URL_KEY,
+            "must be at most 256 characters",
+        ));
+    }
+    Ok(Some(normalized))
 }
 
 fn validate_minio_health_url(key: &'static str, url: &Url) -> Result<(), ConfigError> {

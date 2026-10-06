@@ -258,8 +258,39 @@ pub fn router_with_runtime(
     }));
     let media_access = Arc::new(MediaAccessService::new(MediaAccessDependencies {
         repository: media_repository.clone(),
-        object_storage: storage,
+        object_storage: storage.clone(),
     }));
+    // Avatar hosting is gated by JAMYE_AVATAR_PUBLIC_BASE_URL: without it the three avatar
+    // routes are not mounted at all (plain 404), so deploys can ship the code dark.
+    let avatar_routes = config
+        .avatar_public_base_url()
+        .map(|public_base_url| {
+            let service = crate::application::avatar::AvatarService::new(
+                crate::application::avatar::AvatarDependencies {
+                    transactions: transactions.clone(),
+                    repository: Arc::new(
+                        crate::adapters::postgres::avatar::PostgresAvatarRepository::new(
+                            pool.clone(),
+                        ),
+                    ),
+                    object_storage: storage.clone(),
+                    rate_limiter: rate_limiter.clone(),
+                },
+                crate::application::avatar::AvatarSettings {
+                    public_base_url: public_base_url.to_owned(),
+                    upload_rate_limit: rate_limits.media_upload_presign,
+                    public_read_rate_limit: rate_limits.avatar_public_read,
+                },
+            )
+            .map_err(|_| CompositionError::Media)?;
+            Ok::<_, CompositionError>(crate::transport::http::avatar::router(
+                crate::transport::http::avatar::AvatarHttpState::new(
+                    Arc::new(service),
+                    verifier.clone(),
+                ),
+            ))
+        })
+        .transpose()?;
     let notifications_service = Arc::new(NotificationsService::new(NotificationsDependencies {
         transactions: transactions.clone(),
         repository: notifications_repository.clone(),
@@ -309,7 +340,7 @@ pub fn router_with_runtime(
         Arc::new(SystemClock),
     ));
     let realtime_repository = Arc::new(PostgresRealtimeRepository::new(pool));
-    let application = health::router(HealthState::new(readiness))
+    let mut application = health::router(HealthState::new(readiness))
         .merge(app_links_router(AppLinksHttpState::new(app_links.clone())))
         .merge(auth_router(AuthHttpState::new(
             auth_service,
@@ -366,6 +397,9 @@ pub fn router_with_runtime(
             crate::transport::http::auth::AuthVerifierState::new(verifier),
             users,
         )));
+    if let Some(avatar_routes) = avatar_routes {
+        application = application.merge(avatar_routes);
+    }
     Ok(with_platform_layers(application))
 }
 

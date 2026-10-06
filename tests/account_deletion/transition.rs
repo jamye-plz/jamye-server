@@ -2147,3 +2147,81 @@ async fn finish_database_test(
         ))),
     }
 }
+
+#[tokio::test]
+async fn purge_queues_pending_and_active_avatar_objects_and_hard_deletes_every_avatar_row()
+-> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let result: TestResult = async {
+        let user_id = fixture_id(0x1900);
+        insert_user(&pool, user_id, "avatar purge target").await?;
+        let rows = [
+            (fixture_id(0x1901), "pending"),
+            (fixture_id(0x1902), "active"),
+            (fixture_id(0x1903), "released"),
+        ];
+        let mut expected_keys = Vec::new();
+        for (upload_id, status) in rows {
+            let object_key = format!("avatar/{user_id}/{upload_id}");
+            sqlx::query(
+                "INSERT INTO user_avatar_uploads \
+                     (id, user_id, object_key, byte_size, status, expires_at, released_at) \
+                 VALUES ($1, $2, $3, 2048, $4, \
+                         clock_timestamp() + interval '15 minutes', \
+                         CASE WHEN $5 THEN clock_timestamp() ELSE NULL END)",
+            )
+            .bind(upload_id)
+            .bind(user_id)
+            .bind(&object_key)
+            .bind(status)
+            .bind(status == "released")
+            .execute(&pool)
+            .await?;
+            expected_keys.push(object_key);
+        }
+        // The release path already queued the released row's object.
+        sqlx::query("INSERT INTO account_object_deletion_intents (id, object_key) VALUES ($1, $2)")
+            .bind(Uuid::new_v4())
+            .bind(&expected_keys[2])
+            .execute(&pool)
+            .await?;
+        sqlx::query("UPDATE users SET deleted_at = clock_timestamp() WHERE id = $1")
+            .bind(user_id)
+            .execute(&pool)
+            .await?;
+
+        let report = finalize_account(&pool, user_id).await?;
+        require_eq(
+            report.cleanup_intents_enqueued,
+            2,
+            "purge did not newly queue exactly the pending and active avatar objects",
+        )?;
+        let queued = sqlx::query_scalar::<_, String>(
+            "SELECT object_key FROM account_object_deletion_intents \
+             WHERE object_key LIKE 'avatar/%' ORDER BY object_key",
+        )
+        .fetch_all(&pool)
+        .await?;
+        require_eq(
+            queued,
+            expected_keys,
+            "purge did not leave every avatar object queued exactly once",
+        )?;
+        let remaining = sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM user_avatar_uploads WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_one(&pool)
+        .await?;
+        require_eq(remaining, 0, "purge left avatar upload rows behind")?;
+        let user_rows = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await?;
+        require_eq(user_rows, 0, "purge did not hard-delete the account row")
+    }
+    .await;
+
+    finish_database_test(database, pool, result).await
+}
