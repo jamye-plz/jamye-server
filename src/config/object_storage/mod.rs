@@ -163,7 +163,7 @@ fn required_value(key: &'static str, value: Option<String>) -> Result<String, Co
         .ok_or_else(|| ConfigError::new(key, "is required"))
 }
 
-fn parse_endpoint(key: &'static str, value: String) -> Result<Url, ConfigError> {
+pub(super) fn parse_endpoint(key: &'static str, value: String) -> Result<Url, ConfigError> {
     let endpoint = Url::parse(&value).map_err(|_| ConfigError::new(key, "must be a valid URL"))?;
     if !matches!(endpoint.scheme(), "http" | "https") || endpoint.host().is_none() {
         return Err(ConfigError::new(key, "uses an unsupported URL form"));

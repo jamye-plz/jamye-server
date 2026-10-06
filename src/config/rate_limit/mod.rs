@@ -4,6 +4,7 @@ use std::{env, fmt, time::Duration};
 
 use crate::application::{
     auth::{AuthRateLimitPolicy, EndpointRateLimit},
+    avatar::AvatarEndpointRateLimit,
     groups::{GroupsEndpointRateLimit, GroupsRateLimitPolicy},
     media::MediaEndpointRateLimit,
 };
@@ -13,6 +14,7 @@ pub struct RateLimitConfig {
     pub auth: AuthRateLimitPolicy,
     pub groups: GroupsRateLimitPolicy,
     pub media_upload_presign: MediaEndpointRateLimit,
+    pub avatar_public_read: AvatarEndpointRateLimit,
 }
 
 impl RateLimitConfig {
@@ -57,6 +59,10 @@ impl Default for RateLimitConfig {
                 limit: 30,
                 window: one_minute,
             },
+            avatar_public_read: AvatarEndpointRateLimit {
+                limit: 600,
+                window: one_minute,
+            },
         }
     }
 }
@@ -77,6 +83,8 @@ pub struct RateLimitConfigInput {
     pub invite_redeem_window_seconds: Option<String>,
     pub media_upload_presign_limit: Option<String>,
     pub media_upload_presign_window_seconds: Option<String>,
+    pub avatar_public_read_limit: Option<String>,
+    pub avatar_public_read_window_seconds: Option<String>,
 }
 
 impl RateLimitConfigInput {
@@ -102,6 +110,11 @@ impl RateLimitConfigInput {
                 .ok(),
             media_upload_presign_window_seconds: env::var(
                 "JAMYE_RATE_LIMIT_MEDIA_UPLOAD_PRESIGN_WINDOW_SECONDS",
+            )
+            .ok(),
+            avatar_public_read_limit: env::var("JAMYE_RATE_LIMIT_AVATAR_PUBLIC_READ_LIMIT").ok(),
+            avatar_public_read_window_seconds: env::var(
+                "JAMYE_RATE_LIMIT_AVATAR_PUBLIC_READ_WINDOW_SECONDS",
             )
             .ok(),
         }
@@ -167,6 +180,17 @@ impl TryFrom<RateLimitConfigInput> for RateLimitConfig {
                 input.media_upload_presign_window_seconds,
             )
             .map(|policy| MediaEndpointRateLimit {
+                limit: policy.limit,
+                window: policy.window,
+            })?,
+            avatar_public_read: endpoint(
+                "JAMYE_RATE_LIMIT_AVATAR_PUBLIC_READ_LIMIT",
+                input.avatar_public_read_limit,
+                600,
+                "JAMYE_RATE_LIMIT_AVATAR_PUBLIC_READ_WINDOW_SECONDS",
+                input.avatar_public_read_window_seconds,
+            )
+            .map(|policy| AvatarEndpointRateLimit {
                 limit: policy.limit,
                 window: policy.window,
             })?,

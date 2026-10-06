@@ -165,7 +165,7 @@ fn generated_inventory_has_exactly_46_rest_operations_and_four_selected_realtime
     let expected_events = expected_realtime_event_types();
     if actual_operations != expected_operations || actual_events != expected_events {
         return Err(io::Error::other(format!(
-            "generated selected inventory must contain the exact 46 operation/method/path rows and four unique selected realtime events; actual_rest_count={}, actual_rest={actual_operations:?}, actual_realtime_count={}, actual_realtime={actual_events:?}",
+            "generated selected inventory must contain the exact 49 operation/method/path rows and four unique selected realtime events; actual_rest_count={}, actual_rest={actual_operations:?}, actual_realtime_count={}, actual_realtime={actual_events:?}",
             actual_operations.len(),
             actual_events.len(),
         ))
@@ -222,7 +222,7 @@ fn generated_c3_request_supports_cursor_or_message_id_without_changing_the_respo
 
 #[test]
 fn generated_openapi_is_a_client_consumable_production_reference() -> TestResult {
-    const PUBLIC_OPERATIONS: [&str; 7] = ["H1", "H2", "A1", "A2", "A3", "A5", "A6"];
+    const PUBLIC_OPERATIONS: [&str; 8] = ["H1", "H2", "A1", "A2", "A3", "A5", "A6", "U6"];
 
     let _filesystem = filesystem_lock();
     let generated = generate_current(DIRTY, "client-openapi")?;

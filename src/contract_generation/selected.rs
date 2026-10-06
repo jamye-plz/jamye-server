@@ -129,6 +129,30 @@ pub(crate) const REST_SURFACES: &[RestSurface] = &[
         "contracts/fixtures/c2-health-profile-account.json"
     ),
     row!(
+        "U4",
+        "post",
+        "/api/v1/me/avatar/uploads",
+        "src/transport/http/avatar/mod.rs::create_upload",
+        "tests/avatar/upload_intent.rs::u4_returns_a_server_minted_uuid_v4_upload_and_a_900_second_put",
+        "contracts/contributions/task-8/fixtures/media-flow.json"
+    ),
+    row!(
+        "U5",
+        "post",
+        "/api/v1/me/avatar/uploads/{upload_id}/finalize",
+        "src/transport/http/avatar/mod.rs::finalize_upload",
+        "tests/avatar/finalize.rs::u5_activates_the_upload_and_returns_the_user_with_the_public_url",
+        "contracts/contributions/task-8/fixtures/media-flow.json"
+    ),
+    row!(
+        "U6",
+        "get",
+        "/api/v1/avatars/{avatar_id}",
+        "src/transport/http/avatar/mod.rs::read_avatar",
+        "tests/avatar/public_read.rs::u6_serves_the_active_jpeg_without_authentication_and_only_the_three_headers",
+        "contracts/contributions/task-8/fixtures/media-flow.json"
+    ),
+    row!(
         "G1",
         "post",
         "/api/v1/groups",

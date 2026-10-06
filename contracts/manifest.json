@@ -42,6 +42,9 @@
     "U1",
     "U2",
     "U3",
+    "U4",
+    "U5",
+    "U6",
     "G1",
     "G2",
     "G3",
@@ -84,5 +87,5 @@
     "message.deleted",
     "topic.deleted"
   ],
-  "sha256": "3a9278661f82d069f60acca7d9a63df08d198296592a24f507618662ee0071ed"
+  "sha256": "2939704953f6adc24118ce9fdd922e69cb81c96b92214c8588cecc0ecf4ccb7f"
 }

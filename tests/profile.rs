@@ -320,3 +320,222 @@ async fn profile_fixture(
         codec,
     ))
 }
+
+const HOSTED_AVATAR_BASE: &str = "https://avatars.example.test/api/v1/avatars";
+
+/// Seed one hosted-avatar row; an active row also becomes the user's `avatar_url`.
+async fn seed_avatar_row(pool: &PgPool, user_id: Uuid, status: &str) -> TestResult<(Uuid, String)> {
+    let upload_id = Uuid::new_v4();
+    let object_key = format!("avatar/{user_id}/{upload_id}");
+    sqlx::query(
+        "INSERT INTO user_avatar_uploads \
+             (id, user_id, object_key, byte_size, status, expires_at, released_at) \
+         VALUES ($1, $2, $3, 2048, $4, \
+                 clock_timestamp() + interval '15 minutes', \
+                 CASE WHEN $5 THEN clock_timestamp() ELSE NULL END)",
+    )
+    .bind(upload_id)
+    .bind(user_id)
+    .bind(&object_key)
+    .bind(status)
+    .bind(status == "released")
+    .execute(pool)
+    .await?;
+    if status == "active" {
+        sqlx::query("UPDATE users SET avatar_url = $2 WHERE id = $1")
+            .bind(user_id)
+            .bind(format!("{HOSTED_AVATAR_BASE}/{upload_id}"))
+            .execute(pool)
+            .await?;
+    }
+    Ok((upload_id, object_key))
+}
+
+async fn avatar_row_state(pool: &PgPool, upload_id: Uuid) -> TestResult<(String, bool)> {
+    Ok(sqlx::query_as::<_, (String, bool)>(
+        "SELECT status, released_at IS NOT NULL FROM user_avatar_uploads WHERE id = $1",
+    )
+    .bind(upload_id)
+    .fetch_one(pool)
+    .await?)
+}
+
+async fn queued_object_keys(pool: &PgPool) -> TestResult<Vec<String>> {
+    Ok(sqlx::query_scalar::<_, String>(
+        "SELECT object_key FROM account_object_deletion_intents ORDER BY object_key",
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
+#[tokio::test]
+async fn clearing_the_avatar_releases_the_active_hosted_row_and_queues_its_object() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let result: TestResult = async {
+        let (user_id, _, service, _) = profile_fixture(pool.clone()).await?;
+        let (upload_id, object_key) = seed_avatar_row(&pool, user_id, "active").await?;
+        let (pending_id, _) = seed_avatar_row(&pool, user_id, "pending").await?;
+
+        let cleared = service
+            .update(
+                user_id,
+                UserPatch {
+                    nickname: PatchValue::Omitted,
+                    avatar_url: PatchValue::Value(String::new()),
+                },
+            )
+            .await?;
+        assert_eq!(cleared.avatar_url, None);
+        assert_eq!(
+            avatar_row_state(&pool, upload_id).await?,
+            ("released".to_owned(), true)
+        );
+        assert_eq!(queued_object_keys(&pool).await?, vec![object_key.clone()]);
+        // An in-flight pending upload is not a hosted avatar and stays usable.
+        assert_eq!(
+            avatar_row_state(&pool, pending_id).await?,
+            ("pending".to_owned(), false)
+        );
+
+        // Repeating the clear finds no active row and queues nothing more.
+        service
+            .update(
+                user_id,
+                UserPatch {
+                    nickname: PatchValue::Omitted,
+                    avatar_url: PatchValue::Value(String::new()),
+                },
+            )
+            .await?;
+        assert_eq!(queued_object_keys(&pool).await?, vec![object_key]);
+        Ok(())
+    }
+    .await;
+    pool.close().await;
+    let cleanup = database.dispose().await;
+    result?;
+    cleanup
+}
+
+#[tokio::test]
+async fn setting_another_https_avatar_releases_the_active_hosted_row_and_queues_its_object()
+-> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let result: TestResult = async {
+        let (user_id, _, service, _) = profile_fixture(pool.clone()).await?;
+        let (upload_id, object_key) = seed_avatar_row(&pool, user_id, "active").await?;
+
+        let replaced = service
+            .update(
+                user_id,
+                UserPatch {
+                    nickname: PatchValue::Omitted,
+                    avatar_url: PatchValue::Value("https://images.example/other.png".to_owned()),
+                },
+            )
+            .await?;
+        assert_eq!(
+            replaced.avatar_url.as_deref(),
+            Some("https://images.example/other.png")
+        );
+        assert_eq!(
+            avatar_row_state(&pool, upload_id).await?,
+            ("released".to_owned(), true)
+        );
+        assert_eq!(queued_object_keys(&pool).await?, vec![object_key]);
+        Ok(())
+    }
+    .await;
+    pool.close().await;
+    let cleanup = database.dispose().await;
+    result?;
+    cleanup
+}
+
+#[tokio::test]
+async fn null_or_omitted_avatar_keeps_the_active_hosted_row_and_queues_nothing() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let result: TestResult = async {
+        let (user_id, _, service, _) = profile_fixture(pool.clone()).await?;
+        let (upload_id, _) = seed_avatar_row(&pool, user_id, "active").await?;
+        let hosted_url = format!("{HOSTED_AVATAR_BASE}/{upload_id}");
+
+        for avatar_url in [PatchValue::Null, PatchValue::Omitted] {
+            let unchanged = service
+                .update(
+                    user_id,
+                    UserPatch {
+                        nickname: PatchValue::Value("바뀐 별명".to_owned()),
+                        avatar_url,
+                    },
+                )
+                .await?;
+            assert_eq!(unchanged.avatar_url.as_deref(), Some(hosted_url.as_str()));
+            assert_eq!(unchanged.nickname, "바뀐 별명");
+            assert_eq!(
+                avatar_row_state(&pool, upload_id).await?,
+                ("active".to_owned(), false)
+            );
+            assert!(queued_object_keys(&pool).await?.is_empty());
+        }
+
+        // An invalid avatar is rejected before any release happens.
+        assert_eq!(
+            service
+                .update(
+                    user_id,
+                    UserPatch {
+                        nickname: PatchValue::Omitted,
+                        avatar_url: PatchValue::Value("http://images.example/a.png".to_owned()),
+                    },
+                )
+                .await,
+            Err(UserError::RequestValidation)
+        );
+        assert_eq!(
+            avatar_row_state(&pool, upload_id).await?,
+            ("active".to_owned(), false)
+        );
+        assert!(queued_object_keys(&pool).await?.is_empty());
+        Ok(())
+    }
+    .await;
+    pool.close().await;
+    let cleanup = database.dispose().await;
+    result?;
+    cleanup
+}
+
+#[tokio::test]
+async fn clearing_an_external_avatar_queues_nothing() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let result: TestResult = async {
+        let (user_id, _, service, _) = profile_fixture(pool.clone()).await?;
+        let (released_id, _) = seed_avatar_row(&pool, user_id, "released").await?;
+        let cleared = service
+            .update(
+                user_id,
+                UserPatch {
+                    nickname: PatchValue::Omitted,
+                    avatar_url: PatchValue::Value(String::new()),
+                },
+            )
+            .await?;
+        assert_eq!(cleared.avatar_url, None);
+        assert!(queued_object_keys(&pool).await?.is_empty());
+        assert_eq!(
+            avatar_row_state(&pool, released_id).await?,
+            ("released".to_owned(), true)
+        );
+        Ok(())
+    }
+    .await;
+    pool.close().await;
+    let cleanup = database.dispose().await;
+    result?;
+    cleanup
+}

@@ -3,6 +3,7 @@
 pub mod account_deletion;
 pub mod app_links;
 pub mod auth;
+pub mod avatar;
 pub mod chatrooms;
 pub mod composition;
 #[cfg(feature = "dev-fixtures")]

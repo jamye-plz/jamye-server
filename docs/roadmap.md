@@ -3,7 +3,7 @@
 > 세션: ultrawork/20260822-200110 · 후속 로드맵 등록: ultrawork/20260922-100557 · task-14 구현: ultrawork/20260928-171401 · task-15 구현·배포: ultrawork/20260930-000919
 > 현재 단계: task-14 1·2·3차 운영 배포 완료(soft delete 전 범위, 계정 삭제 유예·복구, 앱 M15 소프트 삭제 수용 연동). task-15(Sign in with Apple)는 2026-09-30 세션에서 구현·검사·배포 전 안전 리뷰·운영 배포(기능 꺼짐 → 사용자 SOPS 입력 → 활성화)를 모두 마쳤다(§13, §14). task-16은 착수 승인 대기(§14)
 > 상태: Task 13이 완료됐다(근거는 §9). task-14(soft delete)는 세션 ultrawork/20260928-171401에서 구현해 1차(merge `c047e5a`)·2차(merge `b20a4d0`)·3차(merge `6dcb6d5`)를 모두 운영 배포했다(§0, §13, §14). task-15(Sign in with Apple)는 2026-09-30 세션 `20260930-000919`에서 A6 native identity-token exchange, Apple 계정 삭제 재인증·revoke, migration `0018`, 계약 contribution 갱신을 구현하고, 필수 검사와 배포 전 안전 리뷰(1·2차) PASS 뒤 커밋 `b4ae432` → PR #16 → merge `2c93ed1` → homelab PR #95(`6d916dc`, 기능 꺼짐)·PR #96(`fe6a4e9`, Apple 활성화)로 운영 배포했다(§13, §14). task-16(서버측 잔여 백로그)은 2026-09-22 로드맵에 등록만 됐으며 착수는 별도 승인이 필요하다. task-17은 2026-09-26 앱 M14 라운드 1 지원 범위로 구현해 같은 날 운영 배포했고(merge `5b987a2`, migration `0012`), task-18은 2026-09-27 앱 M14 라운드 2 지원 범위로 구현해 같은 날 운영 배포했다(merge `a77cac5`, migration `0013`). 2026-09-28에는 HTTP 메시지 전송의 첨부 1개 제한을 푼 수정(merge `c7f71a8`)을 배포했다(§13).
-> 진행률: Task 1-15·17-18 구현·배포 완료, task-16은 등록(planned_unapproved) 단계
+> 진행률: Task 1-15·17-18 구현·배포 완료, task-16은 등록(planned_unapproved) 단계, task-19(아바타 업로드)는 2026-10-06 세션 `20261006-174701`에서 구현 중(미배포, §14)
 > 기계 SSOT: .agents/results/plan-20260822-200110.json (task-1-13) · .agents/results/plan-20260926-181036.json (task-17) · .agents/results/plan-20260927-120934.json (task-18) · .agents/results/plan-20260928-171401.json (task-14) · .agents/results/plan-20260930-000919.json (task-15) · task-16 이후는 착수 시 새 plan JSON 생성
 
 ## 0. 2026-09-28~29 task-14 서버 구현·배포 기록
@@ -287,12 +287,13 @@ D3=C에 따라 이번 작업과 C2에는 STT contract, field, job, migration, ev
 | 14 | M14 | task-16 | 서버측 잔여 백로그: 메시지 편집 계약(옵션), README/roadmap drift, homelab 백업 연동, 모니터링 | task-14 |
 | 15 | M15 | task-17 | 앱 M14 라운드 1 서버 지원: app-link association 공개 route, 초대 랜딩, 대화방 이미지·동영상 미디어 목록 API, 주제 미디어 제거와 `0012` migration, C2 계약 재생성 | task-13 + 2026-09-26 task-srv 승인 |
 | 16 | M16 | task-18 | 앱 M14 라운드 2 서버 지원: 알림 args에 `group_name`/`topic_title`, T6 태그 교체 작성자-only, U2 `avatar_url` HTTPS 검증, Kakao `secure_resource=true`, `0013` avatar URL HTTPS migration, C2 계약 재생성 | task-17 + 2026-09-27 task-srv 승인 |
+| 17 | M17 | task-19 | 앱 M17 라운드 3 서버 지원: 서버 호스팅 프로필 사진(U4 업로드 시작, U5 확정, U6 공개 조회), `0019` migration, 교체·지움·purge 시 객체 삭제 큐, `JAMYE_AVATAR_PUBLIC_BASE_URL` 설정 게이트, C2 계약 재생성 | task-18 + 2026-10-06 task-srv 승인 |
 
 우선순위는 dependency가 없는 task는 1, 나머지는 1 + max(dependency priority)다. 같은 tier에는 dependency나 directory-prefix scope collision이 없어야 한다.
 
 task-10은 사용자 승인 STT non-goal로 삭제했다. 기존 참조 안정성을 위해 task-11 이후 ID는 renumber하지 않아 task ID가 의도적으로 비연속이다.
 
-서버 마일스톤 번호 M12-M16(task-14-18)는 jamye-app 로드맵의 M14-M18 번호 체계와 완전히 독립이다. task-17/18 설명의 "앱 M14 라운드"는 지원 대상 앱 라운드를 가리키며, 서버 milestone 번호를 뜻하지 않는다.
+서버 마일스톤 번호 M12-M17(task-14-19)는 jamye-app 로드맵의 M14-M18 번호 체계와 완전히 독립이다. task-17/18 설명의 "앱 M14 라운드"는 지원 대상 앱 라운드를 가리키며, 서버 milestone 번호를 뜻하지 않는다.
 
 ## 12. 테스트와 완료 판정
 
@@ -405,3 +406,25 @@ SELECT version, success FROM _sqlx_migrations WHERE version = 13;
 ```
 
 배포 결과: 적용 전 `http://` 1·`https://` 1, 적용 뒤 `http://` 0·`https://` 2, version 13 success(`.agents/results/deploy-20260927-120934.md` §3·§7).
+
+### task-19 — 앱 M17 라운드 3 서버 지원: 아바타 업로드 (M17)
+
+상태: `implemented_not_deployed` (2026-10-06 세션 `20261006-174701`, 브랜치 `feature/task-19-avatar-upload`, migration `0019`). 이 task는 앱이 프로필 사진을 직접 올리고 지울 수 있도록 서버 호스팅 아바타를 추가한다. 결정 근거는 `docs/adr/0012-avatar-hosting.md`다. 배포(서버 `main` merge가 운영 재배포를 일으킨다)와 homelab의 `JAMYE_AVATAR_PUBLIC_BASE_URL` 연결은 구현과 별도로 사용자 확인 뒤 진행한다.
+
+새 operation은 U4~U6이다. 계약은 task-8 media contribution에 두고 `just contract-generate`로만 재생성한다.
+
+| ID | 경로 | 인증 | 성공 | 오류 |
+|---|---|---|---|---|
+| U4 | `POST /api/v1/me/avatar/uploads` | bearer | 201 `{upload_id, presigned_put{url, expires_in:900}}` | 401, 422 `request_validation_failed`, 429 `rate_limit_exceeded`, 503 `object_storage_degraded` |
+| U5 | `POST /api/v1/me/avatar/uploads/{upload_id}/finalize` | bearer | 200 `User`(`avatar_url`은 공개 URL) | 401, 404 `avatar_upload_not_found`, 409 `avatar_upload_not_pending`, 422 `avatar_object_invalid`, 503 |
+| U6 | `GET /api/v1/avatars/{avatar_id}` | 없음(공개) | 200 JPEG 바이트 | 404 `avatar_not_found`(`Cache-Control: no-store`), 429, 503 |
+
+- U4는 `image/jpeg`와 1..1048576 바이트만 받는다. 서버가 UUIDv4 `upload_id`를 만들고 비공개 bucket 키 `avatar/{user_id}/{upload_id}`로 15분짜리 presigned PUT을 돌려준다. 새 intent는 이전 pending 행을 `released`로 바꾸고 그 객체를 삭제 큐에 넣는다. rate limit은 기존 media presign limiter(`media_upload_presign`)의 값을 재사용하고 counter key만 분리한다.
+- U5는 소유(타인·없음은 같은 404), 상태·만료(409), 객체 크기·타입·JPEG 시그니처(`FF D8 FF`, 422)를 확인한 뒤 한 transaction에서 `users` 행을 잠그고 이전 active 행을 `released`로 바꿔 삭제 큐에 넣고, 이 행을 `active`로 만들며 `users.avatar_url`을 `{JAMYE_AVATAR_PUBLIC_BASE_URL}/api/v1/avatars/{upload_id}`로 갱신한다. 같은 `upload_id` 재확정은 200이다. 새 rate limit은 없다.
+- U6은 `active` 행만 서버가 비공개 bucket에서 읽어(최대 1 MiB) 그대로 응답한다. 헤더는 `Content-Type: image/jpeg`, `Cache-Control: public, max-age=31536000, immutable`, `X-Content-Type-Options: nosniff`뿐이다(ETag/304·CSP·CORP 없음). 비UUID·pending·released·purge된 id는 구분 없이 404다. 계정 삭제 유예 중에도 active 행이면 계속 서빙하고 purge가 행을 지우면 404다.
+- U2는 `""`이거나 다른 https 값으로 바꾸면 사용자의 active 호스팅 행을 같은 transaction에서 `released`로 바꾸고 삭제 큐에 넣는다. `null`/생략은 변경 없음이며 기존 `valid_avatar_url` 규칙은 그대로다(호스팅 URL은 base 256자 + 52자라 항상 통과한다).
+- 계정 purge는 사용자의 pending·active 아바타 객체를 삭제 큐에 넣고 모든 아바타 행을 hard-delete한다. tombstone `avatar_url NULL`과 payload scrub은 그대로다. 삭제는 기존 `account_object_deletion_intents` 큐와 cleanup worker(at-least-once, DeleteObject 멱등)를 재사용하며 새 worker·테이블은 없다.
+- `migrations/0019_user_avatar_uploads.sql`: `user_avatar_uploads`(`status` pending/active/released CHECK, `byte_size` 1..1048576, `object_key` UNIQUE, 사용자당 active·pending 부분 unique, 0014 audit 컬럼과 `updated_at` trigger)를 추가하는 additive forward-only migration이다. `content_type`·`confirmed_at` 컬럼은 없다.
+- 설정: `JAMYE_AVATAR_PUBLIC_BASE_URL`(선택, https origin, 경로·쿼리·fragment·자격 증명 없음, 256자 이하, 잘못된 값은 시작 실패)이 없으면 U4~U6 route를 mount하지 않아 plain 404가 된다(기능 꺼짐). 인증 없는 smoke로 꺼짐(404)과 켜짐(401)을 구분할 수 있다. U6 limit은 `JAMYE_RATE_LIMIT_AVATAR_PUBLIC_READ_LIMIT`/`_WINDOW_SECONDS`(기본 600/60초)다.
+- 알려진 한계: U6 rate limit key는 기존 limiter와 같은 ConnectInfo(peer 주소)라 reverse proxy 뒤에서는 클라이언트별이 아니라 proxy 주소 단위 bucket이다. 서버는 JPEG 시그니처와 크기만 검증하고 디코딩하지 않는다(EXIF 제거는 앱이 512px JPEG 재인코딩으로 한다). 운영 MinIO 정책이 새 `avatar/` prefix의 PUT/GET/DELETE를 허용하는지는 배포 전 안전 리뷰와 첫 실제 업로드로 확인한다.
+- 배포 순서(별도 승인): 서버 merge·배포(기능 꺼짐) → homelab에 `JAMYE_AVATAR_PUBLIC_BASE_URL=https://jamye-api.ridewithmin.com` 연결 → 인증 없는 smoke(401) → 앱 계약 반영과 기기 검증.

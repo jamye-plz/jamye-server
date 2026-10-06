@@ -9,6 +9,7 @@ use sqlx::{
 
 pub mod account_deletion;
 pub mod auth;
+pub mod avatar;
 pub mod chatrooms;
 #[cfg(feature = "dev-fixtures")]
 pub mod dev_fixtures;

@@ -1,5 +1,37 @@
 {
   "$defs": {
+    "AvatarPresignedPut": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_in": { "const": 900, "type": "integer" },
+        "url": { "format": "uri", "type": "string" }
+      },
+      "required": ["url", "expires_in"],
+      "type": "object"
+    },
+    "AvatarUploadCreate": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_size": { "maximum": 1048576, "minimum": 1, "type": "integer" },
+        "content_type": { "const": "image/jpeg", "type": "string" }
+      },
+      "required": ["content_type", "byte_size"],
+      "type": "object"
+    },
+    "AvatarUploadFinalize": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "AvatarUploadIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "presigned_put": { "$ref": "#/$defs/AvatarPresignedPut" },
+        "upload_id": { "format": "uuid", "type": "string" }
+      },
+      "required": ["upload_id", "presigned_put"],
+      "type": "object"
+    },
     "ChatUploadFinalizeResult": {
       "additionalProperties": false,
       "properties": {

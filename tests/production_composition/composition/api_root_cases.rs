@@ -493,3 +493,45 @@ fn selected_surfaces() -> Vec<Surface> {
 fn test_config() -> TestResult<AppConfig> {
     app_config("postgres://127.0.0.1/jamye_test")
 }
+
+fn avatar_enabled_config() -> TestResult<AppConfig> {
+    let config = AppConfig::try_from(ConfigInput {
+        avatar_public_base_url: Some("https://avatars.example.test".to_owned()),
+        ..config_input("postgres://127.0.0.1/jamye_test")
+    })?;
+    Ok(config)
+}
+
+#[tokio::test]
+async fn avatar_routes_are_mounted_only_when_the_public_base_url_is_configured() -> TestResult {
+    let auth = validated_auth_config()?;
+    let disabled = production_router(&test_config()?, &auth)?;
+    let enabled = production_router(&avatar_enabled_config()?, &auth)?;
+    let uploads = "/api/v1/me/avatar/uploads".to_owned();
+    let finalize = format!("/api/v1/me/avatar/uploads/{ID}/finalize");
+    let public_read = format!("/api/v1/avatars/{ID}");
+
+    for (method, path) in [
+        (Method::POST, &uploads),
+        (Method::POST, &finalize),
+        (Method::GET, &public_read),
+    ] {
+        let response = observe(disabled.clone(), method, path).await?;
+        require(
+            response.status == StatusCode::NOT_FOUND && !response.body.contains("avatar_not_found"),
+            &format!("avatar route {path} is mounted without JAMYE_AVATAR_PUBLIC_BASE_URL"),
+        )?;
+    }
+    for path in [&uploads, &finalize] {
+        let response = observe(enabled.clone(), Method::POST, path).await?;
+        require(
+            matches_expected(&response, ExpectedResponse::AuthenticationRequired),
+            &format!("avatar route {path} is not bearer-protected when enabled"),
+        )?;
+    }
+    let response = observe(enabled, Method::GET, &public_read).await?;
+    require(
+        response.status != StatusCode::NOT_FOUND || response.body.contains("avatar_not_found"),
+        "public avatar read is not mounted when JAMYE_AVATAR_PUBLIC_BASE_URL is configured",
+    )
+}

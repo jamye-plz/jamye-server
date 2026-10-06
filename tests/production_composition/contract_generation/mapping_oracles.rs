@@ -36,7 +36,7 @@ const EXPECTED_RELEASE_CANDIDATE_ONLY_ARTIFACTS: [&str; 7] = [
     "realtime/topic.created.schema.json",
     "realtime/topic.deleted.schema.json",
 ];
-const EXPECTED_REST_OPERATIONS: [(&str, &str, &str); 46] = [
+const EXPECTED_REST_OPERATIONS: [(&str, &str, &str); 49] = [
     ("H1", "get", "/health/live"),
     ("H2", "get", "/health/ready"),
     ("A1", "post", "/api/v1/auth/oauth/{provider}/authorize"),
@@ -48,6 +48,9 @@ const EXPECTED_REST_OPERATIONS: [(&str, &str, &str); 46] = [
     ("U1", "get", "/api/v1/me"),
     ("U2", "patch", "/api/v1/me"),
     ("U3", "delete", "/api/v1/me"),
+    ("U4", "post", "/api/v1/me/avatar/uploads"),
+    ("U5", "post", "/api/v1/me/avatar/uploads/{upload_id}/finalize"),
+    ("U6", "get", "/api/v1/avatars/{avatar_id}"),
     ("G1", "post", "/api/v1/groups"),
     ("G2", "get", "/api/v1/groups"),
     ("G3", "get", "/api/v1/groups/{group_id}"),
@@ -133,7 +136,7 @@ const REALTIME_MAPPING_FIELDS: [&str; 7] = [
     "version",
 ];
 const ROUTE_PROBE: &str = "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory";
-const EXPECTED_REST_MAPPING: [RestMappingOracle; 46] = [
+const EXPECTED_REST_MAPPING: [RestMappingOracle; 49] = [
     RestMappingOracle::new(
         "H1",
         "get",
@@ -221,6 +224,30 @@ const EXPECTED_REST_MAPPING: [RestMappingOracle; 46] = [
         "src/transport/http/account_deletion/mod.rs::delete_account",
         "tests/account_deletion/http.rs::delete_me_commits_one_empty_204_then_revokes_account_access_and_anonymizes_retained_content",
         "contracts/fixtures/c2-health-profile-account.json",
+    ),
+    RestMappingOracle::new(
+        "U4",
+        "post",
+        "/api/v1/me/avatar/uploads",
+        "src/transport/http/avatar/mod.rs::create_upload",
+        "tests/avatar/upload_intent.rs::u4_returns_a_server_minted_uuid_v4_upload_and_a_900_second_put",
+        "contracts/contributions/task-8/fixtures/media-flow.json",
+    ),
+    RestMappingOracle::new(
+        "U5",
+        "post",
+        "/api/v1/me/avatar/uploads/{upload_id}/finalize",
+        "src/transport/http/avatar/mod.rs::finalize_upload",
+        "tests/avatar/finalize.rs::u5_activates_the_upload_and_returns_the_user_with_the_public_url",
+        "contracts/contributions/task-8/fixtures/media-flow.json",
+    ),
+    RestMappingOracle::new(
+        "U6",
+        "get",
+        "/api/v1/avatars/{avatar_id}",
+        "src/transport/http/avatar/mod.rs::read_avatar",
+        "tests/avatar/public_read.rs::u6_serves_the_active_jpeg_without_authentication_and_only_the_three_headers",
+        "contracts/contributions/task-8/fixtures/media-flow.json",
     ),
     RestMappingOracle::new(
         "G1",

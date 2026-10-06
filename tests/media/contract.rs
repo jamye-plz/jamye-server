@@ -55,6 +55,27 @@ fn md1_md2_md4_md5_contract_contribution_matches_the_selected_inventory() -> Tes
                 Some(307),
                 None,
             ),
+            (
+                Some("U4"),
+                Some("POST"),
+                Some("/api/v1/me/avatar/uploads"),
+                Some(201),
+                None,
+            ),
+            (
+                Some("U5"),
+                Some("POST"),
+                Some("/api/v1/me/avatar/uploads/{upload_id}/finalize"),
+                Some(200),
+                None,
+            ),
+            (
+                Some("U6"),
+                Some("GET"),
+                Some("/api/v1/avatars/{avatar_id}"),
+                Some(200),
+                None,
+            ),
         ]
     );
     assert_eq!(rows[0]["response"], "UploadIntent+PresignedPut");
@@ -77,6 +98,10 @@ fn md1_md2_md4_md5_contract_contribution_matches_the_selected_inventory() -> Tes
         "UploadFinalizeResult",
         "MediaAccessUrl",
         "MessageAttachment",
+        "AvatarUploadCreate",
+        "AvatarUploadFinalize",
+        "AvatarUploadIntent",
+        "AvatarPresignedPut",
     ] {
         assert!(
             definitions.contains_key(name),
@@ -109,6 +134,26 @@ fn md1_md2_md4_md5_contract_contribution_matches_the_selected_inventory() -> Tes
     );
     assert!(
         definitions["MediaAccessUrl"]["properties"]
+            .get("object_key")
+            .is_none()
+    );
+    // Avatar wire (U4-U6): jpeg-only 1 MiB request, 900 s PUT, no private object key.
+    assert_eq!(rows[4]["response"], "AvatarUploadIntent");
+    assert_eq!(rows[5]["response"], "User");
+    assert_eq!(
+        definitions["AvatarPresignedPut"]["properties"]["expires_in"]["const"],
+        900
+    );
+    assert_eq!(
+        definitions["AvatarUploadCreate"]["properties"]["content_type"]["const"],
+        "image/jpeg"
+    );
+    assert_eq!(
+        definitions["AvatarUploadCreate"]["properties"]["byte_size"]["maximum"],
+        1_048_576
+    );
+    assert!(
+        definitions["AvatarUploadIntent"]["properties"]
             .get("object_key")
             .is_none()
     );
