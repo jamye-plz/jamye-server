@@ -3,7 +3,7 @@
 > 세션: ultrawork/20260822-200110 · 후속 로드맵 등록: ultrawork/20260922-100557 · task-14 구현: ultrawork/20260928-171401 · task-15 구현·배포: ultrawork/20260930-000919 · task-19 구현·배포: ultrawork/20261006-174701
 > 현재 단계: task-14 1·2·3차 운영 배포 완료(soft delete 전 범위, 계정 삭제 유예·복구, 앱 M15 소프트 삭제 수용 연동). task-15(Sign in with Apple)는 2026-09-30 세션에서 구현·검사·배포 전 안전 리뷰·운영 배포(기능 꺼짐 → 사용자 SOPS 입력 → 활성화)를 모두 마쳤다(§13, §14). task-16은 착수 승인 대기(§14). task-19(앱 M17 라운드 3 아바타 업로드)는 2026-10-06 세션 `20261006-174701`에서 구현하고 같은 날 2단계(기능 꺼짐 → 활성화)로 운영 배포했다(§13, §14)
 > 상태: Task 13이 완료됐다(근거는 §9). task-14(soft delete)는 세션 ultrawork/20260928-171401에서 구현해 1차(merge `c047e5a`)·2차(merge `b20a4d0`)·3차(merge `6dcb6d5`)를 모두 운영 배포했다(§0, §13, §14). task-15(Sign in with Apple)는 2026-09-30 세션 `20260930-000919`에서 A6 native identity-token exchange, Apple 계정 삭제 재인증·revoke, migration `0018`, 계약 contribution 갱신을 구현하고, 필수 검사와 배포 전 안전 리뷰(1·2차) PASS 뒤 커밋 `b4ae432` → PR #16 → merge `2c93ed1` → homelab PR #95(`6d916dc`, 기능 꺼짐)·PR #96(`fe6a4e9`, Apple 활성화)로 운영 배포했다(§13, §14). task-16(서버측 잔여 백로그)은 2026-09-22 로드맵에 등록만 됐으며 착수는 별도 승인이 필요하다. task-17은 2026-09-26 앱 M14 라운드 1 지원 범위로 구현해 같은 날 운영 배포했고(merge `5b987a2`, migration `0012`), task-18은 2026-09-27 앱 M14 라운드 2 지원 범위로 구현해 같은 날 운영 배포했다(merge `a77cac5`, migration `0013`). 2026-09-28에는 HTTP 메시지 전송의 첨부 1개 제한을 푼 수정(merge `c7f71a8`)을 배포했다(§13). task-19(앱 M17 라운드 3 아바타 업로드)는 2026-10-06 세션 `20261006-174701`에서 서버 호스팅 프로필 사진(U4 업로드 시작, U5 확정, U6 공개 조회)과 migration `0019`를 구현하고, 필수 검사와 배포 전 안전 리뷰 PASS 뒤 커밋 `a778592` → PR #18 → merge `f86012e` → homelab PR #98(`92d54c1`, 기능 꺼짐)·PR #99(`972ce7a`, 활성화)로 운영 배포했다(§13, §14).
-> 진행률: Task 1-15·17-19 구현·배포 완료, task-16은 등록(planned_unapproved) 단계, task-19(아바타 업로드)는 2026-10-06 세션 `20261006-174701`에서 구현하고 같은 날 운영 배포(§13, §14)
+> 진행률: Task 1-15·17-19 구현·배포 완료, task-16은 등록(planned_unapproved) 단계(2026-10-07 앱 M17 종료 때 앱 M17(C)·(D)와 함께 백로그로 남김, §14), task-19(아바타 업로드)는 2026-10-06 세션 `20261006-174701`에서 구현하고 같은 날 운영 배포(§13, §14)
 > 기계 SSOT: .agents/results/plan-20260822-200110.json (task-1-13) · .agents/results/plan-20260926-181036.json (task-17) · .agents/results/plan-20260927-120934.json (task-18) · .agents/results/plan-20260928-171401.json (task-14) · .agents/results/plan-20260930-000919.json (task-15) · .agents/results/plan-20261006-174701.json (task-19) · task-16 이후는 착수 시 새 plan JSON 생성
 
 ## 0. 2026-09-28~29 task-14 서버 구현·배포 기록
@@ -386,6 +386,8 @@ Apple 계정 삭제는 U3 JSON body로 `identity_token`, `authorization_code`, `
 요구사항 R8(서버·운영 묶음)에 대응한다. 항목: 메시지 편집 계약(옵션, 앱 M17(C)와 연동), README/roadmap drift 정리, homelab 자동 백업 연동, 모니터링·알림 점검(앱 M17(D) 서버·운영 묶음과 연동).
 
 시작 조건: task-14 완료. 별도 승인: 각 항목은 개별 승인으로 착수하며, homelab 변경이 필요한 항목(백업 연동)은 homelab 로드맵과 별도로 조율한다.
+
+2026-10-07 앱 M17이 사용자 종료 승인으로 닫혔다. 앱 M17(C) 채팅·미디어 기능 확장과 (D) 서버·운영은 착수하지 않고 앱 로드맵 §9 백로그로 남겼다(사용자 결정). 이 task는 계속 `planned_unapproved`다. task-19 후속 후보(pending 업로드 sweep, U6 client IP rate limit key, 로컬 테스트 시계 확인, `just contract-generate` 정합)도 같은 백로그 성격이며, 착수하려면 항목별 승인이 필요하다.
 
 ### task-17 — 앱 M14 라운드 1 서버 지원 (M15)
 
