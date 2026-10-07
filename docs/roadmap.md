@@ -1,10 +1,10 @@
 # jamye-server 로드맵 — FastAPI 전체 이관, 신뢰성 고도화, 모바일 계약
 
-> 세션: ultrawork/20260822-200110 · 후속 로드맵 등록: ultrawork/20260922-100557 · task-14 구현: ultrawork/20260928-171401 · task-15 구현·배포: ultrawork/20260930-000919
-> 현재 단계: task-14 1·2·3차 운영 배포 완료(soft delete 전 범위, 계정 삭제 유예·복구, 앱 M15 소프트 삭제 수용 연동). task-15(Sign in with Apple)는 2026-09-30 세션에서 구현·검사·배포 전 안전 리뷰·운영 배포(기능 꺼짐 → 사용자 SOPS 입력 → 활성화)를 모두 마쳤다(§13, §14). task-16은 착수 승인 대기(§14)
-> 상태: Task 13이 완료됐다(근거는 §9). task-14(soft delete)는 세션 ultrawork/20260928-171401에서 구현해 1차(merge `c047e5a`)·2차(merge `b20a4d0`)·3차(merge `6dcb6d5`)를 모두 운영 배포했다(§0, §13, §14). task-15(Sign in with Apple)는 2026-09-30 세션 `20260930-000919`에서 A6 native identity-token exchange, Apple 계정 삭제 재인증·revoke, migration `0018`, 계약 contribution 갱신을 구현하고, 필수 검사와 배포 전 안전 리뷰(1·2차) PASS 뒤 커밋 `b4ae432` → PR #16 → merge `2c93ed1` → homelab PR #95(`6d916dc`, 기능 꺼짐)·PR #96(`fe6a4e9`, Apple 활성화)로 운영 배포했다(§13, §14). task-16(서버측 잔여 백로그)은 2026-09-22 로드맵에 등록만 됐으며 착수는 별도 승인이 필요하다. task-17은 2026-09-26 앱 M14 라운드 1 지원 범위로 구현해 같은 날 운영 배포했고(merge `5b987a2`, migration `0012`), task-18은 2026-09-27 앱 M14 라운드 2 지원 범위로 구현해 같은 날 운영 배포했다(merge `a77cac5`, migration `0013`). 2026-09-28에는 HTTP 메시지 전송의 첨부 1개 제한을 푼 수정(merge `c7f71a8`)을 배포했다(§13).
-> 진행률: Task 1-15·17-18 구현·배포 완료, task-16은 등록(planned_unapproved) 단계, task-19(아바타 업로드)는 2026-10-06 세션 `20261006-174701`에서 구현 중(미배포, §14)
-> 기계 SSOT: .agents/results/plan-20260822-200110.json (task-1-13) · .agents/results/plan-20260926-181036.json (task-17) · .agents/results/plan-20260927-120934.json (task-18) · .agents/results/plan-20260928-171401.json (task-14) · .agents/results/plan-20260930-000919.json (task-15) · task-16 이후는 착수 시 새 plan JSON 생성
+> 세션: ultrawork/20260822-200110 · 후속 로드맵 등록: ultrawork/20260922-100557 · task-14 구현: ultrawork/20260928-171401 · task-15 구현·배포: ultrawork/20260930-000919 · task-19 구현·배포: ultrawork/20261006-174701
+> 현재 단계: task-14 1·2·3차 운영 배포 완료(soft delete 전 범위, 계정 삭제 유예·복구, 앱 M15 소프트 삭제 수용 연동). task-15(Sign in with Apple)는 2026-09-30 세션에서 구현·검사·배포 전 안전 리뷰·운영 배포(기능 꺼짐 → 사용자 SOPS 입력 → 활성화)를 모두 마쳤다(§13, §14). task-16은 착수 승인 대기(§14). task-19(앱 M17 라운드 3 아바타 업로드)는 2026-10-06 세션 `20261006-174701`에서 구현하고 같은 날 2단계(기능 꺼짐 → 활성화)로 운영 배포했다(§13, §14)
+> 상태: Task 13이 완료됐다(근거는 §9). task-14(soft delete)는 세션 ultrawork/20260928-171401에서 구현해 1차(merge `c047e5a`)·2차(merge `b20a4d0`)·3차(merge `6dcb6d5`)를 모두 운영 배포했다(§0, §13, §14). task-15(Sign in with Apple)는 2026-09-30 세션 `20260930-000919`에서 A6 native identity-token exchange, Apple 계정 삭제 재인증·revoke, migration `0018`, 계약 contribution 갱신을 구현하고, 필수 검사와 배포 전 안전 리뷰(1·2차) PASS 뒤 커밋 `b4ae432` → PR #16 → merge `2c93ed1` → homelab PR #95(`6d916dc`, 기능 꺼짐)·PR #96(`fe6a4e9`, Apple 활성화)로 운영 배포했다(§13, §14). task-16(서버측 잔여 백로그)은 2026-09-22 로드맵에 등록만 됐으며 착수는 별도 승인이 필요하다. task-17은 2026-09-26 앱 M14 라운드 1 지원 범위로 구현해 같은 날 운영 배포했고(merge `5b987a2`, migration `0012`), task-18은 2026-09-27 앱 M14 라운드 2 지원 범위로 구현해 같은 날 운영 배포했다(merge `a77cac5`, migration `0013`). 2026-09-28에는 HTTP 메시지 전송의 첨부 1개 제한을 푼 수정(merge `c7f71a8`)을 배포했다(§13). task-19(앱 M17 라운드 3 아바타 업로드)는 2026-10-06 세션 `20261006-174701`에서 서버 호스팅 프로필 사진(U4 업로드 시작, U5 확정, U6 공개 조회)과 migration `0019`를 구현하고, 필수 검사와 배포 전 안전 리뷰 PASS 뒤 커밋 `a778592` → PR #18 → merge `f86012e` → homelab PR #98(`92d54c1`, 기능 꺼짐)·PR #99(`972ce7a`, 활성화)로 운영 배포했다(§13, §14).
+> 진행률: Task 1-15·17-19 구현·배포 완료, task-16은 등록(planned_unapproved) 단계, task-19(아바타 업로드)는 2026-10-06 세션 `20261006-174701`에서 구현하고 같은 날 운영 배포(§13, §14)
+> 기계 SSOT: .agents/results/plan-20260822-200110.json (task-1-13) · .agents/results/plan-20260926-181036.json (task-17) · .agents/results/plan-20260927-120934.json (task-18) · .agents/results/plan-20260928-171401.json (task-14) · .agents/results/plan-20260930-000919.json (task-15) · .agents/results/plan-20261006-174701.json (task-19) · task-16 이후는 착수 시 새 plan JSON 생성
 
 ## 0. 2026-09-28~29 task-14 서버 구현·배포 기록
 
@@ -340,9 +340,17 @@ test-only 후속 fix2는 이 문서 갱신과 함께 브랜치 `docs/task-15-clo
 
 후속 후보(task-15): Apple 서버 간 알림(server-to-server notifications, consent-revoked) endpoint — 사용자가 Apple ID 설정에서 앱 연결을 끊어도 서버가 그 신호를 받아 계정을 정리하지 못한다(범위 밖, 요구사항 §5, 별도 승인 필요). Apple 어댑터가 `/auth/token`·`/auth/revoke`의 4xx를 모두 `apple_authorization_code_invalid` 하나로 뭉뚱그리고 Apple이 준 `error` 값(invalid_client/invalid_grant 등)을 범주형으로도 남기지 않는다 — 로그에 범주만 추가하면 설정 문제와 실제 코드 무효를 구분하기 쉬워진다(기기 검증 중 발견). Apple identity token 검증의 "JWKS 조회 → RS256 JWT 검증" 흐름이 Google 검증(`src/adapters/oauth/providers.rs`의 `verify_google_id_token`·`GoogleIdTokenVerifier::verify_subject`)과 겹친다 — 공통 helper로 모을 수 있지만 운영 코드 변경이라 재배포와 함께 한다(REFINE 재사용 리뷰). 테스트 fake `FakeAppleIdentityProvider`가 `tests/auth/helpers.rs`와 `tests/account_deletion/support.rs`에 거의 같은 내용으로 두 번 있다 — `tests/auth/logging.rs`가 이미 쓰는 `#[path]` 포함 방식으로 하나로 모을 수 있다.
 
+2026-10-06 task-19(앱 M17 라운드 3 아바타 업로드)는 세션 `20261006-174701`에서 구현하고 같은 날 M16과 같은 2단계로 운영 배포했다(사용자 지시 "2단계 배포 진행", U6 limit 6000/60초). 필수 검사(format-check, clippy, contract-check, secret-check, test, docs verify, diff-check)와 배포 전 안전 리뷰가 PASS(CRITICAL·HIGH 0)했고 LOW 2건(U6 JPEG 시그니처 재확인, migration 0019 header 문구)은 배포 전에 고쳤다. 운영 `pg_dump`(`pre-0019-20261006T133340Z.dump`)와 개수만 확인하는 사전 집계(migration 최대 18, `user_avatar_uploads` 없음)를 거쳐 커밋 `a778592`(42개 파일 지정 staging) → PR #18 → CI `contract-drift` pass → merge `f86012e`(2026-10-06 13:40:37Z) 순서로 진행했다.
+
+1단계(기능 꺼짐)는 homelab PR #98(`flake: update jamye-server input to f86012eaa682`, auto-merge `92d54c1`) → `Deploy` success로 배포했다. `JAMYE_AVATAR_PUBLIC_BASE_URL`이 없어 U4-U6 route는 mount되지 않았다. migration `0019`가 성공했고(2026-10-06 23:16:48 KST) 사후 집계는 migration 최대 19, `user_avatar_uploads` 테이블 1개(행 0), 나머지 행 수 불변이었다. 꺼짐 smoke는 `/health/ready` 200, 무인증 `/api/v1/me` 401, 무인증 U4와 무작위 id U6 404였다. 2단계는 homelab PR #99(커밋 `edc9811`, merge `972ce7a`, 14:55:03Z)로 `JAMYE_AVATAR_PUBLIC_BASE_URL=https://jamye-api.ridewithmin.com`과 `JAMYE_RATE_LIMIT_AVATAR_PUBLIC_READ_LIMIT=6000`·`_WINDOW_SECONDS=60`을 추가했다(비밀값 변경 없음, Draft PR #84와 `feat/swap-jamye-hosts`는 건드리지 않음). 켜짐 smoke(인증 없는 요청만)는 무인증 U4·U5가 401 `authentication_required`(꺼짐 404 → 켜짐 401), 무작위 UUID U6가 404 `avatar_not_found`(`Cache-Control: no-store`)였고 ERROR 로그는 0건이었다. 두 단계 모두 halt 조건이 없었다. 전체 기록은 `.agents/results/deploy-20261006-174701.md`다.
+
+앱 기기 검증(jamye-app M17 라운드 3, 2026-10-07)에서 사용자가 본인 계정으로 업로드·교체·해제를 확인했다. 서버 집계(개수만)는 `user_avatar_uploads` released 5·active 0이고, released 5건의 공개 URL(U6)은 모두 404, `account_object_deletion_intents`의 `avatar/` 객체 5건은 모두 `succeeded`여서 교체·해제된 객체가 worker로 MinIO에서 지워졌다. 이 실제 업로드·삭제로 운영 MinIO 정책의 PUT·DELETE도 확인했다. 계약 변경은 없어 앱의 서버 계약 사본(`openapi.json`)과 서버 `contracts/openapi.json`은 byte 동일하다. 기록은 `.agents/results/device-m17b-20261006-174701.md`다.
+
+후속 후보(task-19): (1) 끝내지 못한 업로드를 정리하는 pending 업로드 sweep, (2) proxy 뒤 실제 client IP 기준 U6 rate limit key, (3) 로컬 테스트 시계 어긋남 대비: Mac 잠자기 뒤 Podman VM 시계가 호스트보다 늦어지면 호스트 시각으로 행을 넣는 테스트(media `media_uploads_timestamp_check`, `realtime::ticket` 로그 테스트 등)가 실패한다(서버 (D) 묶음·task-16 후보), (4) 현재 트리에서 거부되는 `just contract-generate`와 `docs/validation.md`의 release-candidate generator 정합. 상세는 §14 task-19다.
+
 ## 14. 후속 과제 상세
 
-이 절은 §11 표의 task-14-18을 위한 상세 명세다. task-14·task-15는 구현·운영 배포를 마쳤다(§13). task-16의 상태는 `planned_unapproved`이며, 이 등록 자체는 구현·migration 적용·contract publication·homelab 배포의 승인이 아니다. task-17-18은 구현과 운영 배포를 마쳤다(§13).
+이 절은 §11 표의 task-14-19를 위한 상세 명세다. task-14·task-15는 구현·운영 배포를 마쳤다(§13). task-16의 상태는 `planned_unapproved`이며, 이 등록 자체는 구현·migration 적용·contract publication·homelab 배포의 승인이 아니다. task-17-19는 구현과 운영 배포를 마쳤다(§13).
 
 ### task-14 — soft delete (M12)
 
@@ -409,9 +417,9 @@ SELECT version, success FROM _sqlx_migrations WHERE version = 13;
 
 ### task-19 — 앱 M17 라운드 3 서버 지원: 아바타 업로드 (M17)
 
-상태: `implemented_not_deployed` (2026-10-06 세션 `20261006-174701`, 브랜치 `feature/task-19-avatar-upload`, migration `0019`). 이 task는 앱이 프로필 사진을 직접 올리고 지울 수 있도록 서버 호스팅 아바타를 추가한다. 결정 근거는 `docs/adr/0012-avatar-hosting.md`다. 배포(서버 `main` merge가 운영 재배포를 일으킨다)와 homelab의 `JAMYE_AVATAR_PUBLIC_BASE_URL` 연결은 구현과 별도로 사용자 확인 뒤 진행한다.
+상태: `deployed` (2026-10-06 세션 `20261006-174701`, 브랜치 `feature/task-19-avatar-upload`, 커밋 `a778592`/PR #18 merge `f86012e`, homelab PR #98(기능 꺼짐)·PR #99(활성화), migration `0019`; 배포 절차와 smoke는 §13). 이 task는 앱이 프로필 사진을 직접 올리고 지울 수 있도록 서버 호스팅 아바타를 추가한다. 결정 근거는 `docs/adr/0012-avatar-hosting.md`다. 배포(서버 `main` merge가 운영 재배포를 일으킨다)와 homelab의 `JAMYE_AVATAR_PUBLIC_BASE_URL` 연결은 구현과 별도로 사용자 확인(2026-10-06 "2단계 배포 진행") 뒤 진행했다.
 
-새 operation은 U4~U6이다. 계약은 task-8 media contribution에 두고 `just contract-generate`로만 재생성한다.
+새 operation은 U4~U6이다. 계약은 task-8 media contribution에 둔다. `just contract-generate`가 현재 트리에서 "refusing to overwrite a contract tree with extra files"로 거부돼 `docs/validation.md`가 문서화한 release-candidate generator 명령으로 재생성했다(후속 과제 참고).
 
 | ID | 경로 | 인증 | 성공 | 오류 |
 |---|---|---|---|---|
@@ -425,6 +433,12 @@ SELECT version, success FROM _sqlx_migrations WHERE version = 13;
 - U2는 `""`이거나 다른 https 값으로 바꾸면 사용자의 active 호스팅 행을 같은 transaction에서 `released`로 바꾸고 삭제 큐에 넣는다. `null`/생략은 변경 없음이며 기존 `valid_avatar_url` 규칙은 그대로다(호스팅 URL은 base 256자 + 52자라 항상 통과한다).
 - 계정 purge는 사용자의 pending·active 아바타 객체를 삭제 큐에 넣고 모든 아바타 행을 hard-delete한다. tombstone `avatar_url NULL`과 payload scrub은 그대로다. 삭제는 기존 `account_object_deletion_intents` 큐와 cleanup worker(at-least-once, DeleteObject 멱등)를 재사용하며 새 worker·테이블은 없다.
 - `migrations/0019_user_avatar_uploads.sql`: `user_avatar_uploads`(`status` pending/active/released CHECK, `byte_size` 1..1048576, `object_key` UNIQUE, 사용자당 active·pending 부분 unique, 0014 audit 컬럼과 `updated_at` trigger)를 추가하는 additive forward-only migration이다. `content_type`·`confirmed_at` 컬럼은 없다.
-- 설정: `JAMYE_AVATAR_PUBLIC_BASE_URL`(선택, https origin, 경로·쿼리·fragment·자격 증명 없음, 256자 이하, 잘못된 값은 시작 실패)이 없으면 U4~U6 route를 mount하지 않아 plain 404가 된다(기능 꺼짐). 인증 없는 smoke로 꺼짐(404)과 켜짐(401)을 구분할 수 있다. U6 limit은 `JAMYE_RATE_LIMIT_AVATAR_PUBLIC_READ_LIMIT`/`_WINDOW_SECONDS`(기본 600/60초)다.
-- 알려진 한계: U6 rate limit key는 기존 limiter와 같은 ConnectInfo(peer 주소)라 reverse proxy 뒤에서는 클라이언트별이 아니라 proxy 주소 단위 bucket이다. 서버는 JPEG 시그니처와 크기만 검증하고 디코딩하지 않는다(EXIF 제거는 앱이 512px JPEG 재인코딩으로 한다). 운영 MinIO 정책이 새 `avatar/` prefix의 PUT/GET/DELETE를 허용하는지는 배포 전 안전 리뷰와 첫 실제 업로드로 확인한다.
+- 설정: `JAMYE_AVATAR_PUBLIC_BASE_URL`(선택, https origin, 경로·쿼리·fragment·자격 증명 없음, 256자 이하, 잘못된 값은 시작 실패)이 없으면 U4~U6 route를 mount하지 않아 plain 404가 된다(기능 꺼짐). 인증 없는 smoke로 꺼짐(404)과 켜짐(401)을 구분할 수 있다. U6 limit은 `JAMYE_RATE_LIMIT_AVATAR_PUBLIC_READ_LIMIT`/`_WINDOW_SECONDS`(기본 600/60초)다. 운영은 reverse proxy 뒤 단일 bucket을 고려해 6000/60초로 올렸다.
+- 알려진 한계: U6 rate limit key는 기존 limiter와 같은 ConnectInfo(peer 주소)라 reverse proxy 뒤에서는 클라이언트별이 아니라 proxy 주소 단위 bucket이다. 서버는 JPEG 시그니처와 크기만 검증하고 디코딩하지 않는다(EXIF 제거는 앱이 512px JPEG 재인코딩으로 한다). 운영 MinIO 정책이 새 `avatar/` prefix의 PUT/GET/DELETE를 허용하는지는 배포 전 안전 리뷰(`nix/module.nix` 정의 확인)와 기기 검증의 실제 업로드·삭제(PUT·DELETE 성공)로 확인했다.
 - 배포 순서(별도 승인): 서버 merge·배포(기능 꺼짐) → homelab에 `JAMYE_AVATAR_PUBLIC_BASE_URL=https://jamye-api.ridewithmin.com` 연결 → 인증 없는 smoke(401) → 앱 계약 반영과 기기 검증.
+- 배포 결과(2026-10-06, 기록 `.agents/results/deploy-20261006-174701.md`): 사전 `pg_dump`(`pre-0019-20261006T133340Z.dump`)와 개수 집계 뒤 커밋 `a778592` → PR #18 → merge `f86012e`. 1단계 homelab PR #98(`92d54c1`)에서 기능 꺼짐으로 배포해 migration `0019` success, 행 수 불변, 꺼짐 smoke(U4·U6 404)를 확인했다. 2단계 homelab PR #99(`972ce7a`)에서 `JAMYE_AVATAR_PUBLIC_BASE_URL`과 U6 limit 6000/60초를 켜고 smoke(U4·U5 401, 무작위 id U6 404 `no-store`, ERROR 0)를 확인했다. 기기 검증(앱 M17 라운드 3, 2026-10-07)에서 사용자의 업로드·교체·해제와 이전 URL 404, 삭제 intent 전부 `succeeded`를 확인했다.
+- 후속 과제(task-19):
+  - pending 업로드 sweep: U4 뒤 PUT하지 않았거나 만료·U5 422로 끝난 pending 행과 객체는 다음 U4나 계정 purge 전까지 남는다(사용자당 최대 1행, 1 MiB 이하). 만료된 pending을 `released`로 바꿔 삭제 큐에 넣는 주기 sweep이 필요하다.
+  - U6 rate limit key: 실제 client IP(신뢰 proxy가 넘긴 값) 기준으로 바꾼다. 지금은 proxy 뒤 단일 bucket이라 운영 값을 6000/60초로 올려 완화했다.
+  - 로컬 테스트 시계 어긋남: 처음에는 병렬 부하에 따른 간헐 실패로 보았던 `realtime::ticket::structured_ticket_logs_exclude_raw_and_digest_credentials`, all-features `production_composition`, media adapter 테스트 실패의 원인은 Mac 잠자기 뒤 Podman VM 시계가 호스트보다 늦어진 것이었다(2026-10-07 측정 1127초, 76초). 테스트는 호스트 시각으로 `created_at`을 넣고 DB는 자기 시계로 검사한다. VM에서 `chronyd`를 재시작해 시계를 맞추고 검사 중 `caffeinate -i`로 잠자기를 막자 `oma agent verify` 아래 전체 `just test`도 통과했다. `just infra-up`/`test`가 VM 시계 차이를 확인하거나 테스트가 DB 시계를 쓰도록 바꾸는 것이 서버 (D) 묶음·task-16 후보다.
+  - `just contract-generate`가 현재 트리에서 거부되는데 `docs/validation.md`는 release-candidate generator 명령을 문서화한다. recipe나 문서를 정합하게 정리한다.
