@@ -167,6 +167,16 @@
         }
       );
 
+      admin = craneLib.buildPackage (
+        commonArgs
+        // {
+          inherit cargoArtifacts;
+          cargoExtraArgs = "--locked --bin admin";
+          doCheck = false;
+          meta.mainProgram = "admin";
+        }
+      );
+
       moduleEvaluationSystem =
         if pkgs.stdenv.hostPlatform.isLinux
         then system
@@ -231,6 +241,10 @@
           message = "the API is not ordered after every required stack dependency";
         }
         {
+          condition = lib.any (package: (package.name or "") == "jamye-server-admin") moduleConfig.environment.systemPackages;
+          message = "the jamye-server-admin operator command is not installed by services.jamye-server";
+        }
+        {
           condition =
             !(lib.elem "/run/secrets/jamye-server-minio-root.env" moduleConfig.systemd.services.jamye-server-api.serviceConfig.EnvironmentFile)
             && !(lib.elem "/run/secrets/jamye-server-minio-root.env" moduleConfig.systemd.services.jamye-server-worker.serviceConfig.EnvironmentFile);
@@ -252,12 +266,12 @@
           '';
     in {
       packages = {
-        inherit api worker;
+        inherit api worker admin;
       };
 
       checks =
         {
-          inherit api worker;
+          inherit api worker admin;
           "contract-drift" = contractDrift;
 
           cargo-fmt = craneLib.cargoFmt {inherit src;};

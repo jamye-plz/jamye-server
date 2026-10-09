@@ -11,6 +11,7 @@
   system = pkgs.stdenv.hostPlatform.system;
   apiPackage = self.packages.${system}.api;
   workerPackage = self.packages.${system}.worker;
+  adminPackage = self.packages.${system}.admin;
   minioPkgs = import nixpkgs {
     inherit system;
     config.allowInsecurePredicate = package: lib.getName package == "minio";
@@ -52,6 +53,37 @@
     set -euo pipefail
     ${runtimeExports}
     exec ${workerPackage}/bin/worker
+  '';
+
+  # The admin CLI sees the same runtime variables as the API. It reads DATABASE_URL and the
+  # shared EnvironmentFile only to build the common AppConfig; it connects to PostgreSQL alone.
+  startAdmin = pkgs.writeShellScript "jamye-server-admin-start" ''
+    set -euo pipefail
+    ${runtimeExports}
+    exec ${adminPackage}/bin/admin "$@"
+  '';
+
+  # Operator entry point for SSH moderation: `sudo jamye-server-admin reports list`.
+  # systemd-run starts the CLI as the service user (so PostgreSQL peer authentication
+  # applies) and lets systemd read the root-only EnvironmentFile, exactly as for the API.
+  adminCommand = pkgs.writeShellScriptBin "jamye-server-admin" ''
+    set -euo pipefail
+    if [ "$(id -u)" -ne 0 ]; then
+      echo "jamye-server-admin must run as root; use: sudo jamye-server-admin <group> <command> ..." >&2
+      exit 1
+    fi
+    ${pkgs.util-linux}/bin/logger --tag jamye-server-admin --priority authpriv.notice -- "operator=''${SUDO_USER:-root} arguments: $*"
+    exec ${config.systemd.package}/bin/systemd-run \
+      --quiet --pipe --wait --collect \
+      --uid=${serviceName} --gid=${serviceName} \
+      --working-directory=/var/lib/${serviceName} \
+      ${lib.concatMapStringsSep " " (file: "--property=EnvironmentFile=${lib.escapeShellArg (toString file)}") baseEnvironmentFiles} \
+      --property=NoNewPrivileges=yes \
+      --property=PrivateTmp=yes \
+      --property=ProtectHome=yes \
+      --property=ProtectSystem=strict \
+      --property=UMask=0077 \
+      ${startAdmin} "$@"
   '';
 
   startMigration = pkgs.writeShellScript "jamye-server-migrate-start" ''
@@ -268,6 +300,9 @@ in {
     };
 
     systemd.tmpfiles.rules = ["d /var/lib/${serviceName} 0750 ${serviceName} ${serviceName} -"];
+
+    # Operator command for SSH moderation (see docs/operations/moderation.md).
+    environment.systemPackages = [adminCommand];
 
     services.postgresql = {
       enable = true;
