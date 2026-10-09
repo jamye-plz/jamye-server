@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 use crate::{
     application::{
+        auth::AccessGateError,
         realtime::{RealtimeTicketError, RealtimeTicketService},
         users::{UserError, UserService},
     },
@@ -125,6 +126,29 @@ async fn websocket(
     };
     match state.tickets.consume(&raw_ticket).await {
         Ok(session) => {
+            // A ticket issued before a suspension must not open a connection afterwards.
+            if let Some(gate) = state.auth.account_gate() {
+                match gate.check(session.user_id).await {
+                    Ok(()) => {}
+                    Err(AccessGateError::Suspended) => {
+                        let request_id = Uuid::new_v4();
+                        tracing::warn!(
+                            request_id = %request_id,
+                            error_code = "account_suspended",
+                            "realtime request rejected"
+                        );
+                        return error_response(
+                            StatusCode::FORBIDDEN,
+                            "account_suspended",
+                            "정지된 계정입니다.",
+                            request_id,
+                        );
+                    }
+                    Err(AccessGateError::Unavailable) => {
+                        return ticket_error(RealtimeTicketError::Unavailable, Uuid::new_v4());
+                    }
+                }
+            }
             let hub = state.hub.clone();
             let authorizer = state.authorizer.clone();
             ws.on_upgrade(move |socket| run_socket(socket, session, hub, authorizer))

@@ -36,7 +36,7 @@ const EXPECTED_RELEASE_CANDIDATE_ONLY_ARTIFACTS: [&str; 7] = [
     "realtime/topic.created.schema.json",
     "realtime/topic.deleted.schema.json",
 ];
-const EXPECTED_REST_OPERATIONS: [(&str, &str, &str); 49] = [
+const EXPECTED_REST_OPERATIONS: [(&str, &str, &str); 53] = [
     ("H1", "get", "/health/live"),
     ("H2", "get", "/health/ready"),
     ("A1", "post", "/api/v1/auth/oauth/{provider}/authorize"),
@@ -110,6 +110,10 @@ const EXPECTED_REST_OPERATIONS: [(&str, &str, &str); 49] = [
     ),
     ("N1", "get", "/api/v1/notifications"),
     ("N2", "post", "/api/v1/notifications/{notification_id}/read"),
+    ("RP1", "post", "/api/v1/reports"),
+    ("B1", "put", "/api/v1/me/blocks/{user_id}"),
+    ("B2", "delete", "/api/v1/me/blocks/{user_id}"),
+    ("B3", "get", "/api/v1/me/blocks"),
 ];
 const EXPECTED_REALTIME_EVENTS: [(&str, u64); 4] = [
     ("message.created", 1),
@@ -136,7 +140,7 @@ const REALTIME_MAPPING_FIELDS: [&str; 7] = [
     "version",
 ];
 const ROUTE_PROBE: &str = "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory";
-const EXPECTED_REST_MAPPING: [RestMappingOracle; 49] = [
+const EXPECTED_REST_MAPPING: [RestMappingOracle; 53] = [
     RestMappingOracle::new(
         "H1",
         "get",
@@ -528,5 +532,37 @@ const EXPECTED_REST_MAPPING: [RestMappingOracle; 49] = [
         "src/transport/http/notifications/mod.rs::mark_notification_read",
         "tests/notifications/http.rs::n2_is_idempotent_and_missing_or_foreign_ids_share_one_safe_not_found",
         "contracts/contributions/task-9/fixtures/notifications-push-flow.json",
+    ),
+    RestMappingOracle::new(
+        "RP1",
+        "post",
+        "/api/v1/reports",
+        "src/transport/http/moderation/mod.rs::create_report",
+        "tests/moderation/reports.rs::r1_stores_a_message_report_with_a_masked_snapshot_and_returns_201",
+        "contracts/fixtures/c2-health-profile-account.json",
+    ),
+    RestMappingOracle::new(
+        "B1",
+        "put",
+        "/api/v1/me/blocks/{user_id}",
+        "src/transport/http/moderation/mod.rs::block_user",
+        "tests/moderation/blocks.rs::b1_blocks_idempotently_and_keeps_the_original_blocked_at",
+        "contracts/fixtures/c2-health-profile-account.json",
+    ),
+    RestMappingOracle::new(
+        "B2",
+        "delete",
+        "/api/v1/me/blocks/{user_id}",
+        "src/transport/http/moderation/mod.rs::unblock_user",
+        "tests/moderation/blocks.rs::b2_unblocks_idempotently_with_an_empty_204",
+        "contracts/fixtures/c2-health-profile-account.json",
+    ),
+    RestMappingOracle::new(
+        "B3",
+        "get",
+        "/api/v1/me/blocks",
+        "src/transport/http/moderation/mod.rs::list_blocks",
+        "tests/moderation/blocks.rs::b3_lists_every_blocked_user_in_a_stable_order_without_pagination",
+        "contracts/fixtures/c2-health-profile-account.json",
     ),
 ];

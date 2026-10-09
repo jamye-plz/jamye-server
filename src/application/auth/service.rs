@@ -11,8 +11,8 @@ use crate::{
             AppleIdentityProvider, AppleIdentityProviderError, AppleIdentityVerificationRequest,
         },
         auth::{
-            AccessTokenIssuer, AuthClock, AuthRepository, CredentialSource, NewProviderIdentity,
-            NewRefreshSession, NewRotatedSession, RotationOutcome,
+            AccessTokenIssuer, AuthClock, AuthRepository, AuthRepositoryError, CredentialSource,
+            NewProviderIdentity, NewRefreshSession, NewRotatedSession, RotationOutcome,
         },
         oauth_attempt::{
             ConsumeAttemptOutcome, CreateAttemptOutcome, OAuthAttempt, OAuthAttemptError,
@@ -343,6 +343,11 @@ impl AuthService {
             .await
         {
             Ok(restored) => restored,
+            Err(AuthRepositoryError::AccountSuspended) => {
+                return self
+                    .rollback_with(transaction, AuthError::AccountSuspended)
+                    .await;
+            }
             Err(_) => {
                 return self
                     .rollback_with(transaction, AuthError::DatabaseUnavailable)
@@ -359,6 +364,11 @@ impl AuthService {
                     .await
                 {
                     Ok(issued) => issued,
+                    Err(AuthRepositoryError::AccountSuspended) => {
+                        return self
+                            .rollback_with(transaction, AuthError::AccountSuspended)
+                            .await;
+                    }
                     Err(_) => {
                         return self
                             .rollback_with(transaction, AuthError::DatabaseUnavailable)
@@ -445,6 +455,10 @@ impl AuthService {
             RotationOutcome::Reused => {
                 self.commit(transaction).await?;
                 Err(AuthError::RefreshTokenReused)
+            }
+            RotationOutcome::Suspended => {
+                self.rollback_with(transaction, AuthError::AccountSuspended)
+                    .await
             }
         }
     }
@@ -773,6 +787,7 @@ pub enum AuthError {
     RateLimitUnavailable,
     RefreshTokenInvalid,
     RefreshTokenReused,
+    AccountSuspended,
     DatabaseUnavailable,
     TokenIssuanceUnavailable,
     InvalidConfiguration,

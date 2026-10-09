@@ -18,6 +18,7 @@ pub mod health;
 pub mod media;
 mod message_order;
 pub mod messaging;
+pub mod moderation;
 pub mod notifications;
 pub mod push;
 pub mod realtime;

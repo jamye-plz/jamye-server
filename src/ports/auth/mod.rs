@@ -60,6 +60,8 @@ pub trait AuthRepository: Send + Sync {
 pub enum AuthRepositoryError {
     Unavailable,
     InvalidData,
+    /// The account is suspended; sign-in and refresh are refused.
+    AccountSuspended,
 }
 
 impl fmt::Display for AuthRepositoryError {
@@ -170,6 +172,8 @@ pub enum RotationOutcome {
     Rotated(IssuedSession),
     Invalid,
     Reused,
+    /// The session's account is suspended; nothing was rotated.
+    Suspended,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -3,7 +3,10 @@
 mod access_identity;
 mod service;
 
-pub use access_identity::{AccessIdentity, AccessTokenVerifier, AuthenticationError};
+pub use access_identity::{
+    AccessAccountGate, AccessGateError, AccessGateFuture, AccessIdentity, AccessTokenVerifier,
+    AuthenticationError, GatedAccessTokenVerifier,
+};
 pub use service::{
     AppleExchangeInput, AppleIdentityProviderSlot, AuthDependencies, AuthError, AuthExchangeOutput,
     AuthLifetimePolicy, AuthRateLimitPolicy, AuthService, AuthorizeInput, AuthorizeOutput,

@@ -4,6 +4,7 @@ pub mod account_deletion;
 pub mod app_links;
 pub mod auth;
 pub mod legal;
+pub mod moderation;
 pub mod object_storage;
 pub mod push;
 pub mod rate_limit;
@@ -43,6 +44,7 @@ pub struct ConfigInput {
     pub minio_health_url: Option<String>,
     pub avatar_public_base_url: Option<String>,
     pub legal: legal::LegalConfigInput,
+    pub moderation: moderation::ModerationConfigInput,
 }
 
 impl ConfigInput {
@@ -57,6 +59,7 @@ impl ConfigInput {
             minio_health_url: read_env("JAMYE_MINIO_HEALTH_URL"),
             avatar_public_base_url: read_env(AVATAR_PUBLIC_BASE_URL_KEY),
             legal: legal::LegalConfigInput::from_env(),
+            moderation: moderation::ModerationConfigInput::from_env(),
         }
     }
 }
@@ -73,6 +76,7 @@ pub struct AppConfig {
     minio_health_url: Option<SensitiveUrl>,
     avatar_public_base_url: Option<String>,
     legal: Option<legal::LegalConfig>,
+    moderation: moderation::ModerationConfig,
 }
 
 impl AppConfig {
@@ -121,6 +125,11 @@ impl AppConfig {
     /// `/account-deletion` and `/support` unmounted (plain 404).
     pub fn legal(&self) -> Option<&legal::LegalConfig> {
         self.legal.as_ref()
+    }
+
+    /// Operator alert recipients and the content-filter list.
+    pub fn moderation(&self) -> &moderation::ModerationConfig {
+        &self.moderation
     }
 }
 
@@ -176,6 +185,7 @@ impl TryFrom<ConfigInput> for AppConfig {
         )?;
         let avatar_public_base_url = optional_avatar_public_base_url(input.avatar_public_base_url)?;
         let legal = legal::LegalConfig::resolve(input.legal)?;
+        let moderation = moderation::ModerationConfig::resolve(input.moderation)?;
 
         Ok(Self {
             environment,
@@ -187,6 +197,7 @@ impl TryFrom<ConfigInput> for AppConfig {
             minio_health_url,
             avatar_public_base_url,
             legal,
+            moderation,
         })
     }
 }

@@ -53,6 +53,8 @@ const OWNER_CONTRIBUTIONS: &[OwnerContribution] = &[
     contribution!("task-9/dto/operations.json"),
     contribution!("task-9/fixtures/notifications-push-flow.json"),
     contribution!("task-9/schemas/notifications-push-wire.schema.json"),
+    contribution!("task-20/dto/operations.json"),
+    contribution!("task-20/schemas/moderation-wire.schema.json"),
 ];
 
 #[derive(Clone, Debug)]

@@ -3,4 +3,5 @@
 pub mod avatar;
 pub mod media;
 pub mod messaging;
+pub mod moderation;
 pub mod profile;

@@ -121,6 +121,15 @@ async fn reassign_retained_authorship(
             "UPDATE media_uploads SET user_id = $2 \
              WHERE user_id = $1 AND status = 'bound'",
         ),
+        // Reports are retained for moderation; their account references move to the tombstone.
+        (
+            "account_deletion_report_reporter_reassign",
+            "UPDATE reports SET reporter_id = $2 WHERE reporter_id = $1",
+        ),
+        (
+            "account_deletion_report_target_reassign",
+            "UPDATE reports SET target_user_id = $2 WHERE target_user_id = $1",
+        ),
     ] {
         sqlx::query(statement)
             .bind(user_id)
@@ -292,6 +301,12 @@ async fn delete_private_account_rows(
     user_id: Uuid,
 ) -> Result<(), AccountDeletionRepositoryError> {
     for (operation, statement) in [
+        // Operator report alerts have no notification, so the occurrence delete above misses them.
+        (
+            "account_deletion_report_alert_delete",
+            "DELETE FROM push_delivery_intents \
+             WHERE report_id IS NOT NULL AND recipient_user_id = $1",
+        ),
         (
             "account_deletion_notification_delete",
             "DELETE FROM notifications WHERE user_id = $1",
@@ -307,6 +322,10 @@ async fn delete_private_account_rows(
         (
             "account_deletion_invite_delete",
             "DELETE FROM invites WHERE created_by = $1",
+        ),
+        (
+            "account_deletion_block_delete",
+            "DELETE FROM user_blocks WHERE blocker_id = $1 OR blocked_id = $1",
         ),
         (
             "account_deletion_session_delete",

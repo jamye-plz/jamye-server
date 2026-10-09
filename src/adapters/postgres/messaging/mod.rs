@@ -12,7 +12,8 @@ use crate::{
     ports::{
         messaging::{
             DeleteMessageCommand, DeltaQuery, MessageDeliveryContext, MessagingFuture,
-            MessagingRepository, MessagingRepositoryError, PersistMessageOutcome, PersistedMessage,
+            MessagingRepository, MessagingRepositoryError, ModeratorDeleteMessageCommand,
+            ModeratorDeleteOutcome, PersistMessageOutcome, PersistedMessage,
         },
         transactions::TransactionHandle,
     },
@@ -68,5 +69,13 @@ impl MessagingRepository for PostgresMessagingRepository {
         command: &'a DeleteMessageCommand,
     ) -> MessagingFuture<'a, ()> {
         Box::pin(delete::delete_message(handle, command))
+    }
+
+    fn moderator_delete_message<'a>(
+        &'a self,
+        handle: &'a mut dyn TransactionHandle,
+        command: &'a ModeratorDeleteMessageCommand,
+    ) -> MessagingFuture<'a, ModeratorDeleteOutcome> {
+        Box::pin(delete::moderator_delete_message(handle, command))
     }
 }

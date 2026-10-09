@@ -1,0 +1,66 @@
+{
+  "contract_version": "1",
+  "feature": "ugc_reports_blocks_suspension",
+  "operations": [
+    {
+      "auth": "bearer access token; reporter must be able to access the target",
+      "errors": [
+        "401 authentication_required",
+        "403 account_suspended",
+        "404 report_target_not_found",
+        "422 report_self_target",
+        "422 request_validation_failed",
+        "429 rate_limit_exceeded"
+      ],
+      "id": "RP1",
+      "method": "POST",
+      "path": "/api/v1/reports",
+      "request": "ReportCreate",
+      "response": "ReportCreated",
+      "success_status": 201
+    },
+    {
+      "auth": "bearer access token; own blocks only",
+      "errors": [
+        "401 authentication_required",
+        "403 account_suspended",
+        "404 user_not_found",
+        "422 block_self_not_allowed",
+        "422 request_validation_failed"
+      ],
+      "id": "B1",
+      "method": "PUT",
+      "path": "/api/v1/me/blocks/{user_id}",
+      "request": null,
+      "response": "BlockCreated",
+      "success_status": 200
+    },
+    {
+      "auth": "bearer access token; own blocks only",
+      "errors": [
+        "401 authentication_required",
+        "403 account_suspended",
+        "422 request_validation_failed"
+      ],
+      "id": "B2",
+      "method": "DELETE",
+      "path": "/api/v1/me/blocks/{user_id}",
+      "request": null,
+      "response": null,
+      "success_status": 204
+    },
+    {
+      "auth": "bearer access token; own blocks only",
+      "errors": [
+        "401 authentication_required",
+        "403 account_suspended"
+      ],
+      "id": "B3",
+      "method": "GET",
+      "path": "/api/v1/me/blocks",
+      "request": null,
+      "response": "BlockedUserList",
+      "success_status": 200
+    }
+  ]
+}

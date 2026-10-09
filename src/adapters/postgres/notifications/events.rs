@@ -61,6 +61,8 @@ pub(super) async fn record_message_created(
 ) -> Result<NotificationFanoutReport, NotificationsRepositoryError> {
     validate_display_name(&command.sender_display_name)?;
     let recipients = lock_live_recipients(connection, command.group_id, command.sender_id).await?;
+    // A recipient who blocked the sender gets neither the notification nor the push.
+    let recipients = recipients_not_blocking(connection, recipients, command.sender_id).await?;
     let source_cursor = message_source_cursor(connection, command).await?;
     let (group_name, topic_title) =
         notification_context(connection, command.group_id, command.topic_id).await?;
@@ -166,6 +168,29 @@ async fn lock_live_recipients(
     Ok(members
         .into_iter()
         .filter(|user_id| *user_id != actor_id)
+        .collect())
+}
+
+async fn recipients_not_blocking(
+    connection: &mut PgConnection,
+    recipients: Vec<Uuid>,
+    sender_id: Uuid,
+) -> Result<Vec<Uuid>, NotificationsRepositoryError> {
+    if recipients.is_empty() {
+        return Ok(recipients);
+    }
+    let blockers = sqlx::query_scalar::<_, Uuid>(
+        "SELECT blocker_id FROM user_blocks \
+         WHERE blocked_id = $1 AND blocker_id = ANY($2::UUID[])",
+    )
+    .bind(sender_id)
+    .bind(recipients.clone())
+    .fetch_all(connection)
+    .await
+    .map_err(|error| database_error("notification_block_filter", error))?;
+    Ok(recipients
+        .into_iter()
+        .filter(|recipient| !blockers.contains(recipient))
         .collect())
 }
 

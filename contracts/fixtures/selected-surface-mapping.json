@@ -478,6 +478,42 @@
       "method": "post",
       "operation_id": "N2",
       "path": "/api/v1/notifications/{notification_id}/read"
+    },
+    {
+      "feature_behavior_test": "tests/moderation/reports.rs::r1_stores_a_message_report_with_a_masked_snapshot_and_returns_201",
+      "fixture": "contracts/fixtures/c2-health-profile-account.json",
+      "handler": "src/transport/http/moderation/mod.rs::create_report",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "post",
+      "operation_id": "RP1",
+      "path": "/api/v1/reports"
+    },
+    {
+      "feature_behavior_test": "tests/moderation/blocks.rs::b1_blocks_idempotently_and_keeps_the_original_blocked_at",
+      "fixture": "contracts/fixtures/c2-health-profile-account.json",
+      "handler": "src/transport/http/moderation/mod.rs::block_user",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "put",
+      "operation_id": "B1",
+      "path": "/api/v1/me/blocks/{user_id}"
+    },
+    {
+      "feature_behavior_test": "tests/moderation/blocks.rs::b2_unblocks_idempotently_with_an_empty_204",
+      "fixture": "contracts/fixtures/c2-health-profile-account.json",
+      "handler": "src/transport/http/moderation/mod.rs::unblock_user",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "delete",
+      "operation_id": "B2",
+      "path": "/api/v1/me/blocks/{user_id}"
+    },
+    {
+      "feature_behavior_test": "tests/moderation/blocks.rs::b3_lists_every_blocked_user_in_a_stable_order_without_pagination",
+      "fixture": "contracts/fixtures/c2-health-profile-account.json",
+      "handler": "src/transport/http/moderation/mod.rs::list_blocks",
+      "handler_route_probe": "tests/production_composition/composition.rs::api_root_matches_the_complete_frozen_selected_method_path_inventory",
+      "method": "get",
+      "operation_id": "B3",
+      "path": "/api/v1/me/blocks"
     }
   ]
 }

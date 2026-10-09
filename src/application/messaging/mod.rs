@@ -9,6 +9,7 @@ use crate::{
     domain::{
         media::MAX_MEDIA_PER_MESSAGE,
         messaging::{CanonicalMessage, EventPage, SendMessageCommand},
+        moderation::ContentFilter,
     },
     ports::{
         messaging::{
@@ -28,6 +29,7 @@ pub const MAX_DELTA_LIMIT: u32 = 100;
 pub struct MessagingService {
     transactions: Arc<dyn TransactionManager>,
     repository: Arc<dyn MessagingRepository>,
+    content_filter: ContentFilter,
 }
 
 impl MessagingService {
@@ -38,7 +40,15 @@ impl MessagingService {
         Self {
             transactions,
             repository,
+            content_filter: ContentFilter::disabled(),
         }
+    }
+
+    /// Mask listed terms in every accepted message body before it is stored, pushed or
+    /// broadcast (decision R8). Without a filter bodies pass through unchanged.
+    pub fn with_content_filter(mut self, content_filter: ContentFilter) -> Self {
+        self.content_filter = content_filter;
+        self
     }
 
     pub async fn send_message(
@@ -51,7 +61,7 @@ impl MessagingService {
             chatroom_id: input.chatroom_id,
             sender_id: identity.user_id,
             client_msg_id: input.client_msg_id,
-            body: input.body,
+            body: self.content_filter.mask_body(input.body),
         };
         let mut handle = self
             .transactions
@@ -108,7 +118,7 @@ impl MessagingService {
             chatroom_id: input.chatroom_id,
             sender_id: actor_id,
             client_msg_id: input.client_msg_id,
-            body: input.body.clone(),
+            body: self.content_filter.mask_body(input.body.clone()),
         })
     }
 

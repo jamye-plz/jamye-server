@@ -7,7 +7,7 @@ use url::Url;
 
 use crate::ports::push::{
     NotificationType, PushProvider, PushProviderError, PushProviderFuture, PushProviderOutcome,
-    PushProviderRequest,
+    PushProviderRequest, PushReportAlertRequest,
 };
 
 pub const EXPO_PUSH_SEND_URL: &str = "https://exp.host/--/api/v2/push/send";
@@ -56,12 +56,25 @@ impl ExpoPushProvider {
         &self,
         request: &PushProviderRequest,
     ) -> Result<PushProviderOutcome, PushProviderError> {
-        let message = expo_message(request);
+        self.post_message(&expo_message(request)).await
+    }
+
+    async fn send_report_alert_request(
+        &self,
+        request: &PushReportAlertRequest,
+    ) -> Result<PushProviderOutcome, PushProviderError> {
+        self.post_message(&report_alert_message(request)).await
+    }
+
+    async fn post_message<M: serde::Serialize>(
+        &self,
+        message: &M,
+    ) -> Result<PushProviderOutcome, PushProviderError> {
         let mut builder = self
             .client
             .post(self.endpoint.clone())
             .header(reqwest::header::ACCEPT, "application/json")
-            .json(&message);
+            .json(message);
         if let Some(access_token) = &self.access_token {
             builder = builder.bearer_auth(access_token.expose());
         }
@@ -100,6 +113,13 @@ impl fmt::Debug for ExpoPushProvider {
 impl PushProvider for ExpoPushProvider {
     fn send<'a>(&'a self, request: &'a PushProviderRequest) -> PushProviderFuture<'a> {
         Box::pin(self.send_request(request))
+    }
+
+    fn send_report_alert<'a>(
+        &'a self,
+        request: &'a PushReportAlertRequest,
+    ) -> PushProviderFuture<'a> {
+        Box::pin(self.send_report_alert_request(request))
     }
 }
 
@@ -180,6 +200,37 @@ fn expo_message(request: &PushProviderRequest) -> ExpoMessage<'_> {
             message_id: request.route.message_id,
         },
     }
+}
+
+/// Generic operator alert: no message text, names or group data, only the report id.
+fn report_alert_message(request: &PushReportAlertRequest) -> ExpoReportAlert<'_> {
+    ExpoReportAlert {
+        to: request.destination.token(),
+        title: REPORT_ALERT_TITLE,
+        body: REPORT_ALERT_BODY,
+        data: ExpoReportData {
+            notification_type: "report",
+            report_id: request.report_id,
+        },
+    }
+}
+
+const REPORT_ALERT_TITLE: &str = "새 신고";
+const REPORT_ALERT_BODY: &str = "새 신고가 접수되었습니다.";
+
+#[derive(serde::Serialize)]
+struct ExpoReportAlert<'a> {
+    to: &'a str,
+    title: &'static str,
+    body: &'static str,
+    data: ExpoReportData,
+}
+
+#[derive(serde::Serialize)]
+struct ExpoReportData {
+    #[serde(rename = "type")]
+    notification_type: &'static str,
+    report_id: uuid::Uuid,
 }
 
 fn visible_title(notification_type: NotificationType) -> &'static str {

@@ -81,6 +81,11 @@ impl TestDatabase {
         Ok(PgConnection::connect(&self.database_url).await?)
     }
 
+    /// Connection URL of the disposable database (credentials included: tests only).
+    pub fn database_url(&self) -> &str {
+        &self.database_url
+    }
+
     pub fn pool(&self) -> TestResult<PgPool> {
         Ok(PgPoolOptions::new()
             .max_connections(4)

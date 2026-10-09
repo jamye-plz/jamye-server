@@ -111,6 +111,68 @@
         ],
         "type": "object"
       },
+      "BlockCreated": {
+        "additionalProperties": false,
+        "properties": {
+          "blocked_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "blocked_at"
+        ],
+        "type": "object"
+      },
+      "BlockedUser": {
+        "additionalProperties": false,
+        "properties": {
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "blocked_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "nickname",
+          "avatar_url",
+          "blocked_at"
+        ],
+        "type": "object"
+      },
+      "BlockedUserList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BlockedUser"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
       "CanonicalMessage": {
         "additionalProperties": false,
         "properties": {
@@ -1865,6 +1927,66 @@
         },
         "required": [
           "refresh_token"
+        ],
+        "type": "object"
+      },
+      "ReportCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "message_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "spam",
+              "harassment",
+              "sexual_content",
+              "violence",
+              "hate",
+              "illegal",
+              "other"
+            ],
+            "type": "string"
+          },
+          "target_type": {
+            "enum": [
+              "message",
+              "user"
+            ],
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_type",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "ReportCreated": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "const": "open",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "created_at"
         ],
         "type": "object"
       },
@@ -5021,6 +5143,155 @@
         "x-jamye-owner-contribution": "contracts/contributions/task-8/dto/operations.json"
       }
     },
+    "/api/v1/me/blocks": {
+      "get": {
+        "operationId": "B3",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockedUserList"
+                }
+              }
+            },
+            "description": "Successful response or canonical idempotent retry"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error response; inspect error.code for the stable machine-readable reason"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "List the users blocked by the current user",
+        "tags": [
+          "users"
+        ],
+        "x-jamye-authorization": "bearer access token; own blocks only",
+        "x-jamye-behavior-test": "tests/moderation/blocks.rs::b3_lists_every_blocked_user_in_a_stable_order_without_pagination",
+        "x-jamye-errors": [
+          "401 authentication_required",
+          "403 account_suspended"
+        ],
+        "x-jamye-fixture": "contracts/fixtures/c2-health-profile-account.json",
+        "x-jamye-owner-contribution": "contracts/contributions/task-20/dto/operations.json"
+      }
+    },
+    "/api/v1/me/blocks/{user_id}": {
+      "delete": {
+        "operationId": "B2",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful response with no body"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error response; inspect error.code for the stable machine-readable reason"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "Unblock a user",
+        "tags": [
+          "users"
+        ],
+        "x-jamye-authorization": "bearer access token; own blocks only",
+        "x-jamye-behavior-test": "tests/moderation/blocks.rs::b2_unblocks_idempotently_with_an_empty_204",
+        "x-jamye-errors": [
+          "401 authentication_required",
+          "403 account_suspended",
+          "422 request_validation_failed"
+        ],
+        "x-jamye-fixture": "contracts/fixtures/c2-health-profile-account.json",
+        "x-jamye-owner-contribution": "contracts/contributions/task-20/dto/operations.json"
+      },
+      "put": {
+        "operationId": "B1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockCreated"
+                }
+              }
+            },
+            "description": "Successful response or canonical idempotent retry"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error response; inspect error.code for the stable machine-readable reason"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "Block a user",
+        "tags": [
+          "users"
+        ],
+        "x-jamye-authorization": "bearer access token; own blocks only",
+        "x-jamye-behavior-test": "tests/moderation/blocks.rs::b1_blocks_idempotently_and_keeps_the_original_blocked_at",
+        "x-jamye-errors": [
+          "401 authentication_required",
+          "403 account_suspended",
+          "404 user_not_found",
+          "422 block_self_not_allowed",
+          "422 request_validation_failed"
+        ],
+        "x-jamye-fixture": "contracts/fixtures/c2-health-profile-account.json",
+        "x-jamye-owner-contribution": "contracts/contributions/task-20/dto/operations.json"
+      }
+    },
     "/api/v1/media/uploads": {
       "post": {
         "operationId": "MD1",
@@ -5595,6 +5866,64 @@
         ],
         "x-jamye-behavior-test": "tests/realtime/ticket.rs::ticket_is_capped_by_access_expiry_and_consumed_exactly_once",
         "x-jamye-fixture": "contracts/fixtures/realtime-lifecycle.json"
+      }
+    },
+    "/api/v1/reports": {
+      "post": {
+        "operationId": "RP1",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportCreated"
+                }
+              }
+            },
+            "description": "Resource created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error response; inspect error.code for the stable machine-readable reason"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "summary": "Report a message or a user",
+        "tags": [
+          "users"
+        ],
+        "x-jamye-authorization": "bearer access token; reporter must be able to access the target",
+        "x-jamye-behavior-test": "tests/moderation/reports.rs::r1_stores_a_message_report_with_a_masked_snapshot_and_returns_201",
+        "x-jamye-errors": [
+          "401 authentication_required",
+          "403 account_suspended",
+          "404 report_target_not_found",
+          "422 report_self_target",
+          "422 request_validation_failed",
+          "429 rate_limit_exceeded"
+        ],
+        "x-jamye-fixture": "contracts/fixtures/c2-health-profile-account.json",
+        "x-jamye-owner-contribution": "contracts/contributions/task-20/dto/operations.json"
       }
     },
     "/health/live": {
