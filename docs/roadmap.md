@@ -288,12 +288,13 @@ D3=C에 따라 이번 작업과 C2에는 STT contract, field, job, migration, ev
 | 15 | M15 | task-17 | 앱 M14 라운드 1 서버 지원: app-link association 공개 route, 초대 랜딩, 대화방 이미지·동영상 미디어 목록 API, 주제 미디어 제거와 `0012` migration, C2 계약 재생성 | task-13 + 2026-09-26 task-srv 승인 |
 | 16 | M16 | task-18 | 앱 M14 라운드 2 서버 지원: 알림 args에 `group_name`/`topic_title`, T6 태그 교체 작성자-only, U2 `avatar_url` HTTPS 검증, Kakao `secure_resource=true`, `0013` avatar URL HTTPS migration, C2 계약 재생성 | task-17 + 2026-09-27 task-srv 승인 |
 | 17 | M17 | task-19 | 앱 M17 라운드 3 서버 지원: 서버 호스팅 프로필 사진(U4 업로드 시작, U5 확정, U6 공개 조회), `0019` migration, 교체·지움·purge 시 객체 삭제 큐, `JAMYE_AVATAR_PUBLIC_BASE_URL` 설정 게이트, C2 계약 재생성 | task-18 + 2026-10-06 task-srv 승인 |
+| 18 | M18 | task-20 | 스토어 출시 대비 서버 지원(앱 M18). 20a 공개 면: 법적 고지 페이지 `/privacy`·`/terms`·`/account-deletion`·`/support`(`JAMYE_LEGAL_*` 설정 게이트, 미설정이면 404), 초대 랜딩 표기 잼얘좀, Apple 다중 audience 특성 테스트(env만 변경). 20b UGC 핵심: 신고·차단·정지, 운영자 알림, 메시지 필터. 20c 운영자 admin CLI(SSH 조치). 서버 변경은 20a→20b→20c 순서로 단계 배포 | task-19 + 세션 `20261007-133012` 계획(2026-10-07 사용자 요청, 앱 M18 첫 스토어 출시) |
 
 우선순위는 dependency가 없는 task는 1, 나머지는 1 + max(dependency priority)다. 같은 tier에는 dependency나 directory-prefix scope collision이 없어야 한다.
 
 task-10은 사용자 승인 STT non-goal로 삭제했다. 기존 참조 안정성을 위해 task-11 이후 ID는 renumber하지 않아 task ID가 의도적으로 비연속이다.
 
-서버 마일스톤 번호 M12-M17(task-14-19)는 jamye-app 로드맵의 M14-M18 번호 체계와 완전히 독립이다. task-17/18 설명의 "앱 M14 라운드"는 지원 대상 앱 라운드를 가리키며, 서버 milestone 번호를 뜻하지 않는다.
+서버 마일스톤 번호 M12-M18(task-14-20)는 jamye-app 로드맵의 M14-M18 번호 체계와 완전히 독립이다. task-17/18 설명의 "앱 M14 라운드"는 지원 대상 앱 라운드를 가리키며, 서버 milestone 번호를 뜻하지 않는다.
 
 ## 12. 테스트와 완료 판정
 
