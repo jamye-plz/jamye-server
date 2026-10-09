@@ -535,3 +535,39 @@ async fn avatar_routes_are_mounted_only_when_the_public_base_url_is_configured()
         "public avatar read is not mounted when JAMYE_AVATAR_PUBLIC_BASE_URL is configured",
     )
 }
+
+fn legal_enabled_config() -> TestResult<AppConfig> {
+    let config = AppConfig::try_from(ConfigInput {
+        legal: LegalConfigInput {
+            operator_name: Some("Example Operator".to_owned()),
+            contact_email: Some("support@example.test".to_owned()),
+            operator_address: None,
+        },
+        ..config_input("postgres://127.0.0.1/jamye_test")
+    })?;
+    Ok(config)
+}
+
+#[tokio::test]
+async fn legal_pages_are_mounted_only_when_operator_name_and_contact_email_are_configured()
+-> TestResult {
+    let auth = validated_auth_config()?;
+    let disabled = production_router(&test_config()?, &auth)?;
+    let enabled = production_router(&legal_enabled_config()?, &auth)?;
+
+    for path in ["/privacy", "/terms", "/account-deletion", "/support"] {
+        let response = observe(disabled.clone(), Method::GET, path).await?;
+        require(
+            response.status == StatusCode::NOT_FOUND && !response.body.contains("Example Operator"),
+            &format!("legal page {path} is mounted without JAMYE_LEGAL_OPERATOR_NAME and JAMYE_LEGAL_CONTACT_EMAIL"),
+        )?;
+        let response = observe(enabled.clone(), Method::GET, path).await?;
+        require(
+            response.status == StatusCode::OK
+                && response.body.contains("Example Operator")
+                && !response.body.contains("{{"),
+            &format!("legal page {path} is not served when the operator values are configured"),
+        )?;
+    }
+    Ok(())
+}

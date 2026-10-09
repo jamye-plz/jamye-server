@@ -134,7 +134,7 @@ fn invite_html(config: &AppLinksConfig, code: &str) -> String {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Jamye 초대</title>
+  <title>잼얘좀 초대</title>
   <style>
     :root {{ color-scheme: light dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
     body {{ margin: 0; min-height: 100vh; display: grid; place-items: center; background: Canvas; color: CanvasText; }}
@@ -153,7 +153,7 @@ fn invite_html(config: &AppLinksConfig, code: &str) -> String {
 </head>
 <body>
   <main>
-    <h1>Jamye 초대</h1>
+    <h1>잼얘좀 초대</h1>
     <p>앱이 설치되어 있으면 앱에서 초대 확인 화면이 열립니다.</p>
     <div class="code"><code id="invite-code">{escaped_code}</code><button id="copy-code" type="button">복사</button></div>
     <a class="primary" href="{invite_url}">앱 열기</a>

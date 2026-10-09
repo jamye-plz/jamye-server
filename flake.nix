@@ -58,6 +58,7 @@
             "production_composition"
             "scripts"
             "docs/adr"
+            "docs/legal"
           ];
           requiredRootFiles = [
             "Cargo.lock"
@@ -66,6 +67,11 @@
           ];
           isAllowedDirectory = directory:
             relativePath == directory || pkgs.lib.hasPrefix "${directory}/" relativePath;
+          # A nested entry such as docs/legal is only reachable when its parent
+          # directories (docs) pass the filter too; keep those parents as bare
+          # directories without admitting their other contents.
+          isAllowedParent = directory:
+            type == "directory" && pkgs.lib.hasPrefix "${relativePath}/" directory;
           blockedNamedSegment = (builtins.match "(^|.*/)(target|result|[.]git|[.]agents)(/.*|$)" relativePath) != null;
           hiddenSegment = (builtins.match "(^|.*/)[.][^/]+(/.*|$)" relativePath) != null;
           environmentSegment = (builtins.match "(^|.*/)[.]env[^/]*(/.*|$)" relativePath) != null;
@@ -78,7 +84,7 @@
             relativePath
             == ""
             || pkgs.lib.elem relativePath requiredRootFiles
-            || pkgs.lib.any isAllowedDirectory allowedDirectories
+            || pkgs.lib.any (directory: isAllowedDirectory directory || isAllowedParent directory) allowedDirectories
           );
       };
       src = projectSrc;
