@@ -199,12 +199,42 @@ pub type PushSendAuthorizationFuture<'a> = Pin<
     >,
 >;
 
+pub type PushClaimAuthorizationFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<ClaimAuthorization, PushRepositoryError>> + Send + 'a>>;
+
+/// The outcome of authorizing one claimed occurrence through the single path that matches the
+/// occurrence's kind (a conversation delivery or an operator report alert).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ClaimAuthorization {
+    Delivery(AuthorizedPushDelivery),
+    ReportAlert(AuthorizedReportAlert),
+    Denied,
+}
+
 pub trait PushSendAuthorizationRepository: Send + Sync {
     fn authorize_send<'a>(
         &'a self,
         transaction: &'a mut dyn TransactionHandle,
         claim: &'a PushDeliveryClaim,
     ) -> PushSendAuthorizationFuture<'a>;
+
+    /// Authorize a claim through exactly one path chosen by the occurrence's kind: a report
+    /// alert (the occurrence belongs to a report) or a conversation delivery (it belongs to a
+    /// notification). Repositories that know no report alerts keep this default, which is the
+    /// conversation path alone.
+    fn authorize_claim<'a>(
+        &'a self,
+        transaction: &'a mut dyn TransactionHandle,
+        claim: &'a PushDeliveryClaim,
+    ) -> PushClaimAuthorizationFuture<'a> {
+        Box::pin(async move {
+            match self.authorize_send(transaction, claim).await {
+                Ok(Some(delivery)) => Ok(ClaimAuthorization::Delivery(delivery)),
+                Ok(None) => Ok(ClaimAuthorization::Denied),
+                Err(error) => Err(error),
+            }
+        })
+    }
 }
 
 pub type PushPrivacyFenceFuture<'a> =
@@ -282,6 +312,29 @@ pub type PushProviderFuture<'a> =
 
 pub trait PushProvider: Send + Sync {
     fn send<'a>(&'a self, request: &'a PushProviderRequest) -> PushProviderFuture<'a>;
+
+    /// Send the generic, content-free operator report alert. Providers that do not support
+    /// alerts reject it.
+    fn send_report_alert<'a>(
+        &'a self,
+        _request: &'a PushReportAlertRequest,
+    ) -> PushProviderFuture<'a> {
+        Box::pin(async { Err(PushProviderError::Rejected) })
+    }
+}
+
+/// An authorized operator report alert for one installation. It carries no message content.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthorizedReportAlert {
+    pub occurrence_id: Uuid,
+    pub report_id: Uuid,
+    pub destination: ExpoPushDestination,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PushReportAlertRequest {
+    pub destination: ExpoPushDestination,
+    pub report_id: Uuid,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

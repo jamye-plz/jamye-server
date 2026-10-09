@@ -79,7 +79,11 @@
     "P3",
     "P4",
     "N1",
-    "N2"
+    "N2",
+    "RP1",
+    "B1",
+    "B2",
+    "B3"
   ],
   "realtime_discriminants": [
     "message.created",
@@ -87,5 +91,5 @@
     "message.deleted",
     "topic.deleted"
   ],
-  "sha256": "2939704953f6adc24118ce9fdd922e69cb81c96b92214c8588cecc0ecf4ccb7f"
+  "sha256": "215c0d8d008453a59cc0c86c90bf63689e434814b152244e16d619a164a46242"
 }

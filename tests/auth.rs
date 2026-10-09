@@ -18,6 +18,8 @@ mod oauth;
 mod postgres_support;
 #[path = "auth/session.rs"]
 mod session;
+#[path = "auth/suspension.rs"]
+mod suspension;
 
 pub type TestResult<T = ()> = Result<T, Box<dyn Error + Send + Sync>>;
 

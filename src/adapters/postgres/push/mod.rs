@@ -11,14 +11,14 @@ use sqlx::PgPool;
 use crate::ports::{
     push::{
         ClaimedPushDelivery, DeletePushInstallationCommand, FenceGroupPushCommand,
-        FenceMembershipPushCommand, PushDeliveryClaim, PushDeliveryClaimRequest,
-        PushDeliveryFailureCode, PushDeliveryFailureDisposition, PushDeliveryRepository,
-        PushDeliveryRepositoryFuture, PushInstallationRecord, PushInvalidDestinationFuture,
-        PushInvalidDestinationRepository, PushPreviewSource, PushPreviewSourceFuture,
-        PushPrivacyFence, PushPrivacyFenceFuture, PushRepository, PushRepositoryError,
-        PushRepositoryFuture, PushSendAuthorizationFuture, PushSendAuthorizationRepository,
-        UpdatePushInstallationCommand, UpsertPushInstallationCommand,
-        UpsertPushInstallationOutcome,
+        FenceMembershipPushCommand, PushClaimAuthorizationFuture, PushDeliveryClaim,
+        PushDeliveryClaimRequest, PushDeliveryFailureCode, PushDeliveryFailureDisposition,
+        PushDeliveryRepository, PushDeliveryRepositoryFuture, PushInstallationRecord,
+        PushInvalidDestinationFuture, PushInvalidDestinationRepository, PushPreviewSource,
+        PushPreviewSourceFuture, PushPrivacyFence, PushPrivacyFenceFuture, PushRepository,
+        PushRepositoryError, PushRepositoryFuture, PushSendAuthorizationFuture,
+        PushSendAuthorizationRepository, UpdatePushInstallationCommand,
+        UpsertPushInstallationCommand, UpsertPushInstallationOutcome,
     },
     transactions::TransactionHandle,
 };
@@ -84,6 +84,18 @@ impl PushSendAuthorizationRepository for PostgresPushRepository {
             let connection =
                 connection(transaction).map_err(|_| PushRepositoryError::InvalidData)?;
             authorization::authorize_send(connection, claim).await
+        })
+    }
+
+    fn authorize_claim<'a>(
+        &'a self,
+        transaction: &'a mut dyn TransactionHandle,
+        claim: &'a PushDeliveryClaim,
+    ) -> PushClaimAuthorizationFuture<'a> {
+        Box::pin(async move {
+            let connection =
+                connection(transaction).map_err(|_| PushRepositoryError::InvalidData)?;
+            authorization::authorize_claim(connection, claim).await
         })
     }
 }

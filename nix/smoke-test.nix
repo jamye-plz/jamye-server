@@ -100,5 +100,10 @@ pkgs.testers.runNixOSTest {
         "and .checks.redis.status == \"ready\" "
         "and .checks.minio.status == \"ready\"'"
     )
+
+    # The operator CLI runs as the service user with the service environment and reaches
+    # PostgreSQL without opening a listener.
+    machine.succeed("jamye-server-admin --help | grep -q 'reports purge'")
+    machine.succeed("jamye-server-admin reports list | grep -q 'no reports'")
   '';
 }

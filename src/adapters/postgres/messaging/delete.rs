@@ -7,7 +7,10 @@ use crate::{
         MessageDeletedData, MessageDeletedEvent, MessageDeletedType, RealtimeServerEvent,
     },
     ports::{
-        messaging::{DeleteMessageCommand, MessagingRepositoryError},
+        messaging::{
+            DeleteMessageCommand, MessagingRepositoryError, ModeratedMessage,
+            ModeratorDeleteMessageCommand, ModeratorDeleteOutcome,
+        },
         transactions::TransactionHandle,
     },
 };
@@ -15,34 +18,113 @@ use crate::{
 type MessageTargetRow = (Option<Uuid>, Option<OffsetDateTime>, String);
 type MediaObjectRow = (Uuid, String, Option<Uuid>, Option<String>);
 
+const AUTHOR_DELETE_REASON: &str = "author_deleted";
+/// Reason carried by the delete event of an operator deletion.
+const MODERATOR_DELETE_REASON: &str = "moderator_deleted";
+
+/// Everything the shared removal steps need; the author and the operator path differ only in
+/// how they authorize and in the actor and reason recorded on the delete event.
+struct Removal {
+    chatroom_id: Uuid,
+    message_id: Uuid,
+    group_id: Uuid,
+    deleted_by: Uuid,
+    reason: &'static str,
+}
+
 pub(super) async fn delete_message(
     handle: &mut dyn TransactionHandle,
     command: &DeleteMessageCommand,
 ) -> Result<(), MessagingRepositoryError> {
     let connection = crate::adapters::postgres::transactions::connection(handle)
         .map_err(|_| database_error("transaction_handle"))?;
-    let group_id = lock_chatroom_access(connection, command).await?;
+    let group_id = lock_live_chatroom(connection, command.chatroom_id).await?;
+    require_membership(connection, group_id, command.actor_id).await?;
     let Some(deleted_at) = lock_authorized_message(connection, command).await? else {
         return Ok(());
     };
-    let media = lock_message_media(connection, command.message_id).await?;
-    enqueue_object_deletions(connection, &media).await?;
-    mark_media_uploads_deleted(connection, &media, deleted_at).await?;
-    delete_message_media(connection, command.message_id).await?;
-    scrub_message_row(connection, command.message_id, deleted_at).await?;
-    let created_events = scrub_message_created_events(connection, command).await?;
-    scrub_message_created_outbox(connection, &created_events).await?;
-    stop_message_push_occurrences(connection, command.message_id, deleted_at).await?;
-    hide_message_notifications(connection, command.chatroom_id, &created_events, deleted_at)
-        .await?;
-    append_message_deleted_event(connection, command, group_id, deleted_at).await
+    remove_message(
+        connection,
+        &Removal {
+            chatroom_id: command.chatroom_id,
+            message_id: command.message_id,
+            group_id,
+            deleted_by: command.actor_id,
+            reason: AUTHOR_DELETE_REASON,
+        },
+        deleted_at,
+    )
+    .await
 }
 
-async fn lock_chatroom_access(
+/// Operator path: resolve the chatroom from the message id, lock the live chatroom and group in
+/// the same order as the author path, then run the shared removal. An operator has no account
+/// actor, so the event records the nil UUID as `deleted_by`.
+pub(super) async fn moderator_delete_message(
+    handle: &mut dyn TransactionHandle,
+    command: &ModeratorDeleteMessageCommand,
+) -> Result<ModeratorDeleteOutcome, MessagingRepositoryError> {
+    let connection = crate::adapters::postgres::transactions::connection(handle)
+        .map_err(|_| database_error("transaction_handle"))?;
+    let chatroom_id =
+        sqlx::query_scalar::<_, Uuid>("SELECT chatroom_id FROM messages WHERE id = $1")
+            .bind(command.message_id)
+            .fetch_optional(&mut *connection)
+            .await
+            .map_err(|_| database_error("moderator_delete_lookup"))?
+            .ok_or(MessagingRepositoryError::MessageNotFound)?;
+    let group_id = lock_live_chatroom(connection, chatroom_id).await?;
+    let moderated = ModeratedMessage {
+        chatroom_id,
+        group_id,
+    };
+    let row = fetch_locked_message(connection, chatroom_id, command.message_id).await?;
+    if row.1.is_some() {
+        return Ok(ModeratorDeleteOutcome::AlreadyDeleted(moderated));
+    }
+    if row.2 != "user" {
+        return Ok(ModeratorDeleteOutcome::NotUserMessage);
+    }
+    let deleted_at = server_timestamp(connection).await?;
+    remove_message(
+        connection,
+        &Removal {
+            chatroom_id,
+            message_id: command.message_id,
+            group_id,
+            deleted_by: Uuid::nil(),
+            reason: MODERATOR_DELETE_REASON,
+        },
+        deleted_at,
+    )
+    .await?;
+    Ok(ModeratorDeleteOutcome::Deleted(moderated))
+}
+
+async fn remove_message(
     connection: &mut PgConnection,
-    command: &DeleteMessageCommand,
+    removal: &Removal,
+    deleted_at: OffsetDateTime,
+) -> Result<(), MessagingRepositoryError> {
+    let media = lock_message_media(connection, removal.message_id).await?;
+    enqueue_object_deletions(connection, &media).await?;
+    mark_media_uploads_deleted(connection, &media, deleted_at).await?;
+    delete_message_media(connection, removal.message_id).await?;
+    scrub_message_row(connection, removal.message_id, deleted_at).await?;
+    let created_events = scrub_message_created_events(connection, removal).await?;
+    scrub_message_created_outbox(connection, &created_events).await?;
+    stop_message_push_occurrences(connection, removal.message_id, deleted_at).await?;
+    hide_message_notifications(connection, removal.chatroom_id, &created_events, deleted_at)
+        .await?;
+    append_message_deleted_event(connection, removal, deleted_at).await
+}
+
+/// Locks the live group and chatroom (a deleted topic hides its chatroom) and returns the group.
+async fn lock_live_chatroom(
+    connection: &mut PgConnection,
+    chatroom_id: Uuid,
 ) -> Result<Uuid, MessagingRepositoryError> {
-    let group_id = sqlx::query_scalar::<_, Uuid>(
+    sqlx::query_scalar::<_, Uuid>(
         "SELECT live_group.id \
          FROM chatrooms AS chatroom \
          JOIN groups AS live_group \
@@ -55,44 +137,67 @@ async fn lock_chatroom_access(
            AND (chatroom.topic_id IS NULL OR topic.deleted_at IS NULL) \
          FOR UPDATE OF live_group, chatroom",
     )
-    .bind(command.chatroom_id)
+    .bind(chatroom_id)
     .fetch_optional(&mut *connection)
     .await
     .map_err(|_| database_error("delete_chatroom_lock"))?
-    .ok_or(MessagingRepositoryError::MessageNotFound)?;
+    .ok_or(MessagingRepositoryError::MessageNotFound)
+}
 
+async fn require_membership(
+    connection: &mut PgConnection,
+    group_id: Uuid,
+    actor_id: Uuid,
+) -> Result<(), MessagingRepositoryError> {
     let membership = sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM memberships \
          WHERE group_id = $1 AND user_id = $2 AND deleted_at IS NULL \
          FOR SHARE",
     )
     .bind(group_id)
-    .bind(command.actor_id)
+    .bind(actor_id)
     .fetch_optional(&mut *connection)
     .await
     .map_err(|_| database_error("delete_membership_lock"))?;
     if membership.is_none() {
         return Err(MessagingRepositoryError::MembershipRequired);
     }
-    Ok(group_id)
+    Ok(())
+}
+
+async fn fetch_locked_message(
+    connection: &mut PgConnection,
+    chatroom_id: Uuid,
+    message_id: Uuid,
+) -> Result<MessageTargetRow, MessagingRepositoryError> {
+    sqlx::query_as::<_, MessageTargetRow>(
+        "SELECT sender_id, deleted_at, type \
+         FROM messages \
+         WHERE id = $1 AND chatroom_id = $2 \
+         FOR UPDATE",
+    )
+    .bind(message_id)
+    .bind(chatroom_id)
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(|_| database_error("delete_message_lock"))?
+    .ok_or(MessagingRepositoryError::MessageNotFound)
+}
+
+async fn server_timestamp(
+    connection: &mut PgConnection,
+) -> Result<OffsetDateTime, MessagingRepositoryError> {
+    sqlx::query_scalar::<_, OffsetDateTime>("SELECT clock_timestamp()")
+        .fetch_one(connection)
+        .await
+        .map_err(|_| database_error("delete_timestamp"))
 }
 
 async fn lock_authorized_message(
     connection: &mut PgConnection,
     command: &DeleteMessageCommand,
 ) -> Result<Option<OffsetDateTime>, MessagingRepositoryError> {
-    let row = sqlx::query_as::<_, MessageTargetRow>(
-        "SELECT sender_id, deleted_at, type \
-         FROM messages \
-         WHERE id = $1 AND chatroom_id = $2 \
-         FOR UPDATE",
-    )
-    .bind(command.message_id)
-    .bind(command.chatroom_id)
-    .fetch_optional(&mut *connection)
-    .await
-    .map_err(|_| database_error("delete_message_lock"))?
-    .ok_or(MessagingRepositoryError::MessageNotFound)?;
+    let row = fetch_locked_message(connection, command.chatroom_id, command.message_id).await?;
 
     if row.1.is_some() {
         return if row.0 == Some(command.actor_id) {
@@ -104,11 +209,7 @@ async fn lock_authorized_message(
     if row.0 != Some(command.actor_id) || row.2 != "user" {
         return Err(MessagingRepositoryError::MessageAuthorRequired);
     }
-    let deleted_at = sqlx::query_scalar::<_, OffsetDateTime>("SELECT clock_timestamp()")
-        .fetch_one(&mut *connection)
-        .await
-        .map_err(|_| database_error("delete_timestamp"))?;
-    Ok(Some(deleted_at))
+    server_timestamp(connection).await.map(Some)
 }
 
 async fn lock_message_media(
@@ -220,7 +321,7 @@ async fn scrub_message_row(
 
 async fn scrub_message_created_events(
     connection: &mut PgConnection,
-    command: &DeleteMessageCommand,
+    removal: &Removal,
 ) -> Result<Vec<(Uuid, i64)>, MessagingRepositoryError> {
     sqlx::query_as::<_, (Uuid, i64)>(
         "UPDATE conversation_events \
@@ -234,8 +335,8 @@ async fn scrub_message_created_events(
            AND payload ->> 'id' = $2::uuid::text \
          RETURNING id, cursor",
     )
-    .bind(command.chatroom_id)
-    .bind(command.message_id)
+    .bind(removal.chatroom_id)
+    .bind(removal.message_id)
     .fetch_all(connection)
     .await
     .map_err(|_| database_error("delete_message_event_scrub"))
@@ -322,18 +423,17 @@ async fn hide_message_notifications(
 
 async fn append_message_deleted_event(
     connection: &mut PgConnection,
-    command: &DeleteMessageCommand,
-    group_id: Uuid,
+    removal: &Removal,
     deleted_at: OffsetDateTime,
 ) -> Result<(), MessagingRepositoryError> {
     let event_id = Uuid::new_v4();
     let data = MessageDeletedData {
-        message_id: command.message_id,
-        chatroom_id: command.chatroom_id,
-        group_id,
+        message_id: removal.message_id,
+        chatroom_id: removal.chatroom_id,
+        group_id: removal.group_id,
         deleted_at,
-        deleted_by: command.actor_id,
-        reason: "author_deleted".to_owned(),
+        deleted_by: removal.deleted_by,
+        reason: removal.reason.to_owned(),
     };
     let payload = serde_json::to_value(&data).map_err(|_| database_error("delete_payload"))?;
     let (cursor, occurred_at) = sqlx::query_as::<_, (i64, OffsetDateTime)>(
@@ -343,7 +443,7 @@ async fn append_message_deleted_event(
          RETURNING cursor, occurred_at",
     )
     .bind(event_id)
-    .bind(command.chatroom_id)
+    .bind(removal.chatroom_id)
     .bind(payload)
     .fetch_one(&mut *connection)
     .await
@@ -352,7 +452,7 @@ async fn append_message_deleted_event(
         version: 1,
         event_type: MessageDeletedType::MessageDeleted,
         event_id,
-        conversation_id: command.chatroom_id,
+        conversation_id: removal.chatroom_id,
         cursor: cursor.to_string(),
         occurred_at,
         data,
@@ -366,7 +466,7 @@ async fn append_message_deleted_event(
          VALUES ($1, 'conversation', 'message.deleted', 1, 'conversation', $2, $3, $4)",
     )
     .bind(Uuid::new_v4())
-    .bind(command.chatroom_id)
+    .bind(removal.chatroom_id)
     .bind(event_id)
     .bind(outbox_payload)
     .execute(connection)

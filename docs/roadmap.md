@@ -418,6 +418,21 @@ SELECT version, success FROM _sqlx_migrations WHERE version = 13;
 
 배포 결과: 적용 전 `http://` 1·`https://` 1, 적용 뒤 `http://` 0·`https://` 2, version 13 success(`.agents/results/deploy-20260927-120934.md` §3·§7).
 
+### task-20b — 스토어 출시 대비 서버 지원: UGC 핵심 (M18)
+
+상태: `verified` (세션 `20261007-133012`; 필수 검사 run `4b8942e4`, 배포 전 리뷰 PASS. 20c와 같은 변경으로 2026-10-09 배포 진행, migration `0020`). 결정 근거는 `docs/adr/0013-ugc-moderation.md`다. 범위는 신고(`RP1` `POST /api/v1/reports`), 차단(`B1`-`B3` `/api/v1/me/blocks`), 계정 정지(모든 인증 진입점 403 `account_suspended`), 운영자 신고 알림 푸시(`JAMYE_OPERATOR_ACCOUNT_IDS`), 차단 사용자 메시지 푸시 억제, 채팅 본문·주제 안내 메시지의 `***` 마스킹(`JAMYE_CONTENT_FILTER_TERMS_FILE`로 목록 교체), purge 연동이다. 계획의 신고 operation id `R1`은 기존 realtime ticket `R1`과 겹쳐 `RP1`로 정했다. 20c(admin CLI)는 이 task의 정지·해제 service를 사용한다.
+
+### task-20c — 스토어 출시 대비 서버 지원: 운영자 admin CLI (M18)
+
+상태: `verified` (세션 `20261007-133012`; 필수 검사 run `730bbae8`, 배포 전 리뷰 PASS(LOW 3: journal의 `--reason` 기록, stdout 쓰기 실패 시 종료 코드, 런북 닉네임 조회 → 런북은 고침). 20b와 파일 단위로 나눌 수 없어 함께 2026-10-09 배포 진행). 세 번째 바이너리 `admin`(`src/bin/admin.rs`, `[[bin]] admin`)이 SSH 운영자에게 신고 처리, 운영자 메시지 삭제, 정지, 웹 삭제 요청 처리를 제공한다. 같은 `AppConfig`/환경을 읽고 PostgreSQL에만 연결하며 listener를 열지 않는다. 절차는 `docs/operations/moderation.md`다.
+
+- 명령: `reports list|show|dismiss|resolve|purge`, `messages delete`, `users suspend|unsuspend`, `accounts delete`. 종료 코드 0 성공, 1 운영 실패, 2 사용법 오류. 사람이 읽는 결과는 stdout, 변경마다 구조화 로그 한 줄(감사 table 없음)은 stderr와 syslog(journal 태그 `jamye-server-admin`)로 나간다.
+- 운영자 메시지 삭제는 작성자 삭제와 같은 단계(`remove_message`)를 공유한다(소프트 삭제, 이벤트 본문 scrub, `message.deleted` 이벤트, 미디어 정리 대기열). 이벤트 `reason`은 `moderator_deleted`, `deleted_by`는 nil UUID이고 그 메시지의 open 신고는 모두 actioned가 된다. 시스템 메시지는 거부한다.
+- `accounts delete`는 앱 삭제와 같은 30일 복구 기간 삭제를 시작한다. Sign in with Apple 권한 철회에는 사용자의 재인증이 필요해 철회하지 못하며(명령이 경고를 출력) 런북이 사용자 직접 철회를 안내한다.
+- `reports purge`(기본 365일): 처리 완료(actioned/dismissed) 신고와 그 알림 푸시 행을 삭제해 개인정보 처리 방침의 1년 보존 약속을 지킨다. 월 1회 실행은 운영 절차다(자동 스케줄러 없음).
+- 20b 보강: migration `0020`에 `reports(target_user_id)`, `reports(target_message_id)` 인덱스를 추가했다(0020은 미배포). 신고 insert 중 purge 경합으로 생기는 FK 위반은 `report_target_not_found`(404)로 매핑한다. 필터 용어는 2자 이상만 허용한다(기본 목록은 그대로).
+- 패키징: flake가 `admin` 패키지와 check를 추가하고 module이 `jamye-server-admin` 래퍼(`systemd-run`으로 서비스 계정과 API와 같은 환경에서 실행)를 호스트에 설치한다. homelab에서는 flake input 갱신과 재배포, 운영자 sudo 권한이 필요하다(런북 §8).
+
 ### task-19 — 앱 M17 라운드 3 서버 지원: 아바타 업로드 (M17)
 
 상태: `deployed` (2026-10-06 세션 `20261006-174701`, 브랜치 `feature/task-19-avatar-upload`, 커밋 `a778592`/PR #18 merge `f86012e`, homelab PR #98(기능 꺼짐)·PR #99(활성화), migration `0019`; 배포 절차와 smoke는 §13). 이 task는 앱이 프로필 사진을 직접 올리고 지울 수 있도록 서버 호스팅 아바타를 추가한다. 결정 근거는 `docs/adr/0012-avatar-hosting.md`다. 배포(서버 `main` merge가 운영 재배포를 일으킨다)와 homelab의 `JAMYE_AVATAR_PUBLIC_BASE_URL` 연결은 구현과 별도로 사용자 확인(2026-10-06 "2단계 배포 진행") 뒤 진행했다.

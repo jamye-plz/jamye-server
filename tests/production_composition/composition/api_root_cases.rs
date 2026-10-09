@@ -456,6 +456,30 @@ fn selected_surfaces() -> Vec<Surface> {
             protected,
         ),
         (
+            "moderation.report",
+            Method::POST,
+            "/api/v1/reports".to_owned(),
+            protected,
+        ),
+        (
+            "moderation.blocks.list",
+            Method::GET,
+            "/api/v1/me/blocks".to_owned(),
+            protected,
+        ),
+        (
+            "moderation.blocks.put",
+            Method::PUT,
+            format!("/api/v1/me/blocks/{ID}"),
+            protected,
+        ),
+        (
+            "moderation.blocks.delete",
+            Method::DELETE,
+            format!("/api/v1/me/blocks/{ID}"),
+            protected,
+        ),
+        (
             "messaging.create",
             Method::POST,
             format!("/api/v1/chatrooms/{ID}/messages"),

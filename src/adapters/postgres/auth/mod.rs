@@ -98,6 +98,7 @@ impl PostgresAuthRepository {
                 }
             }
         };
+        ensure_not_suspended(&mut *connection, user_id).await?;
         insert_refresh_session(
             &mut *connection,
             session.id,
@@ -141,6 +142,7 @@ impl PostgresAuthRepository {
         let Some((identity_id, user_id)) = deleted else {
             return Ok(None);
         };
+        ensure_not_suspended(&mut *connection, user_id).await?;
         sqlx::query(
             "UPDATE users \
              SET deleted_at = NULL, \
@@ -206,9 +208,10 @@ impl PostgresAuthRepository {
         now: OffsetDateTime,
     ) -> Result<RotationOutcome, AuthRepositoryError> {
         let connection = connection(transaction).map_err(|_| AuthRepositoryError::InvalidData)?;
-        let parent = sqlx::query_as::<_, (Uuid, Uuid, Uuid, OffsetDateTime, bool, bool)>(
+        let parent = sqlx::query_as::<_, (Uuid, Uuid, Uuid, OffsetDateTime, bool, bool, bool)>(
             "SELECT session.id, session.user_id, session.family_id, session.expires_at, \
-                    session.consumed_at IS NOT NULL, session.revoked_at IS NOT NULL \
+                    session.consumed_at IS NOT NULL, session.revoked_at IS NOT NULL, \
+                    account.suspended_at IS NOT NULL \
              FROM refresh_sessions session \
              JOIN users account ON account.id = session.user_id \
              WHERE session.token_hash = $1 \
@@ -220,9 +223,16 @@ impl PostgresAuthRepository {
         .fetch_optional(&mut *connection)
         .await
         .map_err(|_| database_failure("refresh_lock"))?;
-        let Some((parent_id, user_id, family_id, expires_at, consumed, revoked)) = parent else {
+        let Some((parent_id, user_id, family_id, expires_at, consumed, revoked, suspended)) =
+            parent
+        else {
             return Ok(RotationOutcome::Invalid);
         };
+        // A suspended account is refused before the token is consumed, so the same refresh
+        // token keeps answering 403 while suspended.
+        if suspended {
+            return Ok(RotationOutcome::Suspended);
+        }
         if consumed {
             sqlx::query(
                 "UPDATE refresh_sessions \
@@ -455,6 +465,22 @@ async fn insert_refresh_session(
     .await
     .map(|_| ())
     .map_err(|_| database_failure("refresh_insert"))
+}
+
+async fn ensure_not_suspended(
+    connection: &mut sqlx::PgConnection,
+    user_id: Uuid,
+) -> Result<(), AuthRepositoryError> {
+    let suspended =
+        sqlx::query_scalar::<_, bool>("SELECT suspended_at IS NOT NULL FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(connection)
+            .await
+            .map_err(|_| database_failure("suspension_lookup"))?;
+    if suspended == Some(true) {
+        return Err(AuthRepositoryError::AccountSuspended);
+    }
+    Ok(())
 }
 
 fn profile_from_row(row: (Uuid, String, String, Option<String>, OffsetDateTime)) -> UserProfile {

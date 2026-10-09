@@ -22,7 +22,7 @@ pub const OPERATION_IDS: &[&str] = &[
     "H1", "H2", "A1", "A2", "A3", "A4", "A5", "A6", "U1", "U2", "U3", "U4", "U5", "U6", "G1", "G2",
     "G3", "G4", "G5", "G6", "G7", "G8", "I1", "I2", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8",
     "MD1", "MD2", "C1", "C2", "C3", "C4", "C5", "C6", "MD4", "MD5", "S1", "R1", "P2", "P3", "P4",
-    "N1", "N2",
+    "N1", "N2", "RP1", "B1", "B2", "B3",
 ];
 
 struct OwnerOperationContribution {
@@ -59,6 +59,10 @@ const OWNER_OPERATION_CONTRIBUTIONS: &[OwnerOperationContribution] = &[
     OwnerOperationContribution {
         path: "contracts/contributions/task-9/dto/operations.json",
         document: include_str!("../../contracts/contributions/task-9/dto/operations.json"),
+    },
+    OwnerOperationContribution {
+        path: "contracts/contributions/task-20/dto/operations.json",
+        document: include_str!("../../contracts/contributions/task-20/dto/operations.json"),
     },
 ];
 
@@ -97,6 +101,12 @@ const OWNER_SCHEMA_CONTRIBUTIONS: &[OwnerSchemaContribution] = &[
         path: "contracts/contributions/task-9/schemas/notifications-push-wire.schema.json",
         document: include_str!(
             "../../contracts/contributions/task-9/schemas/notifications-push-wire.schema.json"
+        ),
+    },
+    OwnerSchemaContribution {
+        path: "contracts/contributions/task-20/schemas/moderation-wire.schema.json",
+        document: include_str!(
+            "../../contracts/contributions/task-20/schemas/moderation-wire.schema.json"
         ),
     },
 ];
@@ -588,6 +598,7 @@ fn request_component(operation_id: &str) -> Option<&'static str> {
         "U3" => Some("AppleAccountDeletionProof"),
         "U2" => Some("UserPatch"),
         "U4" => Some("AvatarUploadCreate"),
+        "RP1" => Some("ReportCreate"),
         "U5" => Some("AvatarUploadFinalize"),
         "G1" => Some("GroupCreate"),
         "G5" => Some("GroupPatch"),
@@ -611,6 +622,9 @@ fn response_component(operation_id: &str) -> Option<&'static str> {
         "A2" | "A3" | "A6" => Some("TokenPair"),
         "U1" | "U2" | "U5" => Some("User"),
         "U4" => Some("AvatarUploadIntent"),
+        "RP1" => Some("ReportCreated"),
+        "B1" => Some("BlockCreated"),
+        "B3" => Some("BlockedUserList"),
         "G1" | "G3" | "G5" => Some("Group"),
         "G2" => Some("GroupPage"),
         "G4" => Some("MemberPage"),
@@ -852,10 +866,10 @@ fn success_statuses(operation_id: &str) -> Result<&'static [&'static str], BoxEr
     match operation_id {
         "A1" | "A2" | "A3" | "A6" | "U1" | "U2" | "U5" | "U6" | "G2" | "G3" | "G4" | "G5"
         | "I2" | "T2" | "T3" | "T4" | "T5" | "T6" | "T7" | "MD2" | "C1" | "C2" | "C3" | "C5"
-        | "MD4" | "P3" | "N1" => Ok(&["200"]),
-        "G1" | "I1" | "MD1" | "U4" => Ok(&["201"]),
+        | "MD4" | "P3" | "N1" | "B1" | "B3" => Ok(&["200"]),
+        "G1" | "I1" | "MD1" | "U4" | "RP1" => Ok(&["201"]),
         "T1" | "P2" => Ok(&["200", "201"]),
-        "A4" | "U3" | "G6" | "G7" | "G8" | "T8" | "C6" | "P4" | "N2" => Ok(&["204"]),
+        "A4" | "U3" | "G6" | "G7" | "G8" | "T8" | "C6" | "P4" | "N2" | "B2" => Ok(&["204"]),
         "A5" => Ok(&["302"]),
         "MD5" => Ok(&["307"]),
         _ => Err(invalid_data(format!(
@@ -880,7 +894,7 @@ fn operation_tag(operation_id: &str) -> Result<&'static str, BoxError> {
     match operation_id {
         "H1" | "H2" => Ok("health"),
         "A1" | "A2" | "A3" | "A4" | "A5" | "A6" => Ok("auth"),
-        "U1" | "U2" | "U3" | "U4" | "U5" | "U6" => Ok("users"),
+        "U1" | "U2" | "U3" | "U4" | "U5" | "U6" | "RP1" | "B1" | "B2" | "B3" => Ok("users"),
         "G1" | "G2" | "G3" | "G4" | "G5" | "G6" | "G7" | "G8" => Ok("groups"),
         "I1" | "I2" => Ok("invites"),
         "C1" | "C2" | "C3" | "C5" => Ok("chatrooms"),
@@ -914,6 +928,10 @@ fn operation_summary(operation_id: &str) -> Result<&'static str, BoxError> {
         "U4" => Ok("Create an avatar upload intent"),
         "U5" => Ok("Finalize an avatar upload"),
         "U6" => Ok("Read a public avatar image"),
+        "RP1" => Ok("Report a message or a user"),
+        "B1" => Ok("Block a user"),
+        "B2" => Ok("Unblock a user"),
+        "B3" => Ok("List the users blocked by the current user"),
         "G1" => Ok("Create a group"),
         "G2" => Ok("List the current user's groups"),
         "G3" => Ok("Get a group"),

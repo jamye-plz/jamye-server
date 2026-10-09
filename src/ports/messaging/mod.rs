@@ -52,6 +52,17 @@ pub trait MessagingRepository: Send + Sync {
     ) -> MessagingFuture<'a, ()> {
         Box::pin(async { Err(MessagingRepositoryError::DatabaseUnavailable) })
     }
+
+    /// Operator deletion of one user message by id, with the same soft-delete, tombstone,
+    /// delete-event and media-cleanup effects as an author delete. The author-only and
+    /// membership checks do not apply. Idempotent.
+    fn moderator_delete_message<'a>(
+        &'a self,
+        _handle: &'a mut dyn TransactionHandle,
+        _command: &'a ModeratorDeleteMessageCommand,
+    ) -> MessagingFuture<'a, ModeratorDeleteOutcome> {
+        Box::pin(async { Err(MessagingRepositoryError::DatabaseUnavailable) })
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -123,6 +134,27 @@ pub struct DeleteMessageCommand {
     pub chatroom_id: Uuid,
     pub message_id: Uuid,
     pub actor_id: Uuid,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ModeratorDeleteMessageCommand {
+    pub message_id: Uuid,
+}
+
+/// Where a moderated message lives.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ModeratedMessage {
+    pub chatroom_id: Uuid,
+    pub group_id: Uuid,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ModeratorDeleteOutcome {
+    Deleted(ModeratedMessage),
+    /// A previous delete (author or operator) already removed the message.
+    AlreadyDeleted(ModeratedMessage),
+    /// System messages are not user content and are never moderated.
+    NotUserMessage,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

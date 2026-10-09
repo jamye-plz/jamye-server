@@ -500,6 +500,11 @@ fn error_profile(error: AuthError) -> (StatusCode, &'static str, &'static str) {
             "refresh_token_reused",
             "다시 로그인해 주세요.",
         ),
+        AuthError::AccountSuspended => (
+            StatusCode::FORBIDDEN,
+            "account_suspended",
+            "정지된 계정입니다.",
+        ),
         AuthError::DatabaseUnavailable => (
             StatusCode::SERVICE_UNAVAILABLE,
             "database_unavailable",

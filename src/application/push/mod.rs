@@ -8,10 +8,11 @@ use uuid::Uuid;
 
 use crate::ports::{
     push::{
-        AuthorizedPushDelivery, ClaimedPushDelivery, DeletePushInstallationCommand,
-        PushDeliveryClaimRequest, PushDeliveryFailureCode, PushDeliveryFailureDisposition,
-        PushEnvironment, PushInstallationRecord, PushPlatform, PushPreviewSource, PushProvider,
-        PushProviderError, PushProviderName, PushProviderOutcome, PushProviderRequest,
+        AuthorizedPushDelivery, AuthorizedReportAlert, ClaimAuthorization, ClaimedPushDelivery,
+        DeletePushInstallationCommand, ExpoPushDestination, PushDeliveryClaimRequest,
+        PushDeliveryFailureCode, PushDeliveryFailureDisposition, PushEnvironment,
+        PushInstallationRecord, PushPlatform, PushPreviewSource, PushProvider, PushProviderError,
+        PushProviderName, PushProviderOutcome, PushProviderRequest, PushReportAlertRequest,
         PushRepository, PushRepositoryError, PushWorkerRepository, UpdatePushInstallationCommand,
         UpsertPushInstallationCommand,
     },
@@ -208,16 +209,22 @@ impl PushWorker {
         claim: ClaimedPushDelivery,
     ) -> Result<PushWorkerReport, PushWorkerError> {
         let mut report = PushWorkerReport::default();
-        let Some(authorized) = self.authorize(&claim).await? else {
-            report.authorization_denied = 1;
-            self.record_failure(
-                &claim,
-                PushDeliveryFailureCode::AuthorizationDenied,
-                1,
-                &mut report,
-            )
-            .await?;
-            return Ok(report);
+        let authorized = match self.authorize(&claim).await? {
+            ClaimAuthorization::Delivery(authorized) => authorized,
+            ClaimAuthorization::ReportAlert(alert) => {
+                return self.deliver_report_alert(&claim, alert).await;
+            }
+            ClaimAuthorization::Denied => {
+                report.authorization_denied = 1;
+                self.record_failure(
+                    &claim,
+                    PushDeliveryFailureCode::AuthorizationDenied,
+                    1,
+                    &mut report,
+                )
+                .await?;
+                return Ok(report);
+            }
         };
         let preview = match self.load_preview(&authorized).await {
             Ok(preview) => preview,
@@ -237,17 +244,54 @@ impl PushWorker {
             route: authorized.route,
             preview,
         };
-        match tokio::time::timeout(
+        let outcome = tokio::time::timeout(
             self.config.provider_timeout,
             self.dependencies.provider.send(&request),
         )
-        .await
-        {
+        .await;
+        self.finish_provider_outcome(&claim, &request.destination, outcome, &mut report)
+            .await?;
+        Ok(report)
+    }
+
+    /// Operator alert occurrence: authorize, send the generic alert, record the outcome with
+    /// the same success, retry and invalid-destination handling as a conversation push.
+    async fn deliver_report_alert(
+        &self,
+        claim: &ClaimedPushDelivery,
+        alert: AuthorizedReportAlert,
+    ) -> Result<PushWorkerReport, PushWorkerError> {
+        let mut report = PushWorkerReport::default();
+        let request = PushReportAlertRequest {
+            destination: alert.destination,
+            report_id: alert.report_id,
+        };
+        let outcome = tokio::time::timeout(
+            self.config.provider_timeout,
+            self.dependencies.provider.send_report_alert(&request),
+        )
+        .await;
+        self.finish_provider_outcome(claim, &request.destination, outcome, &mut report)
+            .await?;
+        Ok(report)
+    }
+
+    async fn finish_provider_outcome(
+        &self,
+        claim: &ClaimedPushDelivery,
+        destination: &ExpoPushDestination,
+        outcome: Result<
+            Result<PushProviderOutcome, PushProviderError>,
+            tokio::time::error::Elapsed,
+        >,
+        report: &mut PushWorkerReport,
+    ) -> Result<(), PushWorkerError> {
+        match outcome {
             Ok(Ok(PushProviderOutcome::Accepted)) => {
                 if self
                     .dependencies
                     .repository
-                    .mark_delivery_succeeded(&claim)
+                    .mark_delivery_succeeded(claim)
                     .await
                     .map_err(|_| PushWorkerError::RepositoryUnavailable)?
                 {
@@ -257,44 +301,39 @@ impl PushWorker {
                 }
             }
             Ok(Ok(PushProviderOutcome::DeviceNotRegistered)) => {
-                self.disable_invalid_destination(&claim, &request, &mut report)
+                self.disable_invalid_destination(claim, destination, report)
                     .await?;
             }
             Ok(Err(PushProviderError::Unavailable)) => {
                 self.record_failure(
-                    &claim,
+                    claim,
                     PushDeliveryFailureCode::ExpoUnavailable,
                     self.config.max_attempts,
-                    &mut report,
+                    report,
                 )
                 .await?;
             }
             Ok(Err(PushProviderError::Rejected)) => {
-                self.record_failure(
-                    &claim,
-                    PushDeliveryFailureCode::ExpoRejected,
-                    1,
-                    &mut report,
-                )
-                .await?;
+                self.record_failure(claim, PushDeliveryFailureCode::ExpoRejected, 1, report)
+                    .await?;
             }
             Err(_) => {
                 self.record_failure(
-                    &claim,
+                    claim,
                     PushDeliveryFailureCode::ExpoTimeout,
                     self.config.max_attempts,
-                    &mut report,
+                    report,
                 )
                 .await?;
             }
         }
-        Ok(report)
+        Ok(())
     }
 
     async fn authorize(
         &self,
         claim: &ClaimedPushDelivery,
-    ) -> Result<Option<AuthorizedPushDelivery>, PushWorkerError> {
+    ) -> Result<ClaimAuthorization, PushWorkerError> {
         let mut transaction = self
             .dependencies
             .transactions
@@ -304,26 +343,37 @@ impl PushWorker {
         let result = self
             .dependencies
             .repository
-            .authorize_send(transaction.as_mut(), &claim.claim)
+            .authorize_claim(transaction.as_mut(), &claim.claim)
             .await;
+        let occurrence_id = claim.claim.occurrence_id;
         match result {
-            Ok(Some(authorized)) if authorized.occurrence_id == claim.claim.occurrence_id => {
+            Ok(ClaimAuthorization::Delivery(authorized))
+                if authorized.occurrence_id == occurrence_id =>
+            {
                 self.dependencies
                     .transactions
                     .commit(transaction)
                     .await
                     .map_err(|_| PushWorkerError::RepositoryUnavailable)?;
-                Ok(Some(authorized))
+                Ok(ClaimAuthorization::Delivery(authorized))
             }
-            Ok(None) => {
+            Ok(ClaimAuthorization::ReportAlert(alert)) if alert.occurrence_id == occurrence_id => {
+                self.dependencies
+                    .transactions
+                    .commit(transaction)
+                    .await
+                    .map_err(|_| PushWorkerError::RepositoryUnavailable)?;
+                Ok(ClaimAuthorization::ReportAlert(alert))
+            }
+            Ok(ClaimAuthorization::Denied) => {
                 self.dependencies
                     .transactions
                     .rollback(transaction)
                     .await
                     .map_err(|_| PushWorkerError::RepositoryUnavailable)?;
-                Ok(None)
+                Ok(ClaimAuthorization::Denied)
             }
-            Ok(Some(_)) | Err(_) => {
+            Ok(_) | Err(_) => {
                 self.dependencies
                     .transactions
                     .rollback(transaction)
@@ -351,7 +401,7 @@ impl PushWorker {
     async fn disable_invalid_destination(
         &self,
         claim: &ClaimedPushDelivery,
-        request: &PushProviderRequest,
+        destination: &ExpoPushDestination,
         report: &mut PushWorkerReport,
     ) -> Result<(), PushWorkerError> {
         let mut transaction = self
@@ -363,7 +413,7 @@ impl PushWorker {
         let result = self
             .dependencies
             .repository
-            .disable_invalid_destination(transaction.as_mut(), &claim.claim, &request.destination)
+            .disable_invalid_destination(transaction.as_mut(), &claim.claim, destination)
             .await;
         match result {
             Ok(true) => {

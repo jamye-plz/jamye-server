@@ -6,14 +6,18 @@ use sha2::{Digest, Sha256};
 use time::{Date, Month};
 use uuid::Uuid;
 
-use crate::ports::{
-    topics::{
-        CreateTopicCommand, CreateTopicOutcome, DeleteTopicCommand, GetTopicQuery,
-        ListTopicDatesQuery, ListTopicTagsQuery, ListTopicsQuery, NewTopicTag, PatchTopicCommand,
-        ReplaceTopicTagsCommand, TopicDatePage, TopicNotificationContext, TopicPage, TopicRecord,
-        TopicTagPage, TopicTagSource, TopicsRepository, TopicsRepositoryError,
+use crate::{
+    domain::moderation::ContentFilter,
+    ports::{
+        topics::{
+            CreateTopicCommand, CreateTopicOutcome, DeleteTopicCommand, GetTopicQuery,
+            ListTopicDatesQuery, ListTopicTagsQuery, ListTopicsQuery, NewTopicTag,
+            PatchTopicCommand, ReplaceTopicTagsCommand, TopicDatePage, TopicNotificationContext,
+            TopicPage, TopicRecord, TopicTagPage, TopicTagSource, TopicsRepository,
+            TopicsRepositoryError,
+        },
+        transactions::{BoxTransactionHandle, TransactionHandle, TransactionManager},
     },
-    transactions::{BoxTransactionHandle, TransactionHandle, TransactionManager},
 };
 
 pub const DEFAULT_TOPIC_PAGE_LIMIT: u32 = 20;
@@ -25,6 +29,7 @@ pub const MAX_DATE_PAGE_LIMIT: u32 = 366;
 #[derive(Clone)]
 pub struct TopicsService {
     dependencies: TopicsDependencies,
+    content_filter: ContentFilter,
 }
 
 #[derive(Clone)]
@@ -35,7 +40,17 @@ pub struct TopicsDependencies {
 
 impl TopicsService {
     pub fn new(dependencies: TopicsDependencies) -> Self {
-        Self { dependencies }
+        Self {
+            dependencies,
+            content_filter: ContentFilter::disabled(),
+        }
+    }
+
+    /// Mask listed terms in the topic announcement message (decision R8). The topic title
+    /// itself is not filtered.
+    pub fn with_content_filter(mut self, content_filter: ContentFilter) -> Self {
+        self.content_filter = content_filter;
+        self
     }
 
     pub async fn create_topic(
@@ -76,7 +91,9 @@ impl TopicsService {
         group_id: Uuid,
         input: TopicCreateInput,
     ) -> Result<CreateTopicCommand, TopicsError> {
-        create_topic_command(author_id, group_id, input)
+        let mut command = create_topic_command(author_id, group_id, input)?;
+        command.announcement_body = self.content_filter.mask(&command.announcement_body);
+        Ok(command)
     }
 
     /// Persists a validated topic command on the caller-owned Task-4a handle.

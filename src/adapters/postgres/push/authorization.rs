@@ -2,8 +2,9 @@ use sqlx::PgConnection;
 use uuid::Uuid;
 
 use crate::ports::push::{
-    AuthorizedPushDelivery, ExpoPushDestination, NotificationType, PushDeliveryClaim,
-    PushEnvironment, PushProviderName, PushRepositoryError, PushTapPayload,
+    AuthorizedPushDelivery, AuthorizedReportAlert, ClaimAuthorization, ExpoPushDestination,
+    NotificationType, PushDeliveryClaim, PushEnvironment, PushProviderName, PushRepositoryError,
+    PushTapPayload,
 };
 
 use super::database_error;
@@ -35,6 +36,33 @@ struct LockedInstallation {
 struct LockedOccurrence {
     source_message_id: Option<Uuid>,
     message_preview_enabled_snapshot: bool,
+}
+
+/// Authorize one claim through exactly one path chosen by the occurrence's kind: an occurrence
+/// that belongs to a report is an operator alert, every other occurrence is a conversation
+/// delivery. A missing or soft-deleted occurrence is denied.
+pub(super) async fn authorize_claim(
+    connection: &mut PgConnection,
+    claim: &PushDeliveryClaim,
+) -> Result<ClaimAuthorization, PushRepositoryError> {
+    validate_claim(claim)?;
+    let belongs_to_report = sqlx::query_scalar::<_, bool>(
+        "SELECT report_id IS NOT NULL FROM push_delivery_intents \
+         WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(claim.occurrence_id)
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(|error| database_error("push_send_occurrence_kind", error))?;
+    match belongs_to_report {
+        Some(true) => Ok(authorize_report_alert(connection, claim)
+            .await?
+            .map_or(ClaimAuthorization::Denied, ClaimAuthorization::ReportAlert)),
+        Some(false) => Ok(authorize_send(connection, claim)
+            .await?
+            .map_or(ClaimAuthorization::Denied, ClaimAuthorization::Delivery)),
+        None => Ok(ClaimAuthorization::Denied),
+    }
 }
 
 pub(super) async fn authorize_send(
@@ -287,4 +315,56 @@ fn validate_route_shape(
         | (NotificationType::Other, _) => Ok(()),
         _ => Err(PushRepositoryError::InvalidData),
     }
+}
+
+/// Authorize a claimed operator report alert. The occurrence must be the live claim for a
+/// report alert whose installation is still active, owned by the recipient, and unchanged
+/// since enqueue; the recipient account must still be live.
+async fn authorize_report_alert(
+    connection: &mut PgConnection,
+    claim: &PushDeliveryClaim,
+) -> Result<Option<AuthorizedReportAlert>, PushRepositoryError> {
+    validate_claim(claim)?;
+    let row = sqlx::query_as::<_, (Uuid, Uuid, i64, String, String)>(
+        "SELECT occurrence.report_id, occurrence.recipient_user_id, \
+                occurrence.installation_owner_epoch, installation.token, installation.environment \
+         FROM push_delivery_intents occurrence \
+         JOIN push_installations installation \
+           ON installation.id = occurrence.push_installation_id \
+         JOIN users recipient \
+           ON recipient.id = occurrence.recipient_user_id AND recipient.deleted_at IS NULL \
+         WHERE occurrence.id = $1 \
+           AND occurrence.report_id IS NOT NULL \
+           AND occurrence.deleted_at IS NULL \
+           AND occurrence.provider = 'expo' \
+           AND occurrence.status = 'claimed' \
+           AND occurrence.claim_owner = $2 \
+           AND occurrence.claim_generation = $3 \
+           AND occurrence.lease_expires_at > clock_timestamp() \
+           AND installation.user_id = occurrence.recipient_user_id \
+           AND installation.owner_epoch = occurrence.installation_owner_epoch \
+           AND installation.provider = 'expo' \
+           AND installation.disabled_at IS NULL \
+           AND installation.deleted_at IS NULL \
+         FOR UPDATE OF occurrence, installation",
+    )
+    .bind(claim.occurrence_id)
+    .bind(&claim.claim_owner)
+    .bind(claim.claim_generation)
+    .fetch_optional(connection)
+    .await
+    .map_err(|error| database_error("push_send_report_alert", error))?;
+    let Some((report_id, _recipient_id, owner_epoch, token, environment)) = row else {
+        return Ok(None);
+    };
+    if owner_epoch <= 0 {
+        return Err(PushRepositoryError::InvalidData);
+    }
+    let environment =
+        PushEnvironment::parse(&environment).ok_or(PushRepositoryError::InvalidData)?;
+    Ok(Some(AuthorizedReportAlert {
+        occurrence_id: claim.occurrence_id,
+        report_id,
+        destination: ExpoPushDestination::new(environment, token),
+    }))
 }

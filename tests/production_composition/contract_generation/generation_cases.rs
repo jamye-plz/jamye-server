@@ -165,7 +165,7 @@ fn generated_inventory_has_exactly_46_rest_operations_and_four_selected_realtime
     let expected_events = expected_realtime_event_types();
     if actual_operations != expected_operations || actual_events != expected_events {
         return Err(io::Error::other(format!(
-            "generated selected inventory must contain the exact 49 operation/method/path rows and four unique selected realtime events; actual_rest_count={}, actual_rest={actual_operations:?}, actual_realtime_count={}, actual_realtime={actual_events:?}",
+            "generated selected inventory must contain the exact 53 operation/method/path rows and four unique selected realtime events; actual_rest_count={}, actual_rest={actual_operations:?}, actual_realtime_count={}, actual_realtime={actual_events:?}",
             actual_operations.len(),
             actual_events.len(),
         ))
@@ -436,7 +436,7 @@ fn disposable_generation_rejects_unapproved_input_and_destination_before_writing
     let copied_contributions = copy_owner_contribution_tree(contribution_destination.path())?;
     require_eq(
         copied_contributions,
-        18,
+        20,
         "Task-12 owner contribution fixture count changed",
     )?;
     let contribution_before = directory_snapshot(contribution_destination.path())?;
@@ -548,7 +548,7 @@ fn allowed_provenance_variants_are_deterministic_and_emit_release_candidate_mani
     assert_release_candidate_artifact_allowlist(&committed_manifest, "committed contracts")?;
     require_eq(
         directory_snapshot(&committed_contracts.join("contributions"))?.len(),
-        18,
+        20,
         "Task-12 committed release candidate must retain the exact owner contribution file count",
     )?;
     contract_snapshot::verify(&committed_contracts, &provenance_path(DIRTY))?;

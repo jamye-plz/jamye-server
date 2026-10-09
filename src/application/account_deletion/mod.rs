@@ -81,6 +81,39 @@ impl AccountDeletionService {
         self.delete_account_grace(command.user_id).await
     }
 
+    /// Operator path (admin CLI): starts the same grace deletion as `delete_account` for a user
+    /// id after the operator verified a web deletion request.
+    ///
+    /// An operator cannot present the user's Sign in with Apple re-authentication, so the Apple
+    /// authorization is never revoked here; `apple_authorization_not_revoked` tells the caller
+    /// that the account signs in with Apple and the user has to revoke it on the device.
+    pub async fn start_operator_grace_deletion(
+        &self,
+        user_id: uuid::Uuid,
+    ) -> Result<OperatorAccountDeletion, AccountDeletionError> {
+        let identity = self
+            .dependencies
+            .repository
+            .live_identity(user_id)
+            .await
+            .map_err(AccountDeletionError::from)?;
+        let apple_authorization_not_revoked =
+            identity.is_some_and(|identity| identity.provider == "apple");
+        let report = self.delete_account_grace(user_id).await?;
+        tracing::info!(
+            target: "jamye_server",
+            event_kind = "admin_account_deletion_started",
+            user_id = %user_id,
+            memberships_removed = report.memberships_removed,
+            apple_authorization_not_revoked,
+            "operator started an account deletion"
+        );
+        Ok(OperatorAccountDeletion {
+            report,
+            apple_authorization_not_revoked,
+        })
+    }
+
     async fn verify_and_revoke_apple(
         &self,
         expected_provider_id: &str,
@@ -286,6 +319,14 @@ fn map_post_apple_revoke_deletion_error(error: AccountDeletionError) -> AccountD
         }
         _ => AccountDeletionError::DeletionFailedAfterRevoke,
     }
+}
+
+/// Result of an operator-started grace deletion.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct OperatorAccountDeletion {
+    pub report: AccountDeletionReport,
+    /// The account signs in with Apple and its Apple authorization was not revoked.
+    pub apple_authorization_not_revoked: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

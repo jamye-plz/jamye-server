@@ -47,6 +47,7 @@ use crate::{
             account_deletion::PostgresAccountDeletionRepository, auth::PostgresAuthRepository,
             chatrooms::PostgresChatroomsRepository, groups::PostgresGroupsRepository,
             media::PostgresMediaRepository, messaging::PostgresMessagingRepository,
+            moderation::PostgresModerationRepository,
             notifications::PostgresNotificationsRepository, push::PostgresPushRepository,
             realtime::PostgresRealtimeRepository,
             realtime_revocations::PostgresRealtimeRevocations, runtime_pool,
@@ -63,8 +64,8 @@ use crate::{
     application::{
         account_deletion::{AccountDeletionDependencies, AccountDeletionService},
         auth::{
-            AppleIdentityProviderSlot, AuthDependencies, AuthLifetimePolicy, AuthService,
-            OAuthProviderSlot, SystemAuthClock,
+            AccessTokenVerifier, AppleIdentityProviderSlot, AuthDependencies, AuthLifetimePolicy,
+            AuthService, GatedAccessTokenVerifier, OAuthProviderSlot, SystemAuthClock,
         },
         chatrooms::ChatroomsService,
         groups::{GroupsDependencies, GroupsService, SystemGroupsClock},
@@ -73,6 +74,9 @@ use crate::{
             MediaFinalizeDependencies, MediaFinalizeService, MediaService,
         },
         messaging::MessagingService,
+        moderation::{
+            ModerationAccessGate, ModerationDependencies, ModerationService, ModerationSettings,
+        },
         notifications::{NotificationsDependencies, NotificationsService},
         push::{PushDependencies, PushService},
         realtime::{
@@ -95,6 +99,7 @@ use crate::{
                 router as media_router,
             },
             messaging::{MessagingHttpState, router as messaging_router},
+            moderation::{ModerationHttpState, router as moderation_router},
             notifications::{NotificationsHttpState, router as notifications_router},
             push::{PushHttpState, router as push_router},
             realtime::{RealtimeHttpState, router as realtime_router},
@@ -157,7 +162,7 @@ pub fn router_with_runtime(
     let redis_url = config
         .redis_url()
         .ok_or(CompositionError::RedisNotConfigured)?;
-    let verifier = Arc::new(
+    let token_codec = Arc::new(
         ProductionTokenCodec::new(
             auth.access_token_secret.expose_secret().as_bytes(),
             &auth.access_token_issuer,
@@ -165,6 +170,12 @@ pub fn router_with_runtime(
         )
         .map_err(|_| CompositionError::Auth)?,
     );
+    // Every bearer extraction also checks the account gate (suspension) through this verifier.
+    let moderation_repository = Arc::new(PostgresModerationRepository::new(pool.clone()));
+    let verifier: Arc<dyn AccessTokenVerifier> = Arc::new(GatedAccessTokenVerifier::new(
+        token_codec.clone(),
+        Arc::new(ModerationAccessGate::new(moderation_repository.clone())),
+    ));
     let transactions = Arc::new(SqlxTransactionManager::new(pool.clone()));
     let auth_repository = Arc::new(PostgresAuthRepository::new(pool.clone()));
     let groups_repository = Arc::new(PostgresGroupsRepository::new(pool.clone()));
@@ -197,7 +208,7 @@ pub fn router_with_runtime(
                 attempts,
                 rate_limiter: rate_limiter.clone(),
                 credentials: Arc::new(OsCredentialSource),
-                token_issuer: verifier.clone(),
+                token_issuer: token_codec.clone(),
                 clock: Arc::new(SystemAuthClock),
             },
             oauth_slot(&auth.kakao, auth.provider_timeout)?,
@@ -224,14 +235,30 @@ pub fn router_with_runtime(
         )
         .map_err(|_| CompositionError::Groups)?,
     );
-    let messaging_service = Arc::new(MessagingService::new(
-        transactions.clone(),
-        messaging_repository.clone(),
+    // One content filter (embedded list or the operator's file) masks every accepted chat body.
+    let content_filter = config.moderation().content_filter().clone();
+    let messaging_service = Arc::new(
+        MessagingService::new(transactions.clone(), messaging_repository.clone())
+            .with_content_filter(content_filter.clone()),
+    );
+    let topics_service = Arc::new(
+        TopicsService::new(TopicsDependencies {
+            transactions: transactions.clone(),
+            repository: topics_repository.clone(),
+        })
+        .with_content_filter(content_filter.clone()),
+    );
+    let moderation_service = Arc::new(ModerationService::new(
+        ModerationDependencies {
+            transactions: transactions.clone(),
+            repository: moderation_repository.clone(),
+            rate_limiter: rate_limiter.clone(),
+        },
+        ModerationSettings {
+            content_filter,
+            operator_account_ids: config.moderation().operator_account_ids().to_vec(),
+        },
     ));
-    let topics_service = Arc::new(TopicsService::new(TopicsDependencies {
-        transactions: transactions.clone(),
-        repository: topics_repository.clone(),
-    }));
     let chatrooms_service = Arc::new(ChatroomsService::new(
         transactions.clone(),
         chatrooms_repository.clone(),
@@ -388,6 +415,10 @@ pub fn router_with_runtime(
         )))
         .merge(media_router(MediaHttpState::new(
             media_access,
+            verifier.clone(),
+        )))
+        .merge(moderation_router(ModerationHttpState::new(
+            moderation_service,
             verifier.clone(),
         )))
         .merge(notifications_router(NotificationsHttpState::new(

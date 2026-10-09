@@ -13,6 +13,7 @@ pub mod health;
 pub mod legal;
 pub mod media;
 pub mod messaging;
+pub mod moderation;
 pub mod notifications;
 pub mod push;
 pub mod realtime;

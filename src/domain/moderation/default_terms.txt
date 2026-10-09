@@ -1,0 +1,17 @@
+# Default content-filter terms (task-20b, decision R8).
+# One term per line; blank lines and lines starting with '#' are ignored.
+# Matching is case-insensitive substring matching. Keep this list short and limited to
+# severe slurs and hate terms; ordinary swearing is deliberately not listed.
+# The operator can replace the whole list with JAMYE_CONTENT_FILTER_TERMS_FILE.
+nigger
+nigga
+faggot
+kike
+tranny
+wetback
+towelhead
+쪽바리
+쪽발이
+깜둥이
+똥남아
+조센징
