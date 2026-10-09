@@ -13,6 +13,7 @@ use jamye_server::{
         account_deletion::{AccountDeletionConfig, AccountDeletionConfigInput},
         app_links::{AppLinksConfig, AppLinksConfigInput},
         auth::{AuthConfig, AuthConfigInput},
+        legal::LegalConfigInput,
         object_storage::{ObjectStorageConfig, ObjectStorageConfigInput},
         push::{PushConfig, PushConfigInput},
         rate_limit::RateLimitConfig,

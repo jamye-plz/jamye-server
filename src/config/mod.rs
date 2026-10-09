@@ -3,6 +3,7 @@
 pub mod account_deletion;
 pub mod app_links;
 pub mod auth;
+pub mod legal;
 pub mod object_storage;
 pub mod push;
 pub mod rate_limit;
@@ -41,6 +42,7 @@ pub struct ConfigInput {
     pub redis_url: Option<String>,
     pub minio_health_url: Option<String>,
     pub avatar_public_base_url: Option<String>,
+    pub legal: legal::LegalConfigInput,
 }
 
 impl ConfigInput {
@@ -54,6 +56,7 @@ impl ConfigInput {
             redis_url: read_env("REDIS_URL"),
             minio_health_url: read_env("JAMYE_MINIO_HEALTH_URL"),
             avatar_public_base_url: read_env(AVATAR_PUBLIC_BASE_URL_KEY),
+            legal: legal::LegalConfigInput::from_env(),
         }
     }
 }
@@ -69,6 +72,7 @@ pub struct AppConfig {
     redis_url: Option<SensitiveUrl>,
     minio_health_url: Option<SensitiveUrl>,
     avatar_public_base_url: Option<String>,
+    legal: Option<legal::LegalConfig>,
 }
 
 impl AppConfig {
@@ -111,6 +115,12 @@ impl AppConfig {
     /// avatar upload and public-read routes unmounted.
     pub fn avatar_public_base_url(&self) -> Option<&str> {
         self.avatar_public_base_url.as_deref()
+    }
+
+    /// Operator values for the public legal pages. `None` keeps `/privacy`, `/terms`,
+    /// `/account-deletion` and `/support` unmounted (plain 404).
+    pub fn legal(&self) -> Option<&legal::LegalConfig> {
+        self.legal.as_ref()
     }
 }
 
@@ -165,6 +175,7 @@ impl TryFrom<ConfigInput> for AppConfig {
             UrlPolicy::MinioHealth,
         )?;
         let avatar_public_base_url = optional_avatar_public_base_url(input.avatar_public_base_url)?;
+        let legal = legal::LegalConfig::resolve(input.legal)?;
 
         Ok(Self {
             environment,
@@ -175,6 +186,7 @@ impl TryFrom<ConfigInput> for AppConfig {
             redis_url,
             minio_health_url,
             avatar_public_base_url,
+            legal,
         })
     }
 }

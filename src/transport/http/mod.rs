@@ -10,6 +10,7 @@ pub mod composition;
 pub mod dev_fixtures;
 pub mod groups;
 pub mod health;
+pub mod legal;
 pub mod media;
 pub mod messaging;
 pub mod notifications;

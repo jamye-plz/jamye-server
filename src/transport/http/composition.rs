@@ -89,6 +89,7 @@ use crate::{
             auth::{AuthHttpState, router as auth_router},
             chatrooms::{ChatroomsHttpState, router as chatrooms_router},
             groups::{GroupsHttpState, router as groups_router},
+            legal::{LegalHttpState, LegalRenderError, router as legal_router},
             media::{
                 MediaHttpState, MediaMutationHttpState, mutation_router as media_mutation_router,
                 router as media_router,
@@ -136,6 +137,13 @@ pub fn router_with_runtime(
     object_storage: Option<&ObjectStorageConfig>,
 ) -> Result<Router, CompositionError> {
     let timeout = config.readiness_timeout();
+    // Legal pages render once at startup from validated operator values; no values means the
+    // four routes stay unmounted (plain 404) so the code can deploy before the values exist.
+    let legal_routes = config
+        .legal()
+        .map(LegalHttpState::new)
+        .transpose()
+        .map_err(CompositionError::Legal)?;
     let postgres: Arc<dyn DependencyProbe> = Arc::new(
         PostgresHealthProbe::connect_lazy(config.database_url(), timeout)
             .map_err(|_| CompositionError::Postgres)?,
@@ -399,6 +407,9 @@ pub fn router_with_runtime(
         )));
     if let Some(avatar_routes) = avatar_routes {
         application = application.merge(avatar_routes);
+    }
+    if let Some(legal_state) = legal_routes {
+        application = application.merge(legal_router(legal_state));
     }
     Ok(with_platform_layers(application))
 }
@@ -855,6 +866,7 @@ pub enum CompositionError {
     Groups,
     Media,
     ObjectStorageNotConfigured,
+    Legal(LegalRenderError),
 }
 
 #[derive(Debug)]
@@ -903,12 +915,22 @@ impl fmt::Display for CompositionError {
             Self::Groups => "groups composition",
             Self::Media => "media composition",
             Self::ObjectStorageNotConfigured => "object-storage configuration",
+            Self::Legal(error) => {
+                return write!(formatter, "failed to initialize legal pages: {error}");
+            }
         };
         write!(formatter, "failed to initialize {component}")
     }
 }
 
-impl Error for CompositionError {}
+impl Error for CompositionError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Legal(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 #[cfg(test)]
 mod supervisor_tests {
