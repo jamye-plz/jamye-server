@@ -8,7 +8,7 @@ use crate::{
     },
     ports::{
         messaging::{
-            DeleteMessageCommand, MessagingRepositoryError, ModeratedMessage,
+            DeleteMessageCommand, MODERATOR_ACTOR_ID, MessagingRepositoryError, ModeratedMessage,
             ModeratorDeleteMessageCommand, ModeratorDeleteOutcome,
         },
         transactions::TransactionHandle,
@@ -92,7 +92,7 @@ pub(super) async fn moderator_delete_message(
             chatroom_id,
             message_id: command.message_id,
             group_id,
-            deleted_by: Uuid::nil(),
+            deleted_by: MODERATOR_ACTOR_ID,
             reason: MODERATOR_DELETE_REASON,
         },
         deleted_at,
