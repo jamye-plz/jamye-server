@@ -59,7 +59,7 @@ pub(super) async fn delete_message(
 
 /// Operator path: resolve the chatroom from the message id, lock the live chatroom and group in
 /// the same order as the author path, then run the shared removal. An operator has no account
-/// actor, so the event records the nil UUID as `deleted_by`.
+/// actor, so the event records `MODERATOR_ACTOR_ID` as `deleted_by`.
 pub(super) async fn moderator_delete_message(
     handle: &mut dyn TransactionHandle,
     command: &ModeratorDeleteMessageCommand,
