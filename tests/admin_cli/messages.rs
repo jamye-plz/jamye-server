@@ -14,6 +14,7 @@ use jamye_server::{
         },
     },
     domain::messaging::DeltaItem,
+    ports::messaging::MODERATOR_ACTOR_ID,
 };
 use serde_json::Value;
 use sqlx::PgPool;
@@ -263,7 +264,12 @@ async fn the_moderator_delete_has_the_same_effects_as_an_author_delete() -> Test
         .fetch_one(&harness.pool)
         .await?;
         assert_eq!(payload["reason"], "moderator_deleted");
-        assert_eq!(payload["deleted_by"], Uuid::nil().to_string());
+        assert_eq!(payload["deleted_by"], MODERATOR_ACTOR_ID.to_string());
+        // Clients validate `uuid` as RFC 4122 versions 1-5; the nil UUID would make the app
+        // reject the whole event page.
+        let actor = Uuid::parse_str(payload["deleted_by"].as_str().unwrap_or_default())?;
+        assert_eq!(actor.get_version_num(), 4);
+        assert_eq!(actor.get_variant(), uuid::Variant::RFC4122);
         assert_eq!(
             payload["chatroom_id"],
             fixture.group.chatroom_id.to_string()

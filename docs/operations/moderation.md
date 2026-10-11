@@ -105,8 +105,9 @@ outbox의 본문 제거, `message.deleted` 이벤트(클라이언트 sync와 실
 actioned**로 바뀐다(이미 dismissed인 신고는 그대로). 같은 명령을 반복해도 안전하다(이미 삭제됨,
 종료 코드 0).
 
-- `message.deleted` 이벤트의 `reason`은 `moderator_deleted`, `deleted_by`는 계정이 없으므로 nil UUID
-  (`00000000-0000-0000-0000-000000000000`)다.
+- `message.deleted` 이벤트의 `reason`은 `moderator_deleted`, `deleted_by`는 계정이 없으므로 고정 id
+  `MODERATOR_ACTOR_ID`(`00000000-0000-4000-8000-000000000000`, RFC 4122 version 4 모양)다. nil UUID는
+  앱의 `uuid` 형식 검사(version 1-5)를 통과하지 못해 이벤트 페이지 전체가 거부되므로 쓰지 않는다.
 - 없는 id, 그룹/주제/대화방이 삭제된 메시지, 시스템 메시지는 종료 코드 1이며 아무것도 바꾸지 않는다.
 
 ### 2.3 계정 정지
@@ -249,7 +250,7 @@ SQL
 ## 7. 인수인계 메모 (클라이언트와 계약)
 
 - 운영자 메시지 삭제는 기존 `message.deleted` 이벤트(계약 v1)를 그대로 쓴다. `reason` 값
-  `moderator_deleted`(기존 `author_deleted` 외)와 nil UUID `deleted_by`가 새로 나올 수 있다. 계약의
+  `moderator_deleted`(기존 `author_deleted` 외)와 고정 `deleted_by`(`MODERATOR_ACTOR_ID`)가 새로 나올 수 있다. 계약의
   `reason`은 자유 문자열이라 스키마는 바뀌지 않았지만 앱은 두 값 모두 일반 삭제로 처리해야 한다.
 
 ## 8. homelab 배선 (이 저장소 밖, 별도 작업)

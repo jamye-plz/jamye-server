@@ -141,6 +141,12 @@ pub struct ModeratorDeleteMessageCommand {
     pub message_id: Uuid,
 }
 
+/// `deleted_by` of an operator deletion's `message.deleted` event. No account deletes the
+/// message, so a fixed id stands in. It is shaped as an RFC 4122 version 4 UUID because clients
+/// validate the contract's `uuid` format as versions 1-5: the nil UUID fails that check and
+/// makes the app reject the whole event page.
+pub const MODERATOR_ACTOR_ID: Uuid = Uuid::from_u128(0x0000_0000_0000_4000_8000_0000_0000_0000);
+
 /// Where a moderated message lives.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ModeratedMessage {
