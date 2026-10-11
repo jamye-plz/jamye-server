@@ -166,6 +166,9 @@ async fn parse_message_request(
         .map_err(|_| MessagingError::RequestValidation)?;
     let payload = serde_json::from_slice::<MessageCreate>(&bytes)
         .map_err(|_| MessagingError::RequestValidation)?;
+    if !is_client_verifiable_uuid(payload.client_msg_id) {
+        return Err(MessagingError::RequestValidation);
+    }
     Ok(SendMessageInput {
         chatroom_id,
         client_msg_id: payload.client_msg_id,
@@ -178,6 +181,13 @@ async fn parse_message_request(
             .collect(),
         idempotency_key,
     })
+}
+
+/// `client_msg_id` is echoed to every member in message and event pages. Clients validate the
+/// contract's `uuid` format as RFC 4122 versions 1-5 and reject a whole page on any other value,
+/// so one malformed id would stall sync for the chatroom.
+fn is_client_verifiable_uuid(value: Uuid) -> bool {
+    matches!(value.get_version_num(), 1..=5) && value.get_variant() == uuid::Variant::RFC4122
 }
 
 fn parse_delta_input(

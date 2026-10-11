@@ -8,6 +8,51 @@ use crate::{
 };
 
 #[tokio::test]
+async fn c4_rejects_client_message_ids_that_clients_cannot_validate() -> TestResult {
+    // client_msg_id is echoed to every member in message pages and events. Clients validate the
+    // contract's uuid format as RFC 4122 versions 1-5 and reject the whole page otherwise, so
+    // one malformed id would stall sync for the chatroom; the server refuses it up front.
+    let app = TestApp::new().await?;
+    let token = app.fixture.access_token.as_str();
+    let chatroom_id = app.fixture.chatroom_id;
+    let before = counts(&app.pool).await?;
+
+    for client_msg_id in [
+        "00000000-0000-0000-0000-000000000000",
+        "ffffffff-ffff-ffff-ffff-ffffffffffff",
+        "018f6b2e-3c4d-7a8b-9c0d-1e2f3a4b5c6d",
+        "6ba7b810-9dad-41d1-c0b4-00c04fd430c8",
+    ] {
+        let response = app
+            .send(
+                Some(token),
+                chatroom_id,
+                json!({"client_msg_id": client_msg_id, "body": "hello"}),
+                None,
+            )
+            .await?;
+        assert_error(
+            response,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "request_validation_failed",
+        )
+        .await?;
+    }
+    assert_eq!(counts(&app.pool).await?, before);
+
+    let accepted = app
+        .send(
+            Some(token),
+            chatroom_id,
+            json!({"client_msg_id": Uuid::new_v4(), "body": "hello"}),
+            None,
+        )
+        .await?;
+    assert_eq!(accepted.status(), StatusCode::CREATED);
+    Ok(())
+}
+
+#[tokio::test]
 async fn c4_preserves_content_idempotency_and_exact_text() -> TestResult {
     let app = TestApp::new().await?;
     let token = app.fixture.access_token.as_str();
