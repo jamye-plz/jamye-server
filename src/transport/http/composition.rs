@@ -442,7 +442,9 @@ pub fn router_with_runtime(
     if let Some(legal_state) = legal_routes {
         application = application.merge(legal_router(legal_state));
     }
-    Ok(with_platform_layers(application))
+    Ok(with_platform_layers(
+        crate::transport::http::client_ip::with_trusted_proxies(application, config),
+    ))
 }
 
 fn oauth_slot(

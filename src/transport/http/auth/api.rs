@@ -1,9 +1,9 @@
-use std::{collections::BTreeSet, net::SocketAddr, sync::Arc};
+use std::{collections::BTreeSet, sync::Arc};
 
 use axum::{
     Json, Router,
     body::{Body, to_bytes},
-    extract::{ConnectInfo, FromRef, Path, Request, State},
+    extract::{FromRef, Path, Request, State},
     http::{
         HeaderName, HeaderValue, StatusCode,
         header::{CACHE_CONTROL, LOCATION, REFERRER_POLICY, RETRY_AFTER, X_CONTENT_TYPE_OPTIONS},
@@ -20,7 +20,10 @@ use crate::{
         AccessTokenVerifier, AppleExchangeInput, AuthError, AuthExchangeOutput, AuthService,
         AuthorizeInput, ExchangeInput, TokenPair,
     },
-    transport::http::auth::{AuthVerifierState, AuthenticatedAccess, error_response, request_id},
+    transport::http::{
+        auth::{AuthVerifierState, AuthenticatedAccess, error_response, request_id},
+        client_ip,
+    },
 };
 
 const MAX_AUTH_BODY_BYTES: usize = 16 * 1024;
@@ -371,10 +374,8 @@ where
 }
 
 fn network_subject(parts: &axum::http::request::Parts) -> String {
-    parts
-        .extensions
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|ConnectInfo(address)| format!("ip:{}", address.ip()))
+    client_ip::client_ip(parts)
+        .map(|address| format!("ip:{address}"))
         .unwrap_or_else(|| "ip:unavailable".to_owned())
 }
 

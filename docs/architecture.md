@@ -182,16 +182,18 @@ PostgreSQL sequence 기반 cursor는 server만 생성한다. Redis와 MinIO의 �
 
 ## 9. M0 process architecture
 
-local-dev example은 14개 키를 설명한다. 핵심 process 설정과 PostgreSQL URL은
+local-dev example은 15개 키를 설명한다. 핵심 process 설정과 PostgreSQL URL은
 `src/config/mod.rs`, account purge와 cleanup credential은
 `src/config/account_deletion.rs`, guarded fixture flag는 `src/dev_fixtures`가 소유한다.
 environment와 PostgreSQL URL은 필수이며 Redis/MinIO URL은 미설정 시 degraded로
 동작한다. 시작 시 존재하는 값과 모든 범위를 검증하고 잘못된 설정은 명확한 safe
 error로 process를 종료한다.
+`JAMYE_TRUSTED_PROXIES`가 미설정이거나 비어 있으면 어떤 proxy도 신뢰하지 않아 `X-Forwarded-For`를 무시하고, 그 밖의 잘못된 값은 시작을 실패시키며, 목록에 있는 TCP peer가 보낸 단일 값 `X-Forwarded-For`만 사용한다.
 
 ```text
 JAMYE_ENVIRONMENT
 JAMYE_LISTEN_ADDR
+JAMYE_TRUSTED_PROXIES
 JAMYE_SHUTDOWN_GRACE_SECONDS
 JAMYE_READINESS_TIMEOUT_MS
 DATABASE_URL

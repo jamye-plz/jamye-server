@@ -1,11 +1,11 @@
 //! Authenticated Axum boundary for groups, memberships, roles, and invites.
 
-use std::{net::SocketAddr, sync::Arc};
+use std::sync::Arc;
 
 use axum::{
     Json, Router,
     body::{Body, to_bytes},
-    extract::{ConnectInfo, FromRef, Path, RawQuery, Request, State},
+    extract::{FromRef, Path, RawQuery, Request, State},
     http::{HeaderValue, StatusCode, header::RETRY_AFTER},
     response::{IntoResponse, Response},
     routing::{get, patch, post},
@@ -27,7 +27,10 @@ use crate::{
     ports::groups::{
         GroupPage, GroupRecord, GroupRole, InviteJoinRecord, InviteRecord, MemberPage, MemberRecord,
     },
-    transport::http::auth::{AuthVerifierState, AuthenticatedAccess, error_response, request_id},
+    transport::http::{
+        auth::{AuthVerifierState, AuthenticatedAccess, error_response, request_id},
+        client_ip,
+    },
 };
 
 const MAX_GROUP_BODY_BYTES: usize = 8 * 1024;
@@ -405,10 +408,8 @@ fn empty_result(result: Result<(), GroupsError>, request_id: Uuid) -> Response {
 }
 
 fn rate_limit_subject(parts: &axum::http::request::Parts, user_id: Uuid) -> String {
-    let address = parts
-        .extensions
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|ConnectInfo(address)| address.ip().to_string())
+    let address = client_ip::client_ip(parts)
+        .map(|address| address.to_string())
         .unwrap_or_else(|| "unavailable".to_owned());
     format!("user:{user_id}:ip:{address}")
 }

@@ -1,6 +1,6 @@
 //! Operating-system signal handling and bounded HTTP connection draining.
 
-use std::{error::Error, fmt, future::Future, future::IntoFuture, time::Duration};
+use std::{error::Error, fmt, future::Future, future::IntoFuture, net::SocketAddr, time::Duration};
 
 use axum::Router;
 use tokio::{net::TcpListener, sync::oneshot, time::timeout};
@@ -15,12 +15,15 @@ where
     F: Future<Output = ()> + Send + 'static,
 {
     let (drain_started_tx, drain_started_rx) = oneshot::channel();
-    let server = axum::serve(listener, app)
-        .with_graceful_shutdown(async move {
-            shutdown.await;
-            let _send_result = drain_started_tx.send(());
-        })
-        .into_future();
+    let server = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        shutdown.await;
+        let _send_result = drain_started_tx.send(());
+    })
+    .into_future();
     tokio::pin!(server);
 
     tokio::select! {

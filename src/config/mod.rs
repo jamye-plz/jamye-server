@@ -10,7 +10,13 @@ pub mod push;
 pub mod rate_limit;
 pub(crate) mod realtime;
 
-use std::{env, error::Error, fmt, net::SocketAddr, time::Duration};
+use std::{
+    env,
+    error::Error,
+    fmt,
+    net::{IpAddr, SocketAddr},
+    time::Duration,
+};
 
 use url::Url;
 
@@ -18,6 +24,7 @@ const DEFAULT_LISTEN_ADDRESS: &str = "127.0.0.1:3000";
 const DEFAULT_SHUTDOWN_GRACE_SECONDS: &str = "20";
 const DEFAULT_READINESS_TIMEOUT_MS: &str = "1000";
 const AVATAR_PUBLIC_BASE_URL_KEY: &str = "JAMYE_AVATAR_PUBLIC_BASE_URL";
+const TRUSTED_PROXIES_KEY: &str = "JAMYE_TRUSTED_PROXIES";
 const MAX_AVATAR_PUBLIC_BASE_URL_CHARS: usize = 256;
 
 /// Deployment environment used only for safe behavior selection and logging.
@@ -43,13 +50,24 @@ pub struct ConfigInput {
     pub redis_url: Option<String>,
     pub minio_health_url: Option<String>,
     pub avatar_public_base_url: Option<String>,
+    pub trusted_proxies: Option<String>,
     pub legal: legal::LegalConfigInput,
     pub moderation: moderation::ModerationConfigInput,
 }
 
 impl ConfigInput {
-    fn from_env() -> Self {
-        Self {
+    fn from_env() -> Result<Self, ConfigError> {
+        let trusted_proxies = match env::var(TRUSTED_PROXIES_KEY) {
+            Ok(value) => Some(value),
+            Err(env::VarError::NotPresent) => None,
+            Err(env::VarError::NotUnicode(_)) => {
+                return Err(ConfigError::new(
+                    TRUSTED_PROXIES_KEY,
+                    "must be valid Unicode",
+                ));
+            }
+        };
+        Ok(Self {
             environment: read_env("JAMYE_ENVIRONMENT"),
             listen_address: read_env("JAMYE_LISTEN_ADDR"),
             shutdown_grace_seconds: read_env("JAMYE_SHUTDOWN_GRACE_SECONDS"),
@@ -58,9 +76,10 @@ impl ConfigInput {
             redis_url: read_env("REDIS_URL"),
             minio_health_url: read_env("JAMYE_MINIO_HEALTH_URL"),
             avatar_public_base_url: read_env(AVATAR_PUBLIC_BASE_URL_KEY),
+            trusted_proxies,
             legal: legal::LegalConfigInput::from_env(),
             moderation: moderation::ModerationConfigInput::from_env(),
-        }
+        })
     }
 }
 
@@ -75,6 +94,7 @@ pub struct AppConfig {
     redis_url: Option<SensitiveUrl>,
     minio_health_url: Option<SensitiveUrl>,
     avatar_public_base_url: Option<String>,
+    trusted_proxies: TrustedProxies,
     legal: Option<legal::LegalConfig>,
     moderation: moderation::ModerationConfig,
 }
@@ -82,7 +102,7 @@ pub struct AppConfig {
 impl AppConfig {
     /// Loads and validates the current process environment.
     pub fn from_env() -> Result<Self, ConfigError> {
-        Self::try_from(ConfigInput::from_env())
+        Self::try_from(ConfigInput::from_env()?)
     }
 
     pub fn environment(&self) -> AppEnvironment {
@@ -119,6 +139,10 @@ impl AppConfig {
     /// avatar upload and public-read routes unmounted.
     pub fn avatar_public_base_url(&self) -> Option<&str> {
         self.avatar_public_base_url.as_deref()
+    }
+
+    pub fn trusted_proxies(&self) -> &[IpAddr] {
+        &self.trusted_proxies.0
     }
 
     /// Operator values for the public legal pages. `None` keeps `/privacy`, `/terms`,
@@ -184,6 +208,7 @@ impl TryFrom<ConfigInput> for AppConfig {
             UrlPolicy::MinioHealth,
         )?;
         let avatar_public_base_url = optional_avatar_public_base_url(input.avatar_public_base_url)?;
+        let trusted_proxies = parse_trusted_proxies(input.trusted_proxies)?;
         let legal = legal::LegalConfig::resolve(input.legal)?;
         let moderation = moderation::ModerationConfig::resolve(input.moderation)?;
 
@@ -196,10 +221,38 @@ impl TryFrom<ConfigInput> for AppConfig {
             redis_url,
             minio_health_url,
             avatar_public_base_url,
+            trusted_proxies,
             legal,
             moderation,
         })
     }
+}
+
+#[derive(Clone)]
+struct TrustedProxies(Vec<IpAddr>);
+
+impl fmt::Debug for TrustedProxies {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("[REDACTED]")
+    }
+}
+
+fn parse_trusted_proxies(value: Option<String>) -> Result<TrustedProxies, ConfigError> {
+    let Some(value) = value.filter(|value| !value.trim().is_empty()) else {
+        return Ok(TrustedProxies(Vec::new()));
+    };
+    let addresses = value
+        .split(',')
+        .map(|address| {
+            address.trim().parse::<IpAddr>().map_err(|_| {
+                ConfigError::new(
+                    TRUSTED_PROXIES_KEY,
+                    "must contain only comma-separated IP addresses",
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(TrustedProxies(addresses))
 }
 
 #[derive(Clone)]
@@ -378,4 +431,66 @@ fn validate_minio_health_url(key: &'static str, url: &Url) -> Result<(), ConfigE
         return Err(ConfigError::new(key, "must target /minio/health/live"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AppConfig, ConfigError, ConfigInput};
+
+    fn config_with_trusted_proxies(value: Option<&str>) -> Result<AppConfig, ConfigError> {
+        AppConfig::try_from(ConfigInput {
+            environment: Some("test".to_owned()),
+            database_url: Some("postgres://localhost/jamye_test".to_owned()),
+            trusted_proxies: value.map(ToOwned::to_owned),
+            ..ConfigInput::default()
+        })
+    }
+
+    #[test]
+    fn empty_trusted_proxies_is_unset() -> Result<(), ConfigError> {
+        for value in [None, Some(""), Some("  \t  ")] {
+            assert!(
+                config_with_trusted_proxies(value)?
+                    .trusted_proxies()
+                    .is_empty()
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn trusted_proxies_accept_exact_ipv4_and_ipv6_without_logging_them()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let config = config_with_trusted_proxies(Some("192.0.2.10, 2001:db8::1"))?;
+        assert_eq!(
+            config.trusted_proxies(),
+            &[
+                "192.0.2.10".parse::<std::net::IpAddr>()?,
+                "2001:db8::1".parse::<std::net::IpAddr>()?,
+            ]
+        );
+        let debug = format!("{config:?}");
+        assert!(!debug.contains("192.0.2.10"));
+        assert!(!debug.contains("2001:db8::1"));
+        Ok(())
+    }
+
+    #[test]
+    fn trusted_proxies_reject_invalid_entries_without_echoing_values() {
+        for value in [
+            "not-an-ip",
+            "192.0.2.0/24",
+            "192.0.2.1,",
+            ",192.0.2.1",
+            "192.0.2.1, ,2001:db8::1",
+        ] {
+            match config_with_trusted_proxies(Some(value)) {
+                Err(error) => {
+                    assert_eq!(error.key(), "JAMYE_TRUSTED_PROXIES");
+                    assert!(!error.to_string().contains(value));
+                }
+                Ok(_) => panic!("invalid trusted proxy configuration was accepted"),
+            }
+        }
+    }
 }
