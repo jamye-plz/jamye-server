@@ -21,7 +21,7 @@ use jamye_server::{
             AppleIdentity, AppleIdentityProvider, AppleIdentityProviderError,
             AppleIdentityProviderFuture, AppleIdentityVerificationRequest,
         },
-        auth::{AuthClock, CredentialDigest, CredentialSource},
+        auth::{AuthClock, AuthRepository, CredentialDigest, CredentialSource},
         oauth_attempt::{
             ConsumeAttemptOutcome, CreateAttemptOutcome, OAuthAttempt, OAuthAttemptError,
             OAuthAttemptFuture, OAuthAttemptStore,
@@ -63,6 +63,7 @@ pub fn harness(
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -71,7 +72,15 @@ pub fn harness_with_rate_limiter(
     provider_barrier: Option<Arc<Barrier>>,
     rate_limiter: Arc<dyn RateLimiter>,
 ) -> TestResult<TestAuthHarness> {
-    harness_with_options(pool, provider_barrier, rate_limiter, None, None, None)
+    harness_with_options(pool, provider_barrier, rate_limiter, None, None, None, None)
+}
+
+pub fn harness_with_repository_and_rate_limiter(
+    pool: PgPool,
+    repository: Arc<dyn AuthRepository>,
+    rate_limiter: Arc<dyn RateLimiter>,
+) -> TestResult<TestAuthHarness> {
+    harness_with_options(pool, None, rate_limiter, None, None, None, Some(repository))
 }
 
 pub fn harness_with_provider_error(
@@ -83,6 +92,7 @@ pub fn harness_with_provider_error(
         None,
         Arc::new(AllowRateLimiter),
         Some(error),
+        None,
         None,
         None,
     )
@@ -98,6 +108,7 @@ pub fn harness_with_provider_identity(
         Arc::new(AllowRateLimiter),
         None,
         Some(identity),
+        None,
         None,
     )
 }
@@ -116,6 +127,7 @@ pub fn harness_with_apple_identity(
             apple_identity,
             None,
         ))),
+        None,
     )
 }
 
@@ -134,6 +146,7 @@ pub fn harness_with_apple_identity_and_rate_limiter(
             apple_identity,
             None,
         ))),
+        None,
     )
 }
 
@@ -154,6 +167,7 @@ pub fn harness_with_apple_error(
             },
             Some(error),
         ))),
+        None,
     )
 }
 
@@ -164,8 +178,10 @@ fn harness_with_options(
     provider_error: Option<OAuthProviderError>,
     provider_identity: Option<ProviderIdentity>,
     apple_provider: Option<Arc<FakeAppleIdentityProvider>>,
+    repository: Option<Arc<dyn AuthRepository>>,
 ) -> TestResult<TestAuthHarness> {
-    let repository = Arc::new(PostgresAuthRepository::new(pool.clone()));
+    let repository =
+        repository.unwrap_or_else(|| Arc::new(PostgresAuthRepository::new(pool.clone())));
     let transactions = Arc::new(SqlxTransactionManager::new(pool));
     let attempts = Arc::new(MemoryAttemptStore::default());
     let provider = Arc::new(FakeProvider::new(
