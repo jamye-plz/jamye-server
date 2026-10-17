@@ -10,11 +10,11 @@
 다운로드하거나 개발 환경을 구성할 수 있다.
 
 ```bash
-rtk proxy nix develop . --no-write-lock-file --command bash --noprofile --norc
+nix develop . --no-write-lock-file --command bash --noprofile --norc
 ```
 
 - 에이전트는 `jamye-server`와 `jamye-app`의 터미널 세션을 각각 유지한다. 후속 명령은
-  해당 프로젝트의 같은 세션에서 `rtk`로 실행하며, 명령마다 `nix develop`을 중첩하지 않는다.
+  해당 프로젝트의 같은 세션에서 실행하며, 명령마다 `nix develop`을 중첩하지 않는다.
 - 사용자가 별도로 연 터미널의 환경을 상속한다고 가정하지 않는다. 세션 ID와 작업 디렉터리는
   실행을 담당하는 에이전트가 관리하고, 첫 진입 때 `IN_NIX_SHELL`과 도구 버전을 확인한다.
   비밀이 포함될 수 있는 전체 환경 변수는 출력하지 않는다.
@@ -48,6 +48,13 @@ Cargo 산출물이며 원격 NixOS 서비스와 별개지만, 정리 후 테스�
 
 MinIO app identity는 disposable administrator와 분리한다. media integration test에
 필요한 최소 권한 policy는 `just minio-policy`로 연결한다.
+
+알려진 제한: `compose.yaml`의 MinIO image는 더 이상 pull할 수 없다. 따라서 CI의
+`contract-drift` workflow는 PostgreSQL·Redis만 Compose로 시작하고, flake가 고정한
+`nixpkgs` input에서 MinIO binary를 실현해 runner에서 직접 시작한다. 로컬 harness의
+`just infra-up`은 여전히 `compose.yaml`을 사용하므로 MinIO image가 필요한 환경에서는
+이 제한을 만날 수 있다. 이 문서화는 local harness의 한계를 기록하는 것이며
+`compose.yaml`을 production 정의로 바꾸거나 수정하는 것을 뜻하지 않는다.
 
 ## Process와 health
 

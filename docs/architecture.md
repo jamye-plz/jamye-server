@@ -182,7 +182,12 @@ PostgreSQL sequence 기반 cursor는 server만 생성한다. Redis와 MinIO의 �
 
 ## 9. M0 process architecture
 
-M0 environment key는 일곱 개로 제한한다. environment와 PostgreSQL URL은 필수이며 Redis/MinIO URL은 미설정 시 degraded로 동작한다. 시작 시 존재하는 값과 모든 범위를 검증하고 잘못된 설정은 명확한 safe error로 process를 종료한다.
+local-dev example은 14개 키를 설명한다. 핵심 process 설정과 PostgreSQL URL은
+`src/config/mod.rs`, account purge와 cleanup credential은
+`src/config/account_deletion.rs`, guarded fixture flag는 `src/dev_fixtures`가 소유한다.
+environment와 PostgreSQL URL은 필수이며 Redis/MinIO URL은 미설정 시 degraded로
+동작한다. 시작 시 존재하는 값과 모든 범위를 검증하고 잘못된 설정은 명확한 safe
+error로 process를 종료한다.
 
 ```text
 JAMYE_ENVIRONMENT
@@ -192,6 +197,13 @@ JAMYE_READINESS_TIMEOUT_MS
 DATABASE_URL
 REDIS_URL
 JAMYE_MINIO_HEALTH_URL
+JAMYE_ACCOUNT_PURGE_GRACE_DAYS
+JAMYE_ACCOUNT_PURGE_BATCH_SIZE
+JAMYE_ACCOUNT_PURGE_LEASE_MS
+JAMYE_ACCOUNT_PURGE_POLL_INTERVAL_MS
+JAMYE_ACCOUNT_OBJECT_DELETION_ACCESS_KEY_ID
+JAMYE_ACCOUNT_OBJECT_DELETION_SECRET_ACCESS_KEY
+JAMYE_ENABLE_DEV_FIXTURES
 ```
 
 `/health/live`는 process liveness만 보고한다. `/health/ready`는 bounded timeout으로 세 dependency를 독립 확인하고 PostgreSQL만 readiness HTTP status를 결정한다. Redis/MinIO 실패는 typed degraded detail이다. log는 JSON이고 caller의 request ID를 신뢰하지 않는다. 서버가 UUID를 발급해 response와 log에 같은 ID를 전파한다. SIGTERM/SIGINT에서 listener를 닫고 configurable grace period 동안 in-flight request를 drain한다.
@@ -204,4 +216,20 @@ M0 MinIO check는 official unauthenticated `/minio/health/live` URL만 사용한
 
 지원 system은 `aarch64-darwin`, `aarch64-linux`, `x86_64-linux`다. macOS에 Linux builder가 없으면 Linux package 실현은 별도 배포 준비 단계의 blocker이며, 현재 host의 평가 성공을 Linux build 성공으로 간주하지 않는다.
 
-Rootless Podman Compose는 local disposable PostgreSQL/Redis/MinIO만 제공한다. production은 task-13의 native Nix package와 NixOS systemd module이며, 실제 host/secret/service/volume/ingress/monitoring/backup/restore는 별도 homelab repository가 소유한다.
+Rootless Podman Compose는 local disposable PostgreSQL/Redis/MinIO harness다. production은
+native Nix package와 NixOS systemd module이며, 실제 host/secret/service/volume/ingress/
+monitoring/backup/restore와 배포 dispatch는 별도 homelab repository가 소유한다. CI의
+MinIO image는 더 이상 pull할 수 없으므로 flake의 `nixpkgs` input에서 binary를 직접
+시작한다. 이는 local Compose harness의 known limitation을 우회하는 CI 절차다.
+
+## 11. PostgreSQL connection budget
+
+현재 pool 크기는 유지한다. API runtime 8과 health 2, worker 3개×8, admin 8의
+구성상 pool 상한 합은 42이고, migration·`pg_dump`·`psql` 작업에 약 3–4를 더한
+계획 추산은 약 46이다. PostgreSQL 기본 `max_connections=100`과 일반 가용 97을
+기준으로 `jamye-server` role ≤ 60, 운영 여유 ≥ 35로 둔다. 이 수치는
+실측이 아니라 connection budget이며 pool 크기를 바꾸지 않는다.
+
+api/worker replica 추가 또는 pool acquire timeout(1 s) 로그가 관찰되면 예산을
+재검토한다. homelab에서 `ALTER ROLE "jamye-server" CONNECTION LIMIT 60`을 적용하는
+것은 선택 사항이며 이 repository의 코드나 module이 자동으로 실행하지 않는다.

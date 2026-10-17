@@ -27,8 +27,8 @@ named-volume data를 보존한 채 PostgreSQL을 한 번, Redis를 세 번 정�
 - `just format`은 Rust source를 변경하고 `just format-check`는 검사만 한다.
 - `just clippy`는 모든 target/feature를 warning deny로 검사한다.
 - `just test`는 `.env.local`을 읽어 default와 all-feature suite를 실행한다.
-- 계약 재생성은 release-candidate provenance를 명시해서 실행한다:
-  `rtk proxy cargo run --locked --bin generate_contracts -- generate-release-candidate --output contracts --provenance tests/production_composition/fixtures/contract_generation/dirty.json`.
+- 계약 재생성은 루트 recipe와 같은 경로로 실행한다:
+  `just contract-generate`.
 - `just contract-check`는 contract 생성의 결정성과 byte 일치를 검사한다.
 - `just dependency-check`, `just secret-check`, `just lock-check`는 모든 local test에
   중복 결합하지 않고 필요할 때 명시적으로 실행하는 supply-chain 검사다.
@@ -40,6 +40,16 @@ named-volume data를 보존한 채 PostgreSQL을 한 번, Redis를 세 번 정�
 flake 명령은 Git-tracked working tree를 source로 사용하므로 새 flake 입력 파일은 먼저
 index에 추가해야 하며 `target/` 같은 ignored local output은 Nix store에 복사하지 않는다.
 
-다음 Nix 배포 단계에서는 실제 NixOS module을 추가·평가하고 production architecture별
-package를 실현한 뒤 service health smoke를 수행해야 한다. `just check` 통과만으로 배포
-준비 완료를 선언하지 않는다.
+`contract-drift` workflow는 pull request와 `main` push에서 `ci` job으로 `just check`를
+실행하고, 주간 schedule에서는 `advisory` job을 실행한다. `advisory`는 dependency와
+secret 검사를 비차단으로 수행한다. `main` push가 `ci`를 통과하면 `dispatch` job이
+`homelab` repository의 `repository_dispatch`를 요청한다. 이 dispatch는 homelab의
+배포 처리 요청일 뿐, 이 repository의 CI 통과가 production 배포·health smoke 성공을
+뜻하지 않는다.
+
+CI는 Compose의 더 이상 pull할 수 없는 MinIO image를 사용하지 않고 flake의 `nixpkgs`
+input에서 MinIO를 시작한다. 이는 CI harness의 known limitation 우회이며
+`compose.yaml` 변경이나 production image 선택을 의미하지 않는다. 실제 NixOS module
+평가, 대상 Linux package 실현과 service health smoke는 homelab 배포 evidence로 별도
+확인해야 한다. 실제 module 정의는 `nix/module.nix`에 있으며, `just check` 통과만으로
+배포 준비 완료를 선언하지 않는다.

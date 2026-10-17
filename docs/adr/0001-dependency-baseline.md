@@ -117,7 +117,7 @@ Compose image는 mutable `latest`가 아닌 exact release tag를 사용한다.
 |---|---|---|
 | PostgreSQL | `17.11-bookworm` | Docker Official Image의 current 17 patch tag |
 | Redis | `8.10.1-alpine3.23` | Docker Official Image의 exact 8.10 patch/base tag |
-| MinIO | `RELEASE.2025-09-07T16-13-09Z` | official registry의 마지막 published community container tag |
+| MinIO | flake `nixpkgs`의 pinned package | `compose.yaml`의 기존 image는 더 이상 pull할 수 있어 CI가 image 대신 binary를 시작한다 |
 
 Sources:
 
@@ -126,7 +126,7 @@ Sources:
 - MinIO image tags: <https://hub.docker.com/r/minio/minio/tags>
 - MinIO releases: <https://github.com/minio/minio/releases>
 
-MinIO upstream repository는 2026-04-25 archived됐고 2025-10 security source release 이후 새 official prebuilt container를 제공하지 않았다. 따라서 이 tag는 loopback-bound disposable local compatibility test에만 사용한다. production image 또는 lifecycle 결정을 뜻하지 않으며 task-8 D11과 homelab security review가 별도로 materialize한다.
+MinIO upstream repository는 2026-04-25 archived됐고 2025-10 security source release 이후 새 official prebuilt container를 제공하지 않았다. `compose.yaml`은 변경하지 않고, CI는 flake가 고정한 `nixpkgs` input의 MinIO binary를 loopback-bound disposable compatibility test에 사용한다. 이는 production image 또는 lifecycle 결정을 뜻하지 않으며 homelab security review가 별도로 materialize한다.
 
 ## Lock and verification gate
 
