@@ -435,9 +435,9 @@ fn validate_minio_health_url(key: &'static str, url: &Url) -> Result<(), ConfigE
 
 #[cfg(test)]
 mod tests {
-    use super::{AppConfig, ConfigInput};
+    use super::{AppConfig, ConfigError, ConfigInput};
 
-    fn config_with_trusted_proxies(value: Option<&str>) -> Result<AppConfig, super::ConfigError> {
+    fn config_with_trusted_proxies(value: Option<&str>) -> Result<AppConfig, ConfigError> {
         AppConfig::try_from(ConfigInput {
             environment: Some("test".to_owned()),
             database_url: Some("postgres://localhost/jamye_test".to_owned()),
@@ -447,7 +447,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_trusted_proxies_is_unset() -> Result<(), super::ConfigError> {
+    fn empty_trusted_proxies_is_unset() -> Result<(), ConfigError> {
         for value in [None, Some(""), Some("  \t  ")] {
             assert!(
                 config_with_trusted_proxies(value)?

@@ -14,11 +14,11 @@ use axum::{
 use crate::config::AppConfig;
 
 #[derive(Clone)]
-struct TrustedProxies(Arc<[IpAddr]>);
+struct TrustedProxyPeers(Arc<[IpAddr]>);
 
 /// Install the same validated proxy set on all HTTP routes.
 pub fn with_trusted_proxies(router: Router, config: &AppConfig) -> Router {
-    router.layer(Extension(TrustedProxies(Arc::from(
+    router.layer(Extension(TrustedProxyPeers(Arc::from(
         config.trusted_proxies(),
     ))))
 }
@@ -26,7 +26,7 @@ pub fn with_trusted_proxies(router: Router, config: &AppConfig) -> Router {
 /// Return a forwarded address only when exactly one trusted hop supplied it.
 pub fn forwarded_client_ip(parts: &Parts) -> Option<IpAddr> {
     let peer = parts.extensions.get::<ConnectInfo<SocketAddr>>()?.0.ip();
-    let trusted = parts.extensions.get::<TrustedProxies>()?;
+    let trusted = parts.extensions.get::<TrustedProxyPeers>()?;
     if !trusted.0.contains(&peer) {
         return None;
     }
@@ -53,7 +53,7 @@ pub fn client_ip(parts: &Parts) -> Option<IpAddr> {
 
 #[cfg(test)]
 mod tests {
-    use super::{TrustedProxies, forwarded_client_ip};
+    use super::{TrustedProxyPeers, forwarded_client_ip};
     use std::{error::Error, net::SocketAddr, sync::Arc};
 
     use axum::{
@@ -68,7 +68,7 @@ mod tests {
         let mut request = Request::new(());
         request
             .extensions_mut()
-            .insert(TrustedProxies(Arc::from(vec![trusted.ip()])));
+            .insert(TrustedProxyPeers(Arc::from(vec![trusted.ip()])));
         request.extensions_mut().insert(ConnectInfo(trusted));
         let (mut parts, _) = request.into_parts();
 
