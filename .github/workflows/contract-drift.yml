@@ -5,13 +5,19 @@ on:
   push:
     branches:
       - main
+  schedule:
+    - cron: '17 3 * * 1'
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
-  contract-drift:
+  ci:
+    name: contract-drift
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
     steps:
       - name: Check out source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -21,7 +27,71 @@ jobs:
       - name: Install pinned Determinate Nix
         uses: DeterminateSystems/determinate-nix-action@527f17dd63d2d60d3e5552934bc84b9a33a14d11 # v3.22.2
 
-      - name: Verify deterministic contracts
-        run: >-
-          nix develop .
-          --command just contract-check
+      - name: Prepare test services and MinIO policy
+        run: |
+          nix develop . --command bash -euo pipefail -c '
+            just env-create
+            source scripts/dev/infra-wait.sh
+            source scripts/dev/minio-identity.sh
+            compose() {
+              docker compose --env-file "$LOCAL_ENV_FILE" --file "$COMPOSE_FILE" --project-name "$COMPOSE_PROJECT" "$@"
+            }
+            validate_compose_project
+            load_local_env
+            compose up --detach postgres redis
+            # The MinIO image in compose.yaml is no longer published.
+            minio_package="$(NIXPKGS_ALLOW_INSECURE=1 nix build --impure --no-link --print-out-paths --inputs-from . nixpkgs#minio)"
+            MINIO_ROOT_USER="$JAMYE_TEST_MINIO_ADMIN_USER" \
+              MINIO_ROOT_PASSWORD="$JAMYE_TEST_MINIO_ADMIN_PASSWORD" \
+              setsid nohup "$minio_package/bin/minio" server "$RUNNER_TEMP/jamye-minio-data" \
+                --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
+                >"$RUNNER_TEMP/jamye-minio.log" 2>&1 </dev/null &
+            wait_for_infra
+            prepare_minio_identity
+            just minio-policy
+            bucket="$(jq -er ".Statement[] | select(.Sid == \"Task8BucketLifecycle\") | .Resource[] | sub(\"^arn:aws:s3:::\"; \"\")" scripts/dev/minio-app-policy.json)"
+            export "MC_HOST_jamye_test_ci=http://${JAMYE_TEST_MINIO_APP_USER}:${JAMYE_TEST_MINIO_APP_PASSWORD}@127.0.0.1:9000"
+            mc mb --ignore-existing "jamye_test_ci/$bucket"
+            unset MC_HOST_jamye_test_ci
+          '
+
+      - name: Run service-backed checks
+        run: |
+          nix develop . --command bash -euo pipefail -c '
+            cargo fetch --locked
+            just check
+          '
+
+  advisory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Determinate Nix
+        uses: DeterminateSystems/determinate-nix-action@527f17dd63d2d60d3e5552934bc84b9a33a14d11 # v3.22.2
+
+      - name: Check dependency advisories
+        continue-on-error: true
+        run: nix develop . --command just dependency-check
+
+      - name: Check for secrets
+        continue-on-error: true
+        run: nix develop . --command just secret-check
+
+  dispatch:
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - name: Send repository_dispatch to smg1024/homelab
+        env:
+          GH_TOKEN: ${{ secrets.HOMELAB_PAT }}
+        run: gh api repos/smg1024/homelab/dispatches -f event_type=jamye-server-updated
