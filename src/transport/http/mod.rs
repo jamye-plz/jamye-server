@@ -5,6 +5,7 @@ pub mod app_links;
 pub mod auth;
 pub mod avatar;
 pub mod chatrooms;
+pub mod client_ip;
 pub mod composition;
 #[cfg(feature = "dev-fixtures")]
 pub mod dev_fixtures;

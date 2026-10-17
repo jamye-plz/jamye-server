@@ -1,11 +1,11 @@
 //! HTTP boundary for avatar upload (U4, U5) and public read (U6).
 
-use std::{net::SocketAddr, sync::Arc};
+use std::sync::Arc;
 
 use axum::{
     Json, Router,
     body::{Body, to_bytes},
-    extract::{ConnectInfo, FromRef, Path, Request, State},
+    extract::{FromRef, Path, Request, State},
     http::{
         HeaderValue, StatusCode,
         header::{CACHE_CONTROL, CONTENT_TYPE, RETRY_AFTER, X_CONTENT_TYPE_OPTIONS},
@@ -23,7 +23,10 @@ use crate::{
         avatar::{AvatarError, AvatarService, AvatarUploadInput, AvatarUploadIntent},
     },
     ports::auth::UserProfile,
-    transport::http::auth::{AuthVerifierState, AuthenticatedAccess, error_response, request_id},
+    transport::http::{
+        auth::{AuthVerifierState, AuthenticatedAccess, error_response, request_id},
+        client_ip,
+    },
 };
 
 const MAX_REQUEST_BYTES: usize = 8 * 1024;
@@ -143,12 +146,8 @@ async fn read_avatar(
 ) -> Response {
     let (parts, _) = request.into_parts();
     let request_id = request_id(&parts);
-    // Same peer-address key as the other unauthenticated limiters; behind a reverse
-    // proxy this is the proxy address, which is a known MVP limitation.
-    let rate_key = parts
-        .extensions
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|ConnectInfo(address)| format!("ip:{}", address.ip()))
+    let rate_key = client_ip::client_ip(&parts)
+        .map(|address| format!("ip:{address}"))
         .unwrap_or_else(|| "ip:unknown".to_owned());
     match state.service.read_public(&rate_key, &avatar_id).await {
         Ok(image) => (
