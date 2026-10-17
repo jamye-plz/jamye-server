@@ -10,7 +10,7 @@ evidence generation, 수동 manifest digest는 과거 구현 과정의 기록이
 | --- | --- | --- |
 | `just check` | format, strict Clippy, default/all-feature test, contract drift | 커밋 대상 범위의 백엔드 구현 완료 |
 | `just test-recovery` | guarded PostgreSQL/Redis stop-start scenario | release용 복구 동작 확인 |
-| `just flake-check` | output tree 평가와 현재 host flake check | 현재 host 검증 통과. NixOS 배포 module 완료를 뜻하지 않음 |
+| `just flake-check` | output tree 평가와 module 평가; Linux host에서는 `nixos-module-smoke` VM health smoke 포함 | 현재 host 검증 통과. 운영 배포 성공을 뜻하지 않음 |
 | `just coverage` | all-feature coverage report 생성 | 참고 지표. 특정 퍼센트가 release 권한을 갖지 않음 |
 
 일상 개발의 기본 gate는 `just check`다. 개발 fixture가 production 기본 graph에서
@@ -40,16 +40,17 @@ named-volume data를 보존한 채 PostgreSQL을 한 번, Redis를 세 번 정�
 flake 명령은 Git-tracked working tree를 source로 사용하므로 새 flake 입력 파일은 먼저
 index에 추가해야 하며 `target/` 같은 ignored local output은 Nix store에 복사하지 않는다.
 
-`contract-drift` workflow는 pull request와 `main` push에서 `ci` job으로 `just check`를
-실행하고, 주간 schedule에서는 `advisory` job을 실행한다. `advisory`는 dependency와
-secret 검사를 비차단으로 수행한다. `main` push가 `ci`를 통과하면 `dispatch` job이
+`contract-drift` workflow는 pull request, `main` push와 주간 schedule에서 `advisory`
+job으로 dependency와 secret 검사를 비차단으로 실행한다. `ci` job은 schedule에서
+건너뛰고 pull request와 `main` push에서만 `just check`를 실행한다. `main` push가 `ci`를 통과하면 `dispatch` job이
 `homelab` repository의 `repository_dispatch`를 요청한다. 이 dispatch는 homelab의
 배포 처리 요청일 뿐, 이 repository의 CI 통과가 production 배포·health smoke 성공을
 뜻하지 않는다.
 
 CI는 Compose의 더 이상 pull할 수 없는 MinIO image를 사용하지 않고 flake의 `nixpkgs`
 input에서 MinIO를 시작한다. 이는 CI harness의 known limitation 우회이며
-`compose.yaml` 변경이나 production image 선택을 의미하지 않는다. 실제 NixOS module
-평가, 대상 Linux package 실현과 service health smoke는 homelab 배포 evidence로 별도
-확인해야 한다. 실제 module 정의는 `nix/module.nix`에 있으며, `just check` 통과만으로
-배포 준비 완료를 선언하지 않는다.
+`compose.yaml` 변경이나 production image 선택을 의미하지 않는다. CI는 `just check`만
+실행하며 `just flake-check`(NixOS module 평가 `nixos-module`, Linux host의
+`nixos-module-smoke` VM health smoke)는 포함하지 않는다. module 정의는
+`nix/module.nix`에 있고, 실제 host·secret·ingress와 배포 결과는 homelab 배포
+evidence로 확인한다. `just check` 통과만으로 배포 준비 완료를 선언하지 않는다.

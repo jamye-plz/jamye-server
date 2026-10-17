@@ -135,7 +135,7 @@ C0는 ordinary 401에서 outbox intent와 client_msg_id를 보존하고 후속 a
 - Redis publish, Expo call, object HEAD/delete 같은 짧은 I/O는 검증된 timeout과 safety margin을 가지며 합이 lease보다 짧다.
 - duplicate external work는 가능하지만 stale durable mutation은 불가능해야 한다.
 - timeout/reclaim/stale-completion 테스트는 deterministic barrier/clock control로 작성한다.
-- 각 worker owner가 timeout/lease 값을 feature-local non-secret config로 정의·검증하고, Task-13의 Nix 배포 단계가 최종 `.env.example`과 NixOS module에 그 값을 노출한다.
+- 각 worker owner가 timeout/lease 값을 feature-local non-secret config로 정의·검증하고, `src/config/**`가 소유한다. `.env.example`은 local-dev 키만 설명하고 NixOS module(`nix/module.nix`)이 운영 값을 주입한다.
 
 ### Push send authorization linearization
 
@@ -216,7 +216,7 @@ M1은 /Users/poby/Developer/jamye-plz의 정확한 PF1 source set을 determinist
 - credential 생성, bounded wait, guarded deletion, service recovery처럼 안전 경계가 있는 동작만 `scripts/dev/`와 `scripts/recovery/`에 둔다.
 - 현재 후속 Cargo 공유 파일 owner는 의존 순서가 보장된 task-3c(dev-only JWT), task-5(auth), task-8(S3/media)다. task-3c는 optional JWT로 dev surface를 열었고, task-5는 같은 `jsonwebtoken` verifier를 production 기본 graph로 승격하면서 PKCE Base64URL과 OAuth form/JSON feature만 추가한다. 각 owner 뒤 사용자가 lock/no-drift와 dependency/license card를 다시 실행한다.
 - Task-13은 루트 `Justfile` 검증 체계 정리·통과 확인(1단계)과 실제 NixOS module(`nix/module.nix`)·package realization·runtime health smoke(2단계, `nix/smoke-test.nix`)를 모두 완료했다. homelab이 `services.jamye-server`로 이 module을 midgard에 배포했다(homelab PR #75, 2026-09-08; `homelab/services/jamye-server.nix`; 공개 URL `https://jamye-api.ridewithmin.com`, `https://jamye-media.ridewithmin.com`). 이후의 host 이전은 homelab이 독립적으로 진행하며 이 로드맵과 무관하다.
-- rootless Podman compose.yaml은 local disposable PostgreSQL/Redis/MinIO 전용이다. macOS podman machine과 lifecycle/reset은 사용자가 실행한다. 현재 MinIO image는 더 이상 pull할 수 있어 CI `contract-drift`는 Compose로 PostgreSQL·Redis만 시작하고 flake의 `nixpkgs` MinIO binary를 직접 시작한다. 이는 local harness의 known limitation 우회이며 compose.yaml은 production SSOT가 아니다.
+- rootless Podman compose.yaml은 local disposable PostgreSQL/Redis/MinIO 전용이다. macOS podman machine과 lifecycle/reset은 사용자가 실행한다. 현재 MinIO image는 더 이상 pull할 수 없어 CI `contract-drift`는 Compose로 PostgreSQL·Redis만 시작하고 flake의 `nixpkgs` MinIO binary를 직접 시작한다. 이는 local harness의 known limitation 우회이며 compose.yaml은 production SSOT가 아니다.
 - production은 native Nix package와 NixOS systemd module이다. Podman compose는 production SSOT가 아니다.
 - flake는 supported system마다 api/worker/admin package, checks, devShell, nixosModules.default를 export한다.
 - api/worker package matrix는 세 system 모두를 대상으로 한다. Linux builder가 없으면 production lane blocker이며 현재-host 평가 성공을 Linux build 성공으로 기록하지 않는다.
@@ -437,7 +437,7 @@ SELECT version, success FROM _sqlx_migrations WHERE version = 13;
 
 상태: `deployed` (2026-10-06 세션 `20261006-174701`, 브랜치 `feature/task-19-avatar-upload`, 커밋 `a778592`/PR #18 merge `f86012e`, homelab PR #98(기능 꺼짐)·PR #99(활성화), migration `0019`; 배포 절차와 smoke는 §13). 이 task는 앱이 프로필 사진을 직접 올리고 지울 수 있도록 서버 호스팅 아바타를 추가한다. 결정 근거는 `docs/adr/0012-avatar-hosting.md`다. 배포(서버 `main` merge가 운영 재배포를 일으킨다)와 homelab의 `JAMYE_AVATAR_PUBLIC_BASE_URL` 연결은 구현과 별도로 사용자 확인(2026-10-06 "2단계 배포 진행") 뒤 진행했다.
 
-새 operation은 U4~U6이다. 계약은 task-8 media contribution에 둔다. 계약 재생성은 현재 `Justfile`의 `just contract-generate` recipe를 사용한다. `contract-drift` workflow의 `ci` job이 PR과 `main` push에서 `just check`를 실행하고, `advisory` job은 주간 schedule에서 비차단 dependency/secret 검사를 실행한다. `main` push의 `dispatch` job은 ci 통과 뒤 homelab repository에 `repository_dispatch`를 요청한다. 이 CI 경로는 production 배포·health smoke 성공을 증명하지 않는다.
+새 operation은 U4~U6이다. 계약은 task-8 media contribution에 둔다. `just contract-generate`가 현재 트리에서 "refusing to overwrite a contract tree with extra files"로 거부돼 `docs/validation.md`가 문서화한 release-candidate generator 명령으로 재생성했다(후속 과제 참고). 현재는 `just contract-generate`가 Justfile의 단일 재생성 경로다. `contract-drift` workflow의 `ci` job은 schedule에서 건너뛰고 PR과 `main` push에서 `just check`를 실행하며, `advisory` job은 PR·`main` push·주간 schedule에서 비차단 dependency/secret 검사를 실행한다. `main` push의 `dispatch` job은 ci 통과 뒤 homelab repository에 `repository_dispatch`를 요청한다. 이 CI 경로는 production 배포·health smoke 성공을 증명하지 않는다.
 
 | ID | 경로 | 인증 | 성공 | 오류 |
 |---|---|---|---|---|

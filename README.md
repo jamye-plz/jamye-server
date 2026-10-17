@@ -8,9 +8,10 @@
 
 - `api`: REST, WebSocket, health endpoint를 제공하는 Axum binary
 - `worker`: PostgreSQL의 durable intent를 처리하는 Tokio binary
+- `admin`: SSH에서 moderation 작업을 수행하는 operator CLI
 - PostgreSQL: 사용자, 그룹, 메시지, 알림, conversation event, outbox의 authoritative state
 - Redis: 커밋된 이벤트의 일시적 at-most-once fan-out
-- MinIO: private object bytes 저장소. M0에서는 health만 확인하며 S3 자격증명·bucket·정책은 task-8이 소유한다.
+- MinIO: media와 account cleanup object를 보관하는 private object store. NixOS module이 S3 credential 분리와 bucket policy provisioning을 구성한다.
 - `contracts/`: 이후 server가 생성할 OpenAPI 3.1, realtime JSON Schema, fixture, manifest의 SSOT
 
 모바일 앱의 SQLite outbox와 이 저장소의 PostgreSQL outbox는 서로 다른 책임을 가진다. 앱 outbox는 오프라인 전송 의도와 동일한 `client_msg_id` 재시도를 보존하고, 서버 outbox는 이미 PostgreSQL에 커밋된 event를 Redis로 발행한다. WebSocket 누락은 PostgreSQL 기반 REST delta sync로 복구한다.
@@ -49,7 +50,7 @@ just test-recovery
 
 `.env.example`은 공개 설정 형식을 설명하고 실제 값은 포함하지 않는다. `just env-create`는 로컬 통합 테스트용 `.env.local`을 mode `0600`으로 한 번만 생성하며 기존 파일을 덮어쓰지 않는다. `.env.local`은 Git 대상이 아니다.
 
-local-dev 키의 목적·기본값·소유 모듈은 `.env.example`에, 전체 production 키와 검증은 `src/config/**` 및 `src/dev_fixtures`에 있다. production secret이나 운영 값을 `.env.example`에 넣지 않는다.
+local-dev 키의 목적·기본값·소유 모듈은 `.env.example`에, production 키와 검증은 `src/config/**`, 개발 fixture 가드는 `src/dev_fixtures`에 있다. production secret이나 운영 값을 `.env.example`에 넣지 않는다.
 
 ## 로컬 인프라
 
@@ -80,7 +81,7 @@ macOS의 `podman machine`은 저장소나 Nix가 소유하지 않는 사용자 �
 - host, domain, Caddy/Cloudflare ingress
 - monitoring, alert, backup, restore drill
 
-이 저장소의 최종 NixOS module은 package, listen address, environment file 경로, migration 실행 정책만 다룬다. 운영 DB, bucket, Redis, MinIO, homelab, 원격 저장소에 M0가 연결하거나 배포하지 않는다.
+이 저장소의 NixOS module은 PostgreSQL, Redis, MinIO, MinIO identity 초기화, migration, api/worker systemd unit과 `jamye-server-admin` wrapper를 정의한다. host, secret 값, ingress, volume 정책과 배포는 homelab이 소유한다.
 
 ## 문서
 
