@@ -15,6 +15,7 @@ jobs:
     name: contract-drift
     if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -37,7 +38,14 @@ jobs:
             }
             validate_compose_project
             load_local_env
-            compose up --detach
+            compose up --detach postgres redis
+            # The MinIO image in compose.yaml is no longer published.
+            minio_package="$(NIXPKGS_ALLOW_INSECURE=1 nix build --impure --no-link --print-out-paths --inputs-from . nixpkgs#minio)"
+            MINIO_ROOT_USER="$JAMYE_TEST_MINIO_ADMIN_USER" \
+              MINIO_ROOT_PASSWORD="$JAMYE_TEST_MINIO_ADMIN_PASSWORD" \
+              setsid nohup "$minio_package/bin/minio" server "$RUNNER_TEMP/jamye-minio-data" \
+                --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
+                >"$RUNNER_TEMP/jamye-minio.log" 2>&1 </dev/null &
             wait_for_infra
             prepare_minio_identity
             just minio-policy
@@ -56,6 +64,7 @@ jobs:
 
   advisory:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     continue-on-error: true
     permissions:
       contents: read
