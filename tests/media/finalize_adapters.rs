@@ -526,7 +526,9 @@ impl FinalizeDatabaseFixture {
     ) -> TestResult<SeededUpload> {
         let id = Uuid::new_v4();
         let object_key = object_key(target_id, id);
-        let now = OffsetDateTime::now_utc();
+        let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
+            .fetch_one(&self.pool)
+            .await?;
         let (created_at, expires_at) = if expired {
             (now - TimeDuration::hours(2), now - TimeDuration::hours(1))
         } else {
@@ -559,7 +561,9 @@ impl FinalizeDatabaseFixture {
     ) -> TestResult<SeededUpload> {
         let id = Uuid::new_v4();
         let object_key = object_key(target_id, id);
-        let now = OffsetDateTime::now_utc();
+        let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
+            .fetch_one(&self.pool)
+            .await?;
         sqlx::query(
             "INSERT INTO media_uploads \
                  (id, user_id, object_key, scope, target_id, content_type, byte_size, \
@@ -581,7 +585,9 @@ impl FinalizeDatabaseFixture {
     async fn insert_confirmed_poster(&self, user_id: Uuid, target_id: Uuid) -> TestResult<Uuid> {
         let id = Uuid::new_v4();
         let object_key = object_key(target_id, id);
-        let now = OffsetDateTime::now_utc();
+        let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
+            .fetch_one(&self.pool)
+            .await?;
         sqlx::query(
             "INSERT INTO media_uploads \
                  (id, user_id, object_key, scope, target_id, content_type, byte_size, \
