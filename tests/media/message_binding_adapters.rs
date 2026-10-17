@@ -759,7 +759,9 @@ impl MessageBindingFixture {
     async fn insert_upload(&self, spec: UploadSpec<'_>) -> TestResult<SeededUpload> {
         let id = Uuid::new_v4();
         let object_key = format!("chat/{}/{id}", spec.target_id);
-        let now = OffsetDateTime::now_utc();
+        let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
+            .fetch_one(&self.pool)
+            .await?;
         let (status, created_at, confirmed_at, expires_at) = match spec.status {
             SeedStatus::Confirmed => (
                 "confirmed",

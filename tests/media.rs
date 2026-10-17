@@ -1,6 +1,5 @@
 use std::{
     error::Error,
-    fs, io,
     sync::{Mutex, MutexGuard},
 };
 
@@ -74,21 +73,3 @@ mod upload_finalize_http;
 mod upload_intent;
 #[path = "media/upload_intent_adapters.rs"]
 mod upload_intent_adapters;
-
-const MEDIA_MIGRATION: &str = "migrations/0006_media.sql";
-
-#[test]
-fn production_media_surface_is_absent_before_task_8() -> TestResult {
-    fs::read_to_string(MEDIA_MIGRATION)
-        .map(|_| ())
-        .map_err(|error| {
-            if error.kind() == io::ErrorKind::NotFound {
-                io::Error::other(format!(
-                    "RED: {MEDIA_MIGRATION} is absent; task-8 must add D11=B API-owned private-bucket lifecycle, authorized upload/finalize, ordered message media, and presigned access"
-                ))
-                .into()
-            } else {
-                error.into()
-            }
-        })
-}
