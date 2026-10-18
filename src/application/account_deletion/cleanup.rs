@@ -5,18 +5,53 @@
 
 use std::{fmt, sync::Arc, time::Duration};
 
-use futures_util::future::join_all;
+use futures_util::{Stream, StreamExt, future::join_all};
 
 use crate::ports::account_deletion::{
     AccountDeletionRepository, AccountObjectDeletionClaim, AccountObjectDeletionClaimRequest,
     AccountObjectDeletionFailureCode, AccountObjectDeletionFailureDisposition,
     AccountObjectDeletionProvider, AccountObjectDeletionRepository, AccountPurgeClaim,
-    AccountPurgeClaimRequest,
+    AccountPurgeClaimRequest, TerminalRetentionRepository,
 };
 use crate::ports::object_storage::ObjectStorageProviderError;
 use crate::ports::transactions::TransactionManager;
 
 const MAX_CLAIM_OWNER_CHARS: usize = 128;
+
+/// Runs one bounded retention step for each tick until shutdown.
+pub async fn run_terminal_retention_until<S, F>(
+    repository: Arc<dyn TerminalRetentionRepository>,
+    ticks: S,
+    shutdown: F,
+) where
+    S: Stream<Item = ()> + Send,
+    F: std::future::Future<Output = ()> + Send,
+{
+    futures_util::pin_mut!(ticks, shutdown);
+    loop {
+        tokio::select! {
+            biased;
+            () = &mut shutdown => break,
+            tick = ticks.next() => {
+                if tick.is_none() {
+                    break;
+                }
+                match repository.purge_terminal_rows().await {
+                    Ok(report) => tracing::info!(
+                        outbox_published = report.deleted[0],
+                        outbox_dead_letter = report.deleted[1],
+                        push_succeeded = report.deleted[2],
+                        push_failed = report.deleted[3],
+                        push_dead_letter = report.deleted[4],
+                        object_succeeded = report.deleted[5],
+                        "terminal retention batch completed"
+                    ),
+                    Err(_) => tracing::warn!("terminal retention batch failed"),
+                }
+            }
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct AccountObjectDeletionWorker {
