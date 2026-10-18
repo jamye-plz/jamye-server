@@ -157,6 +157,9 @@ async fn structured_ticket_logs_exclude_raw_and_digest_credentials() -> TestResu
     let output = writer.clone();
     let subscriber = build_json_subscriber(writer, "info")?;
     let _guard = tracing::subscriber::set_default(subscriber);
+    // Keep a second dispatcher registered so a parallel test thread that
+    // reaches the same callsite first cannot cache it as disabled.
+    let _interest_sentinel = tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
     let state = RealtimeHttpState::new(
         Arc::new(harness.service.clone()),
         LocalRealtimeHub::default(),

@@ -51,6 +51,9 @@ async fn structured_auth_logs_exclude_every_credential_class() -> TestResult {
     let output = writer.clone();
     let subscriber = build_json_subscriber(writer, "info")?;
     let _guard = tracing::subscriber::set_default(subscriber);
+    // Keep a second dispatcher registered so a parallel test thread that
+    // reaches the same callsite first cannot cache it as disabled.
+    let _interest_sentinel = tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
     let oauth_code = "TASK5_OAUTH_CODE_SENTINEL";
 
     let state = authorize(&fixture.service).await?;
