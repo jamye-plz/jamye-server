@@ -44,7 +44,7 @@ impl ModerationAdminRepository for PostgresModerationRepository {
                         target_group_id, target_type, target_message_id, target_user_id, \
                         message_snapshot \
                  FROM reports \
-                 WHERE ($1::TEXT IS NULL OR status = $1) \
+                 WHERE deleted_at IS NULL AND ($1::TEXT IS NULL OR status = $1) \
                  ORDER BY created_at, id \
                  LIMIT $2",
             )
@@ -66,7 +66,7 @@ impl ModerationAdminRepository for PostgresModerationRepository {
                         target_group_id, target_type, target_message_id, target_user_id, \
                         message_snapshot \
                  FROM reports \
-                 WHERE id = $1",
+                 WHERE id = $1 AND deleted_at IS NULL",
             )
             .bind(report_id)
             .fetch_optional(&self.pool)
@@ -87,7 +87,8 @@ impl ModerationAdminRepository for PostgresModerationRepository {
             let connection =
                 connection(transaction).map_err(|_| ModerationRepositoryError::InvalidData)?;
             let current = sqlx::query_scalar::<_, String>(
-                "SELECT status FROM reports WHERE id = $1 FOR UPDATE",
+                "SELECT status FROM reports \
+                 WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
             )
             .bind(report_id)
             .fetch_optional(&mut *connection)
@@ -105,7 +106,8 @@ impl ModerationAdminRepository for PostgresModerationRepository {
                 return Ok(ReportHandling::Conflict { current });
             }
             sqlx::query(
-                "UPDATE reports SET status = $2, handled_at = clock_timestamp() WHERE id = $1",
+                "UPDATE reports SET status = $2, handled_at = clock_timestamp() \
+                 WHERE id = $1 AND deleted_at IS NULL",
             )
             .bind(report_id)
             .bind(status.as_str())
@@ -127,7 +129,7 @@ impl ModerationAdminRepository for PostgresModerationRepository {
             sqlx::query_scalar::<_, Uuid>(
                 "UPDATE reports \
                  SET status = 'actioned', handled_at = clock_timestamp() \
-                 WHERE target_message_id = $1 AND status = 'open' \
+                 WHERE target_message_id = $1 AND status = 'open' AND deleted_at IS NULL \
                  RETURNING id",
             )
             .bind(message_id)
@@ -147,7 +149,9 @@ impl ModerationAdminRepository for PostgresModerationRepository {
                 .map_err(|_| ModerationRepositoryError::InvalidData)?;
             let connection =
                 connection(transaction).map_err(|_| ModerationRepositoryError::InvalidData)?;
-            // One cutoff for both statements, so a report cannot expire between them.
+            // Report expiry is an explicit physical-delete exception to D14 soft delete (same
+            // class as the D15 account purge); one cutoff covers both statements, including
+            // already-soft-deleted handled reports, so a report cannot expire between them.
             let cutoff = sqlx::query_scalar::<_, OffsetDateTime>(
                 "SELECT clock_timestamp() - make_interval(days => $1)",
             )

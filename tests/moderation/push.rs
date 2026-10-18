@@ -8,8 +8,20 @@ use std::{
 
 use axum::http::StatusCode;
 use jamye_server::{
-    adapters::postgres::{push::PostgresPushRepository, transactions::SqlxTransactionManager},
-    application::push::{PushWorker, PushWorkerConfig, PushWorkerDependencies},
+    adapters::postgres::{
+        chatrooms::PostgresChatroomsRepository, media::PostgresMediaRepository,
+        messaging::PostgresMessagingRepository, notifications::PostgresNotificationsRepository,
+        push::PostgresPushRepository, topics::PostgresTopicsRepository,
+        transactions::SqlxTransactionManager,
+    },
+    application::{
+        chatrooms::ChatroomsService,
+        messaging::{MessagingService, SendMessageInput, SendMessageOutcome},
+        push::{PushWorker, PushWorkerConfig, PushWorkerDependencies},
+        topics::{TopicsDependencies, TopicsService},
+        transactions::{TransactionCompositionDependencies, TransactionCompositions},
+    },
+    domain::moderation::ContentFilter,
     ports::push::{
         PushProvider, PushProviderError, PushProviderFuture, PushProviderOutcome,
         PushProviderRequest, PushReportAlertRequest,
@@ -228,6 +240,122 @@ async fn an_enqueue_failure_never_fails_the_report() -> TestResult {
     }
     .await;
     harness.finish(result).await
+}
+
+#[tokio::test]
+async fn soft_deleted_block_restores_notifications_and_push() -> TestResult {
+    let harness = Harness::new().await?;
+    let result: TestResult = async {
+        let sender = insert_user(&harness.pool, "sender").await?;
+        let blocker = insert_user(&harness.pool, "blocker").await?;
+        let group = insert_group(&harness.pool, &[sender, blocker]).await?;
+        insert_installation(&harness.pool, blocker).await?;
+        let compositions = message_compositions(&harness.pool);
+
+        let response = harness.put_block(blocker, &sender.to_string()).await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let blocked_message = compositions
+            .send_message_http(
+                sender,
+                SendMessageInput {
+                    chatroom_id: group.chatroom_id,
+                    client_msg_id: Uuid::new_v4(),
+                    body: Some("blocked".to_owned()),
+                    media_upload_ids: Vec::new(),
+                    idempotency_key: None,
+                },
+            )
+            .await?;
+        let blocked_message_id = match blocked_message {
+            SendMessageOutcome::Created(message) => message.id,
+            SendMessageOutcome::Existing(_) => {
+                return Err("new message unexpectedly existed".into());
+            }
+        };
+        let suppressed: (i64, i64) = sqlx::query_as(
+            "SELECT \
+                 (SELECT count(*) FROM notifications WHERE user_id = $1), \
+                 (SELECT count(*) FROM push_delivery_intents \
+                  WHERE recipient_user_id = $1 AND source_message_id = $2)",
+        )
+        .bind(blocker)
+        .bind(blocked_message_id)
+        .fetch_one(&harness.pool)
+        .await?;
+        assert_eq!(suppressed, (0, 0));
+
+        let response = harness.delete_block(blocker, &sender.to_string()).await?;
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let soft_deleted: bool = sqlx::query_scalar(
+            "SELECT deleted_at IS NOT NULL FROM user_blocks \
+             WHERE blocker_id = $1 AND blocked_id = $2",
+        )
+        .bind(blocker)
+        .bind(sender)
+        .fetch_one(&harness.pool)
+        .await?;
+        assert!(soft_deleted);
+
+        let restored_message = compositions
+            .send_message_http(
+                sender,
+                SendMessageInput {
+                    chatroom_id: group.chatroom_id,
+                    client_msg_id: Uuid::new_v4(),
+                    body: Some("restored".to_owned()),
+                    media_upload_ids: Vec::new(),
+                    idempotency_key: None,
+                },
+            )
+            .await?;
+        let restored_message_id = match restored_message {
+            SendMessageOutcome::Created(message) => message.id,
+            SendMessageOutcome::Existing(_) => {
+                return Err("new message unexpectedly existed".into());
+            }
+        };
+        let restored: (i64, i64) = sqlx::query_as(
+            "SELECT \
+                 (SELECT count(*) FROM notifications WHERE user_id = $1), \
+                 (SELECT count(*) FROM push_delivery_intents \
+                  WHERE recipient_user_id = $1 AND source_message_id = $2)",
+        )
+        .bind(blocker)
+        .bind(restored_message_id)
+        .fetch_one(&harness.pool)
+        .await?;
+        assert_eq!(restored, (1, 1));
+        Ok(())
+    }
+    .await;
+    harness.finish(result).await
+}
+
+fn message_compositions(pool: &PgPool) -> TransactionCompositions {
+    let transactions = Arc::new(SqlxTransactionManager::new(pool.clone()));
+    let messaging = Arc::new(
+        MessagingService::new(
+            transactions.clone(),
+            Arc::new(PostgresMessagingRepository::new(pool.clone())),
+        )
+        .with_content_filter(ContentFilter::disabled()),
+    );
+    let topics = Arc::new(TopicsService::new(TopicsDependencies {
+        transactions: transactions.clone(),
+        repository: Arc::new(PostgresTopicsRepository::new(pool.clone())),
+    }));
+    let chatrooms = Arc::new(ChatroomsService::new(
+        transactions.clone(),
+        Arc::new(PostgresChatroomsRepository::new(pool.clone())),
+    ));
+    TransactionCompositions::new(TransactionCompositionDependencies {
+        transactions,
+        messaging,
+        media: Arc::new(PostgresMediaRepository::new(pool.clone())),
+        topics,
+        chatrooms,
+        notifications: Arc::new(PostgresNotificationsRepository::new(pool.clone())),
+    })
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {

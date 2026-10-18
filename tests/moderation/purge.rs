@@ -39,6 +39,14 @@ async fn purge_deletes_blocks_in_both_directions_and_retains_reports_and_snapsho
                 .execute(&harness.pool)
                 .await?;
         }
+        sqlx::query(
+            "UPDATE user_blocks SET deleted_at = clock_timestamp() \
+             WHERE blocker_id = $1 AND blocked_id = $2",
+        )
+        .bind(purged)
+        .bind(other)
+        .execute(&harness.pool)
+        .await?;
         // Reports: by the purged account, about the purged account, and an unrelated one.
         for (reporter, body) in [
             (purged, report_message_body(other_message, "harassment")),
@@ -48,6 +56,13 @@ async fn purge_deletes_blocks_in_both_directions_and_retains_reports_and_snapsho
             let response = harness.report(reporter, &body).await?;
             assert_eq!(response.status(), axum::http::StatusCode::CREATED);
         }
+        let soft_deleted_report = sqlx::query_scalar::<_, Uuid>(
+            "UPDATE reports SET deleted_at = clock_timestamp() \
+             WHERE target_user_id = $1 RETURNING id",
+        )
+        .bind(purged)
+        .fetch_one(&harness.pool)
+        .await?;
         let alerts_before = sqlx::query_scalar::<_, i64>(
             "SELECT count(*) FROM push_delivery_intents WHERE recipient_user_id = $1",
         )
@@ -96,6 +111,19 @@ async fn purge_deletes_blocks_in_both_directions_and_retains_reports_and_snapsho
         .fetch_one(&harness.pool)
         .await?;
         assert_eq!(still_referenced, 0, "reports still reference the purged account");
+        let tombstone = sqlx::query_scalar::<_, Uuid>(
+            "SELECT user_id FROM anonymous_author_tombstones",
+        )
+        .fetch_one(&harness.pool)
+        .await?;
+        let soft_deleted_report_references = sqlx::query_as::<_, (Uuid, Option<Uuid>)>(
+            "SELECT reporter_id, target_user_id FROM reports \
+             WHERE id = $1 AND deleted_at IS NOT NULL",
+        )
+        .bind(soft_deleted_report)
+        .fetch_one(&harness.pool)
+        .await?;
+        assert_eq!(soft_deleted_report_references, (other, Some(tombstone)));
         let tombstoned = sqlx::query_as::<_, (i64, i64)>(
             "SELECT \
                  count(*) FILTER (WHERE reporter.user_id IS NOT NULL), \

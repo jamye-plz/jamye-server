@@ -58,13 +58,16 @@ impl ModerationRepository for PostgresModerationRepository {
         Box::pin(async move {
             let connection =
                 connection(transaction).map_err(|_| ModerationRepositoryError::InvalidData)?;
-            sqlx::query("DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2")
-                .bind(command.blocker_id)
-                .bind(command.blocked_id)
-                .execute(connection)
-                .await
-                .map(|_| ())
-                .map_err(|error| database_error("moderation_unblock", error))
+            sqlx::query(
+                "UPDATE user_blocks SET deleted_at = clock_timestamp() \
+                 WHERE blocker_id = $1 AND blocked_id = $2 AND deleted_at IS NULL",
+            )
+            .bind(command.blocker_id)
+            .bind(command.blocked_id)
+            .execute(connection)
+            .await
+            .map(|_| ())
+            .map_err(|error| database_error("moderation_unblock", error))
         })
     }
 
@@ -77,7 +80,7 @@ impl ModerationRepository for PostgresModerationRepository {
                         ub.created_at \
                  FROM user_blocks ub \
                  JOIN users account ON account.id = ub.blocked_id \
-                 WHERE ub.blocker_id = $1 \
+                 WHERE ub.blocker_id = $1 AND ub.deleted_at IS NULL \
                  ORDER BY ub.created_at DESC, ub.blocked_id",
             )
             .bind(blocker_id)
@@ -279,7 +282,8 @@ async fn block_user(
     }
     sqlx::query(
         "INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2) \
-         ON CONFLICT (blocker_id, blocked_id) DO NOTHING",
+         ON CONFLICT (blocker_id, blocked_id) DO UPDATE SET deleted_at = NULL \
+         WHERE user_blocks.deleted_at IS NOT NULL",
     )
     .bind(command.blocker_id)
     .bind(command.blocked_id)
@@ -287,7 +291,8 @@ async fn block_user(
     .await
     .map_err(|error| database_error("moderation_block_insert", error))?;
     let blocked_at = sqlx::query_scalar::<_, OffsetDateTime>(
-        "SELECT created_at FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2",
+        "SELECT created_at FROM user_blocks \
+         WHERE blocker_id = $1 AND blocked_id = $2 AND deleted_at IS NULL",
     )
     .bind(command.blocker_id)
     .bind(command.blocked_id)

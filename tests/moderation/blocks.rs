@@ -1,6 +1,7 @@
 //! B1 `PUT`, B2 `DELETE` and B3 `GET /api/v1/me/blocks[/{user_id}]`.
 
 use axum::http::StatusCode;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
@@ -95,6 +96,80 @@ async fn b1_rejects_self_blocks_and_unknown_users() -> TestResult {
 }
 
 #[tokio::test]
+async fn soft_unblock_and_reblock_revive_same_row() -> TestResult {
+    let harness = Harness::new().await?;
+    let result: TestResult = async {
+        let blocker = insert_user(&harness.pool, "blocker").await?;
+        let target = insert_user(&harness.pool, "target").await?;
+        let first = harness.put_block(blocker, &target.to_string()).await?;
+        assert_eq!(first.status(), StatusCode::OK);
+        let first_blocked_at = json_body(first).await?["blocked_at"].clone();
+
+        let first_unblock = harness.delete_block(blocker, &target.to_string()).await?;
+        assert_eq!(first_unblock.status(), StatusCode::NO_CONTENT);
+        let first_deleted_at: OffsetDateTime = sqlx::query_scalar(
+            "SELECT deleted_at FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2",
+        )
+        .bind(blocker)
+        .bind(target)
+        .fetch_one(&harness.pool)
+        .await?;
+        let second_unblock = harness.delete_block(blocker, &target.to_string()).await?;
+        assert_eq!(second_unblock.status(), StatusCode::NO_CONTENT);
+        let second_deleted_at: OffsetDateTime = sqlx::query_scalar(
+            "SELECT deleted_at FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2",
+        )
+        .bind(blocker)
+        .bind(target)
+        .fetch_one(&harness.pool)
+        .await?;
+        assert_eq!(first_deleted_at, second_deleted_at, "unblock is idempotent");
+
+        let list = json_body(harness.list_blocks(blocker).await?).await?;
+        assert_eq!(list["items"].as_array().map(Vec::len), Some(0));
+
+        let revived = harness.put_block(blocker, &target.to_string()).await?;
+        assert_eq!(revived.status(), StatusCode::OK);
+        let revived_blocked_at = json_body(revived).await?["blocked_at"].clone();
+        assert_eq!(revived_blocked_at, first_blocked_at);
+        let row: (OffsetDateTime, bool) = sqlx::query_as(
+            "SELECT created_at, deleted_at IS NULL FROM user_blocks \
+             WHERE blocker_id = $1 AND blocked_id = $2",
+        )
+        .bind(blocker)
+        .bind(target)
+        .fetch_one(&harness.pool)
+        .await?;
+        assert!(row.1, "re-block did not revive the soft-deleted row");
+        assert_eq!(
+            count(
+                &harness.pool,
+                "SELECT count(*) FROM user_blocks WHERE blocker_id = $1",
+                blocker
+            )
+            .await?,
+            1,
+            "re-block inserted a second row"
+        );
+
+        let repeated = harness.put_block(blocker, &target.to_string()).await?;
+        assert_eq!(repeated.status(), StatusCode::OK);
+        assert_eq!(json_body(repeated).await?["blocked_at"], first_blocked_at);
+        let created_at: OffsetDateTime = sqlx::query_scalar(
+            "SELECT created_at FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2",
+        )
+        .bind(blocker)
+        .bind(target)
+        .fetch_one(&harness.pool)
+        .await?;
+        assert_eq!(created_at, row.0, "repeated block changed created_at");
+        Ok(())
+    }
+    .await;
+    harness.finish(result).await
+}
+
+#[tokio::test]
 async fn b2_unblocks_idempotently_with_an_empty_204() -> TestResult {
     let harness = Harness::new().await?;
     let result: TestResult = async {
@@ -114,11 +189,22 @@ async fn b2_unblocks_idempotently_with_an_empty_204() -> TestResult {
         assert_eq!(
             count(
                 &harness.pool,
-                "SELECT count(*) FROM user_blocks WHERE blocker_id = $1",
+                "SELECT count(*) FROM user_blocks \
+                 WHERE blocker_id = $1 AND deleted_at IS NULL",
                 blocker
             )
             .await?,
             0
+        );
+        assert_eq!(
+            count(
+                &harness.pool,
+                "SELECT count(*) FROM user_blocks WHERE blocker_id = $1",
+                blocker
+            )
+            .await?,
+            1,
+            "unblock keeps one soft-deleted row"
         );
         Ok(())
     }

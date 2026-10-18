@@ -2,7 +2,7 @@
 
 ## Status
 
-task-20b 서버 구현에서 채택. 아직 운영에 배포하지 않았다.
+task-20b 서버 구현에서 채택하고 task-u12에서 moderation soft delete 결정을 개정했다. 아직 운영에 배포하지 않았다.
 
 ## Context
 
@@ -18,9 +18,17 @@ task-20b 서버 구현에서 채택. 아직 운영에 배포하지 않았다.
   CHECK, 메시지 snapshot jsonb, `(status, created_at, id)` index), `users.suspended_at`·
   `suspension_reason`(nullable)을 더한다. 약관 table과 감사(audit) table은 만들지 않는다. 조치 기록은
   구조화 로그 한 줄이다(가정 A13).
+- **migration `0021`은 moderation table에 D14/D19를 적용하는 forward-only migration이다.**
+  `user_blocks`와 `reports`에 `updated_at NOT NULL DEFAULT clock_timestamp()`와 nullable
+  `deleted_at`을 더하고 기존 `jamye_set_updated_at_if_changed()` trigger를 붙인다. 기존 block의
+  `updated_at`은 `created_at`, report는 `COALESCE(handled_at, created_at)`으로 backfill한다. 기존 PK,
+  CHECK, FK와 index는 유지한다.
 - **차단은 단방향이며 전달을 바꾸지 않는다.** `PUT/DELETE /api/v1/me/blocks/{user_id}`는 멱등이고
   멤버십·메시지 전달을 건드리지 않는다. 차단한 사용자는 메시지 알림(notification 행과 푸시)만 받지 않는다.
-  새 주제(`new_topic`) 알림은 바뀌지 않는다. 숨김은 클라이언트가 맡는다.
+  새 주제(`new_topic`) 알림은 바뀌지 않는다. 숨김은 클라이언트가 맡는다. 일반 차단 해제는 row를
+  지우지 않고 `deleted_at`을 설정한다. 재차단은 같은 `(blocker_id, blocked_id)` row를
+  `deleted_at = NULL`로 부활시키며 최초 `created_at`을 보존한다. 목록, block 결과, 메시지 알림·push
+  억제는 live row(`deleted_at IS NULL`)만 읽는다.
 - **신고는 항상 201이다.** 대상이 없거나 접근할 수 없으면 구분 없이 같은 404
   `report_target_not_found`, 자기 신고는 422 `report_self_target`, 중복은 허용한다. 자유 텍스트는 받지
   않는다. 메시지 신고는 신고 시점의 본문(마스킹된 텍스트, 최대 4000자), content type, 미디어 참조를
@@ -49,6 +57,8 @@ task-20b 서버 구현에서 채택. 아직 운영에 배포하지 않았다.
   거르지 않는다(가정 A26). 부분 문자열 매칭이므로 무해한 단어가 가려질 수 있다.
 - **purge.** 계정 purge는 그 계정의 차단을 양방향으로 지우고, 신고는 보존하되 신고자·대상 사용자 참조를
   기존 익명 tombstone 사용자로 옮긴다. 그 계정이 운영자였다면 신고 알림 occurrence를 먼저 지운다.
+  이 D15 계정 purge의 block 물리 삭제와 기존 보존기간이 지난 처리 완료 report의 물리 삭제는 D14의
+  명시적 예외다. 그 밖의 report 운영자 조회·조치는 live row만 대상으로 한다.
 
 ## Consequences
 
