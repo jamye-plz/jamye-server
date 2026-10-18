@@ -56,15 +56,29 @@ impl Seeds {
         .bind(seeds.user)
         .execute(pool)
         .await?;
-        sqlx::query("INSERT INTO push_installations (id, user_id, installation_id, platform, token, environment) VALUES ($1, $2, 'retention', 'ios', 'retention-token', 'development')")
-            .bind(seeds.installation).bind(seeds.user).execute(pool).await?;
+        sqlx::query(
+            "INSERT INTO push_installations \
+                 (id, user_id, installation_id, platform, token, environment) \
+             VALUES ($1, $2, 'retention', 'ios', 'retention-token', 'development')",
+        )
+        .bind(seeds.installation)
+        .bind(seeds.user)
+        .execute(pool)
+        .await?;
         Ok(seeds)
     }
 
     async fn event(&self, pool: &PgPool) -> TestResult<Uuid> {
         let id = Uuid::new_v4();
-        sqlx::query("INSERT INTO conversation_events (id, conversation_id, event_type, event_version, payload, occurred_at) VALUES ($1, $2, 'retention', 1, '{}', now() - interval '1000 days')")
-            .bind(id).bind(Uuid::new_v4()).execute(pool).await?;
+        sqlx::query(
+            "INSERT INTO conversation_events \
+                 (id, conversation_id, event_type, event_version, payload, occurred_at) \
+             VALUES ($1, $2, 'retention', 1, '{}', now() - interval '1000 days')",
+        )
+        .bind(id)
+        .bind(Uuid::new_v4())
+        .execute(pool)
+        .await?;
         Ok(id)
     }
 
@@ -78,17 +92,70 @@ impl Seeds {
         let id = Uuid::new_v4();
         match table {
             Table::Outbox => {
-                sqlx::query("INSERT INTO outbox_events (id, intent_type, event_type, event_version, aggregate_type, aggregate_id, payload, status, published_at, dead_lettered_at, created_at, claim_owner, claim_expires_at) VALUES ($1, 'control', 'retention', 1, 'group', $2, '{}', $3, CASE WHEN $3 = 'published' THEN $4::timestamptz END, CASE WHEN $3 = 'dead_letter' THEN $4::timestamptz END, $4::timestamptz - interval '1 day', CASE WHEN $3 = 'claimed' THEN 'owner' END, CASE WHEN $3 = 'claimed' THEN $4::timestamptz END)")
-                    .bind(id).bind(Uuid::new_v4()).bind(status).bind(at).execute(pool).await?;
+                sqlx::query(
+                    "INSERT INTO outbox_events \
+                         (id, intent_type, event_type, event_version, aggregate_type, \
+                          aggregate_id, payload, status, published_at, dead_lettered_at, \
+                          created_at, claim_owner, claim_expires_at) \
+                     VALUES ($1, 'control', 'retention', 1, 'group', $2, '{}', $3, \
+                             CASE WHEN $3 = 'published' THEN $4::timestamptz END, \
+                             CASE WHEN $3 = 'dead_letter' THEN $4::timestamptz END, \
+                             $4::timestamptz - interval '1 day', \
+                             CASE WHEN $3 = 'claimed' THEN 'owner' END, \
+                             CASE WHEN $3 = 'claimed' THEN $4::timestamptz END)",
+                )
+                .bind(id)
+                .bind(Uuid::new_v4())
+                .bind(status)
+                .bind(at)
+                .execute(pool)
+                .await?;
             }
             Table::Push => {
                 let event = self.event(pool).await?;
-                sqlx::query("INSERT INTO push_delivery_intents (id, notification_id, source_event_id, recipient_user_id, push_installation_id, installation_owner_epoch, message_preview_enabled_snapshot, payload, status, succeeded_at, failed_at, dead_lettered_at, created_at, claim_owner, lease_expires_at) VALUES ($1, $2, $3, $4, $5, 1, false, '{}', $6, CASE WHEN $6 = 'succeeded' THEN $7::timestamptz END, CASE WHEN $6 = 'failed' THEN $7::timestamptz END, CASE WHEN $6 = 'dead_letter' THEN $7::timestamptz END, $7::timestamptz - interval '1 day', CASE WHEN $6 = 'claimed' THEN 'owner' END, CASE WHEN $6 = 'claimed' THEN $7::timestamptz END)")
-                    .bind(id).bind(self.notification).bind(event).bind(self.user).bind(self.installation).bind(status).bind(at).execute(pool).await?;
+                sqlx::query(
+                    "INSERT INTO push_delivery_intents \
+                         (id, notification_id, source_event_id, recipient_user_id, \
+                          push_installation_id, installation_owner_epoch, \
+                          message_preview_enabled_snapshot, payload, status, succeeded_at, \
+                          failed_at, dead_lettered_at, created_at, claim_owner, lease_expires_at) \
+                     VALUES ($1, $2, $3, $4, $5, 1, false, '{}', $6, \
+                             CASE WHEN $6 = 'succeeded' THEN $7::timestamptz END, \
+                             CASE WHEN $6 = 'failed' THEN $7::timestamptz END, \
+                             CASE WHEN $6 = 'dead_letter' THEN $7::timestamptz END, \
+                             $7::timestamptz - interval '1 day', \
+                             CASE WHEN $6 = 'claimed' THEN 'owner' END, \
+                             CASE WHEN $6 = 'claimed' THEN $7::timestamptz END)",
+                )
+                .bind(id)
+                .bind(self.notification)
+                .bind(event)
+                .bind(self.user)
+                .bind(self.installation)
+                .bind(status)
+                .bind(at)
+                .execute(pool)
+                .await?;
             }
             Table::Object => {
-                sqlx::query("INSERT INTO account_object_deletion_intents (id, object_key, status, succeeded_at, failed_at, dead_lettered_at, created_at, claim_owner, lease_expires_at) VALUES ($1, $2, $3, CASE WHEN $3 = 'succeeded' THEN $4::timestamptz END, CASE WHEN $3 = 'failed' THEN $4::timestamptz END, CASE WHEN $3 = 'dead_letter' THEN $4::timestamptz END, $4::timestamptz - interval '1 day', CASE WHEN $3 = 'claimed' THEN 'owner' END, CASE WHEN $3 = 'claimed' THEN $4::timestamptz END)")
-                    .bind(id).bind(format!("retention/{id}")).bind(status).bind(at).execute(pool).await?;
+                sqlx::query(
+                    "INSERT INTO account_object_deletion_intents \
+                         (id, object_key, status, succeeded_at, failed_at, dead_lettered_at, \
+                          created_at, claim_owner, lease_expires_at) \
+                     VALUES ($1, $2, $3, \
+                             CASE WHEN $3 = 'succeeded' THEN $4::timestamptz END, \
+                             CASE WHEN $3 = 'failed' THEN $4::timestamptz END, \
+                             CASE WHEN $3 = 'dead_letter' THEN $4::timestamptz END, \
+                             $4::timestamptz - interval '1 day', \
+                             CASE WHEN $3 = 'claimed' THEN 'owner' END, \
+                             CASE WHEN $3 = 'claimed' THEN $4::timestamptz END)",
+                )
+                .bind(id)
+                .bind(format!("retention/{id}"))
+                .bind(status)
+                .bind(at)
+                .execute(pool)
+                .await?;
             }
         }
         Ok(id)
@@ -137,7 +204,8 @@ async fn terminal_retention_boundaries_by_table_and_state() -> TestResult {
                             "UPDATE push_delivery_intents SET deleted_at = $2 WHERE id = $1"
                         }
                         Table::Object => {
-                            "UPDATE account_object_deletion_intents SET deleted_at = $2 WHERE id = $1"
+                            "UPDATE account_object_deletion_intents \
+                             SET deleted_at = $2 WHERE id = $1"
                         }
                     };
                     sqlx::query(query)
