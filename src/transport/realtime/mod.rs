@@ -6,10 +6,11 @@ mod registry;
 mod session;
 
 pub use registry::{
-    LocalRealtimeHub, RealtimeEviction, RealtimeEvictionReason, SocketConnection, SocketId,
+    LocalRealtimeHub, RealtimeEviction, RealtimeEvictionReason, RegistryFull, SocketConnection,
+    SocketId,
 };
 pub use session::{
-    CLOSE_INTERNAL_ERROR, CLOSE_MEMBERSHIP_REQUIRED, CLOSE_PROTOCOL_ERROR,
-    CLOSE_REALTIME_AUTH_EXPIRED, CLOSE_REALTIME_AUTH_FAILED, SocketTiming, run_socket,
-    run_socket_with_runtime, run_unauthenticated_socket,
+    CLOSE_INTERNAL_ERROR, CLOSE_MEMBERSHIP_REQUIRED, CLOSE_MESSAGE_TOO_BIG, CLOSE_PROTOCOL_ERROR,
+    CLOSE_REALTIME_AUTH_EXPIRED, CLOSE_REALTIME_AUTH_FAILED, CLOSE_TRY_AGAIN_LATER, SocketTiming,
+    run_socket, run_socket_with_runtime, run_unauthenticated_socket,
 };

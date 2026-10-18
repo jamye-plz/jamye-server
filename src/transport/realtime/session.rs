@@ -4,6 +4,7 @@ use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use futures_util::{SinkExt, StreamExt, stream::SplitSink};
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
+use tokio_tungstenite::tungstenite::Error as WebSocketError;
 use uuid::Uuid;
 
 use crate::{
@@ -21,6 +22,8 @@ pub const CLOSE_PROTOCOL_ERROR: u16 = 4400;
 pub const CLOSE_REALTIME_AUTH_FAILED: u16 = 4401;
 pub const CLOSE_REALTIME_AUTH_EXPIRED: u16 = 4401;
 pub const CLOSE_INTERNAL_ERROR: u16 = 1011;
+pub const CLOSE_MESSAGE_TOO_BIG: u16 = 1009;
+pub const CLOSE_TRY_AGAIN_LATER: u16 = 1013;
 const CLIENT_PING_INTERVAL_SECONDS: u64 = 25;
 const PONG_DEADLINE_SECONDS: u64 = 10;
 const HEARTBEAT_TIMEOUT: Duration =
@@ -79,12 +82,18 @@ pub async fn run_socket_with_runtime(
     clock: Arc<dyn RealtimeClock>,
     timing: SocketTiming,
 ) {
-    let connection = hub.register(session.user_id).await;
+    let (mut sender, mut receiver) = socket.split();
+    let connection = match hub.register(session.user_id).await {
+        Ok(connection) => connection,
+        Err(_) => {
+            close(&mut sender, CLOSE_TRY_AGAIN_LATER, "socket_limit").await;
+            return;
+        }
+    };
     let contract_version = session.contract_version.clone();
     let socket_id = connection.socket_id;
     let mut outbound = connection.outbound;
     let mut evictions = connection.evictions;
-    let (mut sender, mut receiver) = socket.split();
     let expires_after = duration_until(session.access_token_expires_at, clock.now());
     let expiry = tokio::time::sleep(expires_after);
     let heartbeat = tokio::time::sleep(timing.heartbeat_timeout());
@@ -137,9 +146,22 @@ pub async fn run_socket_with_runtime(
                     }
                     Some(Ok(Message::Pong(_))) => {}
                     Some(Ok(Message::Close(_))) | None => break,
-                    Some(Ok(Message::Binary(_))) | Some(Err(_)) => {
+                    Some(Ok(Message::Binary(_))) => {
                         hub.cleanup(socket_id).await;
                         close(&mut sender, CLOSE_PROTOCOL_ERROR, "protocol_error").await;
+                        break;
+                    }
+                    Some(Err(error)) => {
+                        hub.cleanup(socket_id).await;
+                        let (code, reason) = if error.into_inner()
+                            .downcast::<WebSocketError>()
+                            .is_ok_and(|error| matches!(*error, WebSocketError::Capacity(_)))
+                        {
+                            (CLOSE_MESSAGE_TOO_BIG, "message_too_big")
+                        } else {
+                            (CLOSE_PROTOCOL_ERROR, "protocol_error")
+                        };
+                        close(&mut sender, code, reason).await;
                         break;
                     }
                 }

@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    fmt,
     sync::Arc,
 };
 
@@ -11,6 +12,18 @@ mod revocation;
 pub use revocation::{RealtimeEviction, RealtimeEvictionReason};
 
 const SOCKET_BUFFER_CAPACITY: usize = 128;
+const MAX_SOCKETS_PER_USER: usize = 8;
+
+#[derive(Debug)]
+pub struct RegistryFull;
+
+impl fmt::Display for RegistryFull {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("per-user socket limit reached")
+    }
+}
+
+impl std::error::Error for RegistryFull {}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct SocketId(Uuid);
@@ -33,11 +46,18 @@ pub struct LocalRealtimeHub {
 }
 
 impl LocalRealtimeHub {
-    pub async fn register(&self, user_id: Uuid) -> SocketConnection {
+    pub async fn register(&self, user_id: Uuid) -> Result<SocketConnection, RegistryFull> {
+        let mut state = self.inner.lock().await;
+        if state
+            .users
+            .get(&user_id)
+            .is_some_and(|sockets| sockets.len() >= MAX_SOCKETS_PER_USER)
+        {
+            return Err(RegistryFull);
+        }
         let socket_id = SocketId::new();
         let (sender, outbound) = mpsc::channel(SOCKET_BUFFER_CAPACITY);
         let (eviction_sender, evictions) = mpsc::channel(1);
-        let mut state = self.inner.lock().await;
         state.sockets.insert(
             socket_id,
             SocketState {
@@ -48,11 +68,11 @@ impl LocalRealtimeHub {
             },
         );
         state.users.entry(user_id).or_default().insert(socket_id);
-        SocketConnection {
+        Ok(SocketConnection {
             socket_id,
             outbound,
             evictions,
-        }
+        })
     }
 
     pub async fn subscribe(&self, socket_id: SocketId, conversation_id: Uuid) -> bool {

@@ -27,6 +27,13 @@ use crate::{
 };
 
 const CONTRACT_VERSION_HEADER: &str = "x-jamye-contract-version";
+const MAX_INBOUND_MESSAGE_BYTES: usize = 4096;
+const MAX_INBOUND_FRAME_BYTES: usize = 4096;
+
+pub fn limit_websocket_upgrade(ws: WebSocketUpgrade) -> WebSocketUpgrade {
+    ws.max_message_size(MAX_INBOUND_MESSAGE_BYTES)
+        .max_frame_size(MAX_INBOUND_FRAME_BYTES)
+}
 
 #[derive(Clone)]
 pub struct RealtimeHttpState {
@@ -120,6 +127,7 @@ async fn websocket(
     ws: WebSocketUpgrade,
     RawQuery(raw_query): RawQuery,
 ) -> Response {
+    let ws = limit_websocket_upgrade(ws);
     let raw_ticket = match parse_ticket_query(raw_query.as_deref()) {
         Some(ticket) => ticket,
         None => return ws.on_upgrade(run_unauthenticated_socket),

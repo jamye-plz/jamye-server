@@ -10,9 +10,11 @@ use futures_util::{SinkExt, StreamExt};
 use jamye_server::{
     application::realtime::RealtimeSession,
     ports::realtime::{ConversationAuthorizer, RealtimeClock, RealtimeFuture},
+    transport::http::realtime::limit_websocket_upgrade,
     transport::realtime::{
-        CLOSE_MEMBERSHIP_REQUIRED, CLOSE_PROTOCOL_ERROR, CLOSE_REALTIME_AUTH_EXPIRED,
-        LocalRealtimeHub, SocketTiming, run_socket_with_runtime,
+        CLOSE_MEMBERSHIP_REQUIRED, CLOSE_MESSAGE_TOO_BIG, CLOSE_PROTOCOL_ERROR,
+        CLOSE_REALTIME_AUTH_EXPIRED, CLOSE_TRY_AGAIN_LATER, LocalRealtimeHub, SocketTiming,
+        run_socket_with_runtime,
     },
 };
 use serde_json::{Value, json};
@@ -20,11 +22,194 @@ use time::OffsetDateTime;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream, connect_async,
-    tungstenite::{Message as ClientMessage, protocol::CloseFrame},
+    tungstenite::{
+        Message as ClientMessage,
+        protocol::{
+            CloseFrame,
+            frame::{
+                Frame,
+                coding::{Data, OpCode},
+            },
+        },
+    },
 };
 use uuid::Uuid;
 
 use crate::TestResult;
+
+#[tokio::test]
+async fn text_message_of_4096_bytes_is_accepted() -> TestResult {
+    let state = default_limit_state(LocalRealtimeHub::default())?;
+    let (mut socket, shutdown, server) = connect(state).await?;
+    socket
+        .send(ClientMessage::Text(padded_ping(4096).into()))
+        .await?;
+    let pong: Value = serde_json::from_str(&next_text(&mut socket).await?)?;
+    assert_eq!(pong, json!({"type": "pong", "nonce": "limits"}));
+    drop(socket);
+    stop(shutdown, server).await
+}
+
+#[tokio::test]
+async fn text_message_over_4096_closes_1009() -> TestResult {
+    let hub = LocalRealtimeHub::default();
+    let (mut socket, shutdown, server) = connect(default_limit_state(hub.clone())?).await?;
+    socket
+        .send(ClientMessage::Text(padded_ping(4097).into()))
+        .await?;
+    let close = next_close(&mut socket).await?;
+    assert_eq!(u16::from(close.code), CLOSE_MESSAGE_TOO_BIG);
+    assert_eq!(close.reason.as_str(), "message_too_big");
+    assert_eq!(hub.registry_counts().await, (0, 0, 0));
+    stop(shutdown, server).await
+}
+
+#[tokio::test]
+async fn fragmented_message_over_4096_closes_1009() -> TestResult {
+    let hub = LocalRealtimeHub::default();
+    let (mut socket, shutdown, server) = connect(default_limit_state(hub.clone())?).await?;
+    let message = padded_ping(4097).into_bytes();
+    socket
+        .send(ClientMessage::Frame(Frame::message(
+            message[..2048].to_vec(),
+            OpCode::Data(Data::Text),
+            false,
+        )))
+        .await?;
+    socket
+        .send(ClientMessage::Frame(Frame::message(
+            message[2048..].to_vec(),
+            OpCode::Data(Data::Continue),
+            true,
+        )))
+        .await?;
+    let close = next_close(&mut socket).await?;
+    assert_eq!(u16::from(close.code), CLOSE_MESSAGE_TOO_BIG);
+    assert_eq!(close.reason.as_str(), "message_too_big");
+    assert_eq!(hub.registry_counts().await, (0, 0, 0));
+    stop(shutdown, server).await
+}
+
+#[tokio::test]
+async fn invalid_continuation_closes_4400() -> TestResult {
+    let (mut socket, shutdown, server) =
+        connect(default_limit_state(LocalRealtimeHub::default())?).await?;
+    socket
+        .send(ClientMessage::Frame(Frame::message(
+            b"invalid".to_vec(),
+            OpCode::Data(Data::Continue),
+            true,
+        )))
+        .await?;
+    let close = next_close(&mut socket).await?;
+    assert_eq!(u16::from(close.code), CLOSE_PROTOCOL_ERROR);
+    assert_eq!(close.reason.as_str(), "protocol_error");
+    stop(shutdown, server).await
+}
+
+#[tokio::test]
+async fn eighth_socket_is_accepted() -> TestResult {
+    let hub = LocalRealtimeHub::default();
+    let state = default_limit_state(hub.clone())?;
+    let mut connections = Vec::new();
+    for _ in 0..8 {
+        let (mut socket, shutdown, server) = connect(state.clone()).await?;
+        assert_ping(&mut socket).await?;
+        connections.push((socket, shutdown, server));
+    }
+    assert_eq!(hub.registry_counts().await, (8, 8, 0));
+    for (socket, shutdown, server) in connections {
+        drop(socket);
+        stop(shutdown, server).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn ninth_socket_per_user_closes_1013() -> TestResult {
+    let hub = LocalRealtimeHub::default();
+    let state = default_limit_state(hub.clone())?;
+    let mut connections = Vec::new();
+    for _ in 0..8 {
+        let (mut socket, shutdown, server) = connect(state.clone()).await?;
+        assert_ping(&mut socket).await?;
+        connections.push((socket, shutdown, server));
+    }
+    let (mut rejected, rejected_shutdown, rejected_server) = connect(state.clone()).await?;
+    let close = next_close(&mut rejected).await?;
+    assert_eq!(u16::from(close.code), CLOSE_TRY_AGAIN_LATER);
+    assert_eq!(close.reason.as_str(), "socket_limit");
+    assert_eq!(hub.registry_counts().await, (8, 8, 0));
+    for (socket, _, _) in &mut connections {
+        assert_ping(socket).await?;
+    }
+    let (mut other_user, other_shutdown, other_server) =
+        connect(default_limit_state(hub.clone())?).await?;
+    assert_ping(&mut other_user).await?;
+    assert_eq!(hub.registry_counts().await, (9, 9, 0));
+    drop(other_user);
+    stop(other_shutdown, other_server).await?;
+    stop(rejected_shutdown, rejected_server).await?;
+    for (socket, shutdown, server) in connections {
+        drop(socket);
+        stop(shutdown, server).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn slot_released_on_disconnect_expiry_and_shutdown() -> TestResult {
+    // Shutdown means a live server-side session ends; process exit drops the in-memory registry.
+    for ending in ["close", "drop", "expiry", "heartbeat"] {
+        let hub = LocalRealtimeHub::default();
+        let mut state = default_limit_state(hub.clone())?;
+        if ending == "expiry" {
+            state.session.access_token_expires_at =
+                OffsetDateTime::UNIX_EPOCH + time::Duration::milliseconds(500);
+        }
+        if ending == "heartbeat" {
+            state.timing =
+                SocketTiming::new(Duration::from_millis(400), Duration::from_millis(100))
+                    .ok_or_else(|| io::Error::other("invalid heartbeat timing"))?;
+        }
+        let mut held = Vec::new();
+        for _ in 0..7 {
+            held.push(hub.register(state.session.user_id).await?);
+        }
+        let (mut socket, shutdown, server) = connect(state.clone()).await?;
+        assert_ping(&mut socket).await?;
+        assert_eq!(hub.registry_counts().await, (8, 8, 0));
+        match ending {
+            "close" => socket.close(None).await?,
+            "drop" => drop(socket),
+            "expiry" => assert_eq!(
+                u16::from(next_close(&mut socket).await?.code),
+                CLOSE_REALTIME_AUTH_EXPIRED
+            ),
+            "heartbeat" => assert_eq!(
+                u16::from(next_close(&mut socket).await?.code),
+                CLOSE_PROTOCOL_ERROR
+            ),
+            _ => unreachable!("unknown session ending"),
+        }
+        wait_for_socket_count(&hub, 7).await?;
+        state.session.access_token_expires_at =
+            OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(30);
+        state.timing = SocketTiming::new(Duration::from_secs(5), Duration::from_secs(5))
+            .ok_or_else(|| io::Error::other("invalid replacement timing"))?;
+        let (mut replacement, replacement_shutdown, replacement_server) = connect(state).await?;
+        assert_ping(&mut replacement).await?;
+        assert_eq!(hub.registry_counts().await, (8, 8, 0));
+        drop(replacement);
+        stop(replacement_shutdown, replacement_server).await?;
+        stop(shutdown, server).await?;
+        for connection in held {
+            assert!(hub.cleanup(connection.socket_id).await);
+        }
+        wait_for_socket_count(&hub, 0).await?;
+    }
+    Ok(())
+}
 
 #[tokio::test]
 async fn denied_subscribe_cleans_prior_membership_and_closes_without_data_or_error() -> TestResult {
@@ -248,6 +433,41 @@ struct WebSocketState {
     timing: SocketTiming,
 }
 
+fn default_limit_state(hub: LocalRealtimeHub) -> TestResult<WebSocketState> {
+    websocket_state(
+        hub,
+        [],
+        OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(30),
+        Duration::from_secs(5),
+        Duration::from_secs(5),
+    )
+}
+
+fn padded_ping(length: usize) -> String {
+    let mut payload = json!({"type": "ping", "nonce": "limits"}).to_string();
+    payload.push_str(&" ".repeat(length - payload.len()));
+    payload
+}
+
+async fn assert_ping(socket: &mut TestSocket) -> TestResult {
+    socket
+        .send(ClientMessage::Text(padded_ping(40).into()))
+        .await?;
+    let pong: Value = serde_json::from_str(&next_text(socket).await?)?;
+    assert_eq!(pong, json!({"type": "pong", "nonce": "limits"}));
+    Ok(())
+}
+
+async fn wait_for_socket_count(hub: &LocalRealtimeHub, expected: usize) -> TestResult {
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while hub.registry_counts().await.0 != expected {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    Ok(())
+}
+
 fn websocket_state<const N: usize>(
     hub: LocalRealtimeHub,
     allowed_conversations: [Uuid; N],
@@ -291,7 +511,7 @@ fn websocket_state_with_contract<const N: usize>(
 }
 
 async fn websocket(State(state): State<WebSocketState>, ws: WebSocketUpgrade) -> Response {
-    ws.on_upgrade(move |socket| {
+    limit_websocket_upgrade(ws).on_upgrade(move |socket| {
         run_socket_with_runtime(
             socket,
             state.session,

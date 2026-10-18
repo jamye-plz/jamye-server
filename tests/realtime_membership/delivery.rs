@@ -35,7 +35,7 @@ async fn dropped_control_signal_cannot_bypass_final_authoritative_delivery_check
     insert_member(&pool, group.id, member_id).await?;
 
     let hub = LocalRealtimeHub::default();
-    let mut connection = hub.register(member_id).await;
+    let mut connection = hub.register(member_id).await?;
     assert!(
         hub.subscribe(connection.socket_id, group.main_chatroom_id)
             .await
@@ -79,7 +79,7 @@ async fn deleted_group_and_database_uncertainty_both_fail_closed_without_deliver
     let owner_id = insert_user(&pool, "폐쇄 소유자").await?;
     let group = create_group(&fixture, owner_id, "폐쇄 그룹").await?;
     let hub = LocalRealtimeHub::default();
-    let mut connection = hub.register(owner_id).await;
+    let mut connection = hub.register(owner_id).await?;
     assert!(
         hub.subscribe(connection.socket_id, group.main_chatroom_id)
             .await
@@ -117,7 +117,7 @@ async fn every_delivery_check_started_after_revocation_commit_excludes_the_forme
     let group = create_group(&fixture, owner_id, "경합 그룹").await?;
     insert_member(&pool, group.id, member_id).await?;
     let hub = LocalRealtimeHub::default();
-    let mut connection = hub.register(member_id).await;
+    let mut connection = hub.register(member_id).await?;
     assert!(
         hub.subscribe(connection.socket_id, group.main_chatroom_id)
             .await

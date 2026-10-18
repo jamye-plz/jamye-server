@@ -116,8 +116,8 @@ async fn group_delete_evicts_every_local_group_connection_with_stable_reason() -
     insert_member(&pool, group.id, member_id).await?;
 
     let hub = LocalRealtimeHub::default();
-    let mut owner = hub.register(owner_id).await;
-    let mut member = hub.register(member_id).await;
+    let mut owner = hub.register(owner_id).await?;
+    let mut member = hub.register(member_id).await?;
     assert!(hub.subscribe(owner.socket_id, group.main_chatroom_id).await);
     assert!(
         hub.subscribe(member.socket_id, group.main_chatroom_id)
