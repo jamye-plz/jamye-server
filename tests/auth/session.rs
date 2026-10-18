@@ -346,6 +346,35 @@ mod refresh_ip {
         pool.close().await;
         database.dispose().await
     }
+
+    #[tokio::test]
+    async fn verified_ip_refresh_reuse_keeps_existing_error_after_limit_checks() -> TestResult {
+        let database = TestDatabase::migrated().await?;
+        let pool = database.pool()?;
+        let (state, recorder, token) = fixture(pool.clone()).await?;
+        let router = router(state, Some(TRUSTED))?;
+
+        let response = refresh(&router, &token, TRUSTED, &[CLIENT]).await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        recorder.take();
+
+        let response = refresh(&router, &token, TRUSTED, &[CLIENT]).await?;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            body(response).await?["error"]["code"],
+            "refresh_token_reused"
+        );
+        let calls = recorder.take();
+        assert_calls(
+            &calls,
+            &["auth_refresh_ip", "auth_refresh", "rotate_session"],
+        );
+        assert_eq!(calls[0].subject, "ip:198.51.100.20");
+        assert!(calls[1].subject == token);
+
+        pool.close().await;
+        database.dispose().await
+    }
 }
 
 #[tokio::test]

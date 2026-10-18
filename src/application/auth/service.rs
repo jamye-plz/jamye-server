@@ -1,4 +1,4 @@
-use std::{fmt, net::IpAddr, sync::Arc, time::Duration};
+use std::{fmt, sync::Arc, time::Duration};
 
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
@@ -396,6 +396,7 @@ impl AuthService {
         })
     }
 
+    /// Refresh without applying a per-IP rate limit.
     pub async fn refresh(&self, raw_refresh_token: &str) -> Result<TokenPair, AuthError> {
         self.refresh_with_client_ip(raw_refresh_token, None).await
     }
@@ -403,16 +404,12 @@ impl AuthService {
     pub async fn refresh_with_client_ip(
         &self,
         raw_refresh_token: &str,
-        client_ip: Option<IpAddr>,
+        client_ip_subject: Option<&str>,
     ) -> Result<TokenPair, AuthError> {
         validate_refresh_token(raw_refresh_token)?;
-        if let Some(ip) = client_ip {
-            self.check_rate_limit(
-                "auth_refresh_ip",
-                &format!("ip:{ip}"),
-                &self.rate_limits.refresh,
-            )
-            .await?;
+        if let Some(subject) = client_ip_subject {
+            self.check_rate_limit("auth_refresh_ip", subject, &self.rate_limits.refresh)
+                .await?;
         }
         self.check_rate_limit("auth_refresh", raw_refresh_token, &self.rate_limits.refresh)
             .await?;
