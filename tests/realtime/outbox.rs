@@ -74,7 +74,7 @@ async fn concurrent_claimers_skip_locked_rows_and_same_owner_aba_is_generation_f
     .execute(&pool)
     .await?;
     let fresh = repository
-        .claim(claim_request("shared-owner", 2_000))
+        .claim(claim_request(&stale.claim_owner, 2_000))
         .await?
         .pop()
         .ok_or("expired claim was not reclaimed")?;
