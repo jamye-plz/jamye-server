@@ -181,7 +181,8 @@ async fn recipients_not_blocking(
     }
     let blockers = sqlx::query_scalar::<_, Uuid>(
         "SELECT blocker_id FROM user_blocks \
-         WHERE blocked_id = $1 AND blocker_id = ANY($2::UUID[])",
+         WHERE blocked_id = $1 AND blocker_id = ANY($2::UUID[]) \
+           AND deleted_at IS NULL",
     )
     .bind(sender_id)
     .bind(recipients.clone())

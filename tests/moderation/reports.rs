@@ -3,10 +3,11 @@
 use axum::http::StatusCode;
 use jamye_server::{
     adapters::postgres::transactions::SqlxTransactionManager,
-    domain::moderation::ReportReason,
+    domain::moderation::{ReportReason, ReportStatus},
     ports::{
         moderation::{
-            InsertReportCommand, ModerationRepository, ModerationRepositoryError, ReportTarget,
+            InsertReportCommand, ModerationAdminRepository, ModerationRepository,
+            ModerationRepositoryError, ReportHandling, ReportTarget,
         },
         transactions::TransactionManager,
     },
@@ -404,6 +405,87 @@ async fn r1_requires_a_bearer_token() -> TestResult {
             "authentication_required",
         )
         .await?;
+        Ok(())
+    }
+    .await;
+    harness.finish(result).await
+}
+
+#[tokio::test]
+async fn deleted_reports_are_hidden_from_admin_reads_and_actions() -> TestResult {
+    let harness = Harness::new().await?;
+    let result: TestResult = async {
+        let reporter = insert_user(&harness.pool, "reporter").await?;
+        let author = insert_user(&harness.pool, "author").await?;
+        let group = insert_group(&harness.pool, &[reporter, author]).await?;
+        let message_id =
+            insert_message(&harness.pool, group.chatroom_id, author, "reported").await?;
+
+        let deleted_response = harness
+            .report(reporter, &report_message_body(message_id, "spam"))
+            .await?;
+        assert_eq!(deleted_response.status(), StatusCode::CREATED);
+        let deleted_id = Uuid::try_parse(
+            json_body(deleted_response).await?["id"]
+                .as_str()
+                .ok_or("deleted report id missing")?,
+        )?;
+        let live_response = harness
+            .report(reporter, &report_message_body(message_id, "hate"))
+            .await?;
+        assert_eq!(live_response.status(), StatusCode::CREATED);
+        let live_id = Uuid::try_parse(
+            json_body(live_response).await?["id"]
+                .as_str()
+                .ok_or("live report id missing")?,
+        )?;
+        sqlx::query("UPDATE reports SET deleted_at = clock_timestamp() WHERE id = $1")
+            .bind(deleted_id)
+            .execute(&harness.pool)
+            .await?;
+
+        let listed = harness.repository.list_reports(None, 10).await?;
+        assert_eq!(
+            listed.iter().map(|report| report.id).collect::<Vec<_>>(),
+            vec![live_id]
+        );
+        assert!(harness.repository.find_report(deleted_id).await?.is_none());
+
+        let transactions = SqlxTransactionManager::new(harness.pool.clone());
+        let mut handle_transaction = transactions.begin().await?;
+        let handling = harness
+            .repository
+            .handle_report(
+                handle_transaction.as_mut(),
+                deleted_id,
+                ReportStatus::Dismissed,
+            )
+            .await?;
+        assert_eq!(handling, ReportHandling::NotFound);
+        transactions.commit(handle_transaction).await?;
+
+        let mut action_transaction = transactions.begin().await?;
+        let actioned = harness
+            .repository
+            .action_message_reports(action_transaction.as_mut(), message_id)
+            .await?;
+        transactions.commit(action_transaction).await?;
+        assert_eq!(actioned, vec![live_id]);
+
+        let statuses = sqlx::query_as::<_, (Uuid, String)>(
+            "SELECT id, status FROM reports WHERE id = ANY($1::UUID[]) ORDER BY id",
+        )
+        .bind(vec![deleted_id, live_id])
+        .fetch_all(&harness.pool)
+        .await?;
+        for (id, status) in statuses {
+            if id == deleted_id {
+                assert_eq!(status, "open", "deleted report was actioned");
+            } else {
+                assert_eq!(id, live_id);
+                assert_eq!(status, "actioned");
+            }
+        }
         Ok(())
     }
     .await;

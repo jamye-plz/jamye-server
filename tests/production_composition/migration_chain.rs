@@ -100,13 +100,36 @@ const MIGRATIONS_0001_THROUGH_0016: &[&str] = &[
     "0016_account_grace_period.sql",
 ];
 
+const MIGRATIONS_0001_THROUGH_0020: &[&str] = &[
+    "0001_core_reliable_messaging.sql",
+    "0002_auth_sessions.sql",
+    "0003_invites.sql",
+    "0004_chatroom_reads.sql",
+    "0005_topics.sql",
+    "0006_media.sql",
+    "0007_notifications_push.sql",
+    "0008_account_deletion.sql",
+    "0009_message_anchor_index.sql",
+    "0010_media_posters.sql",
+    "0011_main_chat_notifications.sql",
+    "0012_remove_topic_media.sql",
+    "0013_https_avatar_urls.sql",
+    "0014_audit_columns_and_updated_at_triggers.sql",
+    "0015_delete_events_and_live_read_indexes.sql",
+    "0016_account_grace_period.sql",
+    "0017_remaining_soft_delete_live_uniqueness.sql",
+    "0018_add_apple_auth_identity_provider.sql",
+    "0019_user_avatar_uploads.sql",
+    "0020_ugc_moderation.sql",
+];
+
 #[tokio::test]
-async fn fresh_disposable_database_applies_the_canonical_0001_through_0020_chain() -> TestResult {
+async fn fresh_disposable_database_applies_the_canonical_0001_through_0021_chain() -> TestResult {
     let database = TestDatabase::migrated().await?;
     let mut connection = database.connection().await?;
     let result: TestResult = async {
         let applied: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM _sqlx_migrations WHERE success AND version BETWEEN 1 AND 20",
+            "SELECT count(*) FROM _sqlx_migrations WHERE success AND version BETWEEN 1 AND 21",
         )
         .fetch_one(&mut connection)
         .await?;
@@ -117,10 +140,10 @@ async fn fresh_disposable_database_applies_the_canonical_0001_through_0020_chain
         .await?;
         require_eq(
             applied,
-            20,
-            "fresh disposable chain did not apply 0001 through 0020",
+            21,
+            "fresh disposable chain did not apply 0001 through 0021",
         )?;
-        require_eq(latest, 20, "fresh disposable chain did not end at 0020")?;
+        require_eq(latest, 21, "fresh disposable chain did not end at 0021")?;
         Ok(())
     }
     .await;
@@ -128,6 +151,369 @@ async fn fresh_disposable_database_applies_the_canonical_0001_through_0020_chain
     connection.close().await?;
     database.dispose().await?;
     result
+}
+
+#[tokio::test]
+async fn migration_0021_upgrades_0020_preserving_moderation_rows_and_keys() -> TestResult {
+    let database = TestDatabase::migrated_to(20).await?;
+    let mut connection = database.connection().await?;
+    let result: TestResult = async {
+        require(
+            !column_exists(&mut connection, "user_blocks", "updated_at").await?,
+            "exact 0020 predecessor already contained user_blocks.updated_at",
+        )?;
+        require(
+            !column_exists(&mut connection, "reports", "deleted_at").await?,
+            "exact 0020 predecessor already contained reports.deleted_at",
+        )?;
+
+        let blocker_id = Uuid::new_v4();
+        let blocked_id = Uuid::new_v4();
+        for (id, nickname) in [(blocker_id, "blocker"), (blocked_id, "blocked")] {
+            sqlx::query("INSERT INTO users (id, nickname) VALUES ($1, $2)")
+                .bind(id)
+                .bind(nickname)
+                .execute(&mut connection)
+                .await?;
+        }
+        let group_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO groups (id, name, owner_id) VALUES ($1, 'u12', $2)")
+            .bind(group_id)
+            .bind(blocker_id)
+            .execute(&mut connection)
+            .await?;
+        sqlx::query(
+            "INSERT INTO user_blocks (blocker_id, blocked_id, created_at) \
+             VALUES ($1, $2, '2026-01-01T00:00:00Z')",
+        )
+        .bind(blocker_id)
+        .bind(blocked_id)
+        .execute(&mut connection)
+        .await?;
+
+        let open_report_id = Uuid::new_v4();
+        let handled_report_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO reports \
+                 (id, reporter_id, target_type, target_user_id, target_group_id, reason, \
+                  status, handled_at, created_at) \
+             VALUES \
+                 ($1, $3, 'user', $4, $5, 'spam', 'open', NULL, \
+                  '2026-01-02T00:00:00Z'), \
+                 ($2, $3, 'user', $4, $5, 'hate', 'actioned', \
+                  '2026-01-04T00:00:00Z', '2026-01-03T00:00:00Z')",
+        )
+        .bind(open_report_id)
+        .bind(handled_report_id)
+        .bind(blocker_id)
+        .bind(blocked_id)
+        .bind(group_id)
+        .execute(&mut connection)
+        .await?;
+
+        let migrator = sqlx::migrate::Migrator::new(Path::new("migrations")).await?;
+        migrator.run_to(21, &mut connection).await?;
+
+        for table in ["user_blocks", "reports"] {
+            require(
+                audit_column_contract(&mut connection, table).await?,
+                &format!("0021 audit column contract is incomplete for {table}"),
+            )?;
+            require_eq(
+                table_trigger_count(&mut connection, table).await?,
+                1,
+                &format!("0021 did not install one D19 trigger on {table}"),
+            )?;
+        }
+
+        let block = sqlx::query_as::<_, (Uuid, Uuid, bool, bool)>(
+            "SELECT blocker_id, blocked_id, updated_at = created_at, deleted_at IS NULL \
+             FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2",
+        )
+        .bind(blocker_id)
+        .bind(blocked_id)
+        .fetch_one(&mut connection)
+        .await?;
+        require_eq(
+            block,
+            (blocker_id, blocked_id, true, true),
+            "0021 changed the block key or failed its audit backfill",
+        )?;
+        require(
+            sqlx::query("INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2)")
+                .bind(blocker_id)
+                .bind(blocked_id)
+                .execute(&mut connection)
+                .await
+                .is_err(),
+            "0021 did not preserve the user_blocks primary key",
+        )?;
+
+        for report_id in [open_report_id, handled_report_id] {
+            let audit: (bool, bool) = sqlx::query_as(
+                "SELECT updated_at = COALESCE(handled_at, created_at), deleted_at IS NULL \
+                 FROM reports WHERE id = $1",
+            )
+            .bind(report_id)
+            .fetch_one(&mut connection)
+            .await?;
+            require_eq(
+                audit,
+                (true, true),
+                "0021 failed the report audit backfill or changed a report key",
+            )?;
+        }
+        Ok(())
+    }
+    .await;
+
+    connection.close().await?;
+    database.dispose().await?;
+    result
+}
+
+#[tokio::test]
+async fn migration_0021_applies_d19_to_blocks_and_reports() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let mut connection = database.connection().await?;
+    let result: TestResult = async {
+        let blocker_id = Uuid::new_v4();
+        let blocked_id = Uuid::new_v4();
+        for (id, nickname) in [(blocker_id, "blocker"), (blocked_id, "blocked")] {
+            sqlx::query("INSERT INTO users (id, nickname) VALUES ($1, $2)")
+                .bind(id)
+                .bind(nickname)
+                .execute(&mut connection)
+                .await?;
+        }
+        let group_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO groups (id, name, owner_id) VALUES ($1, 'u12', $2)")
+            .bind(group_id)
+            .bind(blocker_id)
+            .execute(&mut connection)
+            .await?;
+        sqlx::query("INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2)")
+            .bind(blocker_id)
+            .bind(blocked_id)
+            .execute(&mut connection)
+            .await?;
+        let report_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO reports \
+                 (id, reporter_id, target_type, target_user_id, target_group_id, reason) \
+             VALUES ($1, $2, 'user', $3, $4, 'spam')",
+        )
+        .bind(report_id)
+        .bind(blocker_id)
+        .bind(blocked_id)
+        .bind(group_id)
+        .execute(&mut connection)
+        .await?;
+
+        let block_initial: time::OffsetDateTime = sqlx::query_scalar(
+            "SELECT updated_at FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2",
+        )
+        .bind(blocker_id)
+        .bind(blocked_id)
+        .fetch_one(&mut connection)
+        .await?;
+        let report_initial: time::OffsetDateTime =
+            sqlx::query_scalar("SELECT updated_at FROM reports WHERE id = $1")
+                .bind(report_id)
+                .fetch_one(&mut connection)
+                .await?;
+
+        sqlx::query(
+            "UPDATE user_blocks SET blocked_id = blocked_id \
+             WHERE blocker_id = $1 AND blocked_id = $2",
+        )
+        .bind(blocker_id)
+        .bind(blocked_id)
+        .execute(&mut connection)
+        .await?;
+        sqlx::query("UPDATE reports SET reason = reason WHERE id = $1")
+            .bind(report_id)
+            .execute(&mut connection)
+            .await?;
+        let block_noop: time::OffsetDateTime = sqlx::query_scalar(
+            "SELECT updated_at FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2",
+        )
+        .bind(blocker_id)
+        .bind(blocked_id)
+        .fetch_one(&mut connection)
+        .await?;
+        let report_noop: time::OffsetDateTime =
+            sqlx::query_scalar("SELECT updated_at FROM reports WHERE id = $1")
+                .bind(report_id)
+                .fetch_one(&mut connection)
+                .await?;
+        require_eq(
+            block_noop,
+            block_initial,
+            "block no-op UPDATE changed updated_at",
+        )?;
+        require_eq(
+            report_noop,
+            report_initial,
+            "report no-op UPDATE changed updated_at",
+        )?;
+
+        sqlx::query(
+            "UPDATE user_blocks SET deleted_at = clock_timestamp() \
+             WHERE blocker_id = $1 AND blocked_id = $2",
+        )
+        .bind(blocker_id)
+        .bind(blocked_id)
+        .execute(&mut connection)
+        .await?;
+        sqlx::query("UPDATE reports SET reason = 'hate' WHERE id = $1")
+            .bind(report_id)
+            .execute(&mut connection)
+            .await?;
+        let block_changed: time::OffsetDateTime = sqlx::query_scalar(
+            "SELECT updated_at FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2",
+        )
+        .bind(blocker_id)
+        .bind(blocked_id)
+        .fetch_one(&mut connection)
+        .await?;
+        let report_changed: time::OffsetDateTime =
+            sqlx::query_scalar("SELECT updated_at FROM reports WHERE id = $1")
+                .bind(report_id)
+                .fetch_one(&mut connection)
+                .await?;
+        require(
+            block_changed > block_initial,
+            "block change did not advance updated_at",
+        )?;
+        require(
+            report_changed > report_initial,
+            "report change did not advance updated_at",
+        )?;
+
+        sqlx::query(
+            "UPDATE user_blocks \
+             SET deleted_at = NULL, updated_at = '2026-02-01T00:00:00Z' \
+             WHERE blocker_id = $1 AND blocked_id = $2",
+        )
+        .bind(blocker_id)
+        .bind(blocked_id)
+        .execute(&mut connection)
+        .await?;
+        sqlx::query(
+            "UPDATE reports SET reason = 'other', updated_at = '2026-02-02T00:00:00Z' \
+             WHERE id = $1",
+        )
+        .bind(report_id)
+        .execute(&mut connection)
+        .await?;
+        let caller_times: (bool, bool) = sqlx::query_as(
+            "SELECT \
+                 (SELECT updated_at = TIMESTAMPTZ '2026-02-01T00:00:00Z' \
+                  FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2), \
+                 (SELECT updated_at = TIMESTAMPTZ '2026-02-02T00:00:00Z' \
+                  FROM reports WHERE id = $3)",
+        )
+        .bind(blocker_id)
+        .bind(blocked_id)
+        .bind(report_id)
+        .fetch_one(&mut connection)
+        .await?;
+        require_eq(
+            caller_times,
+            (true, true),
+            "D19 overwrote a caller-provided moderation updated_at",
+        )?;
+        Ok(())
+    }
+    .await;
+
+    connection.close().await?;
+    database.dispose().await?;
+    result
+}
+
+#[tokio::test]
+async fn controlled_0021_failure_rolls_back_moderation_audit_columns() -> TestResult {
+    let migration_sql = migration_0021_source()?;
+    let database = TestDatabase::migrated_to(20).await?;
+    let fixture_dir = env::temp_dir().join(format!(
+        "jamye-server-task-12-forced-migration-{}",
+        Uuid::new_v4().simple()
+    ));
+    let result: TestResult = async {
+        fs::create_dir_all(&fixture_dir)?;
+        for migration in MIGRATIONS_0001_THROUGH_0020 {
+            fs::copy(
+                Path::new("migrations").join(migration),
+                fixture_dir.join(migration),
+            )?;
+        }
+        fs::write(
+            fixture_dir.join("0021_moderation_soft_delete.sql"),
+            format!("{migration_sql}\nSELECT 1 / 0;\n"),
+        )?;
+
+        let mut connection = database.connection().await?;
+        let migrator = sqlx::migrate::Migrator::new(fixture_dir.as_path()).await?;
+        require(
+            migrator.run(&mut connection).await.is_err(),
+            "forced 0021 migration unexpectedly passed",
+        )?;
+        for table in ["user_blocks", "reports"] {
+            for column in ["updated_at", "deleted_at"] {
+                require(
+                    !column_exists(&mut connection, table, column).await?,
+                    &format!("failed 0021 left {table}.{column} behind"),
+                )?;
+            }
+            require_eq(
+                table_trigger_count(&mut connection, table).await?,
+                0,
+                &format!("failed 0021 left the D19 trigger on {table}"),
+            )?;
+        }
+        let applied: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations WHERE version = 21")
+                .fetch_one(&mut connection)
+                .await?;
+        require_eq(applied, 0, "failed 0021 recorded a successful migration")?;
+        connection.close().await?;
+        Ok(())
+    }
+    .await;
+
+    let fixture_cleanup = fs::remove_dir_all(&fixture_dir);
+    let database_cleanup = database.dispose().await;
+    match (result, fixture_cleanup, database_cleanup) {
+        (Ok(()), Ok(()), Ok(())) => Ok(()),
+        (Err(test_error), Ok(()), Ok(())) => Err(test_error),
+        (Ok(()), Err(fixture_error), Ok(())) => Err(format!(
+            "failed to remove forced 0021 fixture {}: {fixture_error}",
+            fixture_dir.display()
+        )
+        .into()),
+        (Ok(()), Ok(()), Err(database_error)) => Err(database_error),
+        (Err(test_error), Err(fixture_error), Ok(())) => Err(format!(
+            "migration test failed: {test_error}; fixture cleanup also failed for {}: {fixture_error}",
+            fixture_dir.display()
+        )
+        .into()),
+        (Err(test_error), Ok(()), Err(database_error)) => Err(format!(
+            "migration test failed: {test_error}; database cleanup also failed: {database_error}"
+        )
+        .into()),
+        (Ok(()), Err(fixture_error), Err(database_error)) => Err(format!(
+            "fixture cleanup failed for {}: {fixture_error}; database cleanup also failed: {database_error}",
+            fixture_dir.display()
+        )
+        .into()),
+        (Err(test_error), Err(fixture_error), Err(database_error)) => Err(format!(
+            "migration test failed: {test_error}; fixture cleanup failed for {}: {fixture_error}; database cleanup also failed: {database_error}",
+            fixture_dir.display()
+        )
+        .into()),
+    }
 }
 
 #[test]
@@ -1045,6 +1431,52 @@ fn migration_0017_source() -> TestResult<String> {
             }
         },
     )
+}
+
+fn migration_0021_source() -> TestResult<String> {
+    fs::read_to_string("migrations/0021_moderation_soft_delete.sql").map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            io::Error::other("RED: migrations/0021_moderation_soft_delete.sql is absent").into()
+        } else {
+            error.into()
+        }
+    })
+}
+
+async fn audit_column_contract(connection: &mut PgConnection, table: &str) -> TestResult<bool> {
+    let rows = sqlx::query_as::<_, (String, String, Option<String>)>(
+        "SELECT column_name, is_nullable, column_default \
+         FROM information_schema.columns \
+         WHERE table_schema = 'public' AND table_name = $1 \
+           AND column_name IN ('updated_at', 'deleted_at') \
+         ORDER BY column_name",
+    )
+    .bind(table)
+    .fetch_all(connection)
+    .await?;
+    Ok(matches!(
+        rows.as_slice(),
+        [
+            (deleted, deleted_nullable, None),
+            (updated, updated_nullable, Some(default))
+        ] if deleted == "deleted_at"
+            && deleted_nullable == "YES"
+            && updated == "updated_at"
+            && updated_nullable == "NO"
+            && default.contains("clock_timestamp()")
+    ))
+}
+
+async fn table_trigger_count(connection: &mut PgConnection, table: &str) -> TestResult<i64> {
+    Ok(sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM pg_trigger \
+         WHERE tgrelid = to_regclass('public.' || $1) \
+           AND tgname = 'trg_jamye_set_updated_at' \
+           AND NOT tgisinternal",
+    )
+    .bind(table)
+    .fetch_one(connection)
+    .await?)
 }
 
 async fn assert_0017_live_unique_recreate_paths(
