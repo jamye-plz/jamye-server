@@ -338,9 +338,16 @@ async fn exchange(
 async fn refresh(State(state): State<AuthHttpState>, request: Request) -> Response {
     let (parts, body) = request.into_parts();
     let request_id = request_id(&parts);
+    let client_ip_subject =
+        client_ip::forwarded_client_ip(&parts).map(|address| format!("ip:{address}"));
     let result = parse_json::<RefreshBody>(body).await;
     let result = match result {
-        Ok(input) => state.service.refresh(&input.refresh_token).await,
+        Ok(input) => {
+            state
+                .service
+                .refresh_with_client_ip(&input.refresh_token, client_ip_subject.as_deref())
+                .await
+        }
         Err(error) => Err(error),
     };
     token_pair_result(result, request_id)

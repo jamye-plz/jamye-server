@@ -3060,6 +3060,25 @@
             },
             "description": "Successful response or canonical idempotent retry"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Refresh token or verified client IP rate limit exceeded; error.code is rate_limit_exceeded",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "default": {
             "content": {
               "application/json": {

@@ -396,8 +396,21 @@ impl AuthService {
         })
     }
 
+    /// Refresh without applying a per-IP rate limit.
     pub async fn refresh(&self, raw_refresh_token: &str) -> Result<TokenPair, AuthError> {
+        self.refresh_with_client_ip(raw_refresh_token, None).await
+    }
+
+    pub async fn refresh_with_client_ip(
+        &self,
+        raw_refresh_token: &str,
+        client_ip_subject: Option<&str>,
+    ) -> Result<TokenPair, AuthError> {
         validate_refresh_token(raw_refresh_token)?;
+        if let Some(subject) = client_ip_subject {
+            self.check_rate_limit("auth_refresh_ip", subject, &self.rate_limits.refresh)
+                .await?;
+        }
         self.check_rate_limit("auth_refresh", raw_refresh_token, &self.rate_limits.refresh)
             .await?;
         let parent_digest = self

@@ -826,6 +826,21 @@ fn success_and_error_responses(operation_id: &str) -> Result<Value, BoxError> {
         }
         responses.insert((*status).to_owned(), Value::Object(response));
     }
+    if operation_id == "A3" {
+        responses.insert(
+            "429".to_owned(),
+            json!({
+                "description": "Refresh token or verified client IP rate limit exceeded; error.code is rate_limit_exceeded",
+                "headers": {
+                    "Retry-After": {
+                        "description": "Seconds to wait before retrying",
+                        "schema": {"type": "integer", "minimum": 1}
+                    }
+                },
+                "content": {"application/json": {"schema": component_ref("ErrorEnvelope")}}
+            }),
+        );
+    }
     if operation_id == "U6" {
         responses.insert(
             "404".to_owned(),

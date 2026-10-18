@@ -5,6 +5,22 @@ use serde_json::{Value, json};
 use crate::TestResult;
 
 #[test]
+fn refresh_contract_documents_ip_rate_limit_with_existing_envelope() -> TestResult {
+    let openapi: Value = serde_json::from_str(include_str!("../../contracts/openapi.json"))?;
+    let response = &openapi["paths"]["/api/v1/auth/refresh"]["post"]["responses"]["429"];
+    assert_eq!(
+        response["description"],
+        "Refresh token or verified client IP rate limit exceeded; error.code is rate_limit_exceeded"
+    );
+    assert_eq!(
+        response["content"]["application/json"]["schema"]["$ref"],
+        "#/components/schemas/ErrorEnvelope"
+    );
+    assert!(response["headers"]["Retry-After"].is_object());
+    Ok(())
+}
+
+#[test]
 fn feature_contract_contribution_is_the_exact_selected_auth_wire() -> TestResult {
     let operations: Value = serde_json::from_str(include_str!(
         "../../contracts/contributions/task-5/dto/operations.json"
