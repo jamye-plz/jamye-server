@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    fmt,
     sync::Arc,
 };
 
@@ -16,8 +17,8 @@ const MAX_SOCKETS_PER_USER: usize = 8;
 #[derive(Debug)]
 pub struct RegistryFull;
 
-impl std::fmt::Display for RegistryFull {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for RegistryFull {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("per-user socket limit reached")
     }
 }

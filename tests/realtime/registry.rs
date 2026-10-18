@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::TestResult;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_admission_never_exceeds_eight() -> TestResult {
     let hub = LocalRealtimeHub::default();
     let user_id = Uuid::new_v4();

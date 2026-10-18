@@ -4,6 +4,7 @@ use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use futures_util::{SinkExt, StreamExt, stream::SplitSink};
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
+use tokio_tungstenite::tungstenite::Error as WebSocketError;
 use uuid::Uuid;
 
 use crate::{
@@ -21,8 +22,8 @@ pub const CLOSE_PROTOCOL_ERROR: u16 = 4400;
 pub const CLOSE_REALTIME_AUTH_FAILED: u16 = 4401;
 pub const CLOSE_REALTIME_AUTH_EXPIRED: u16 = 4401;
 pub const CLOSE_INTERNAL_ERROR: u16 = 1011;
-const CLOSE_MESSAGE_TOO_BIG: u16 = 1009;
-const CLOSE_TRY_AGAIN_LATER: u16 = 1013;
+pub const CLOSE_MESSAGE_TOO_BIG: u16 = 1009;
+pub const CLOSE_TRY_AGAIN_LATER: u16 = 1013;
 const CLIENT_PING_INTERVAL_SECONDS: u64 = 25;
 const PONG_DEADLINE_SECONDS: u64 = 10;
 const HEARTBEAT_TIMEOUT: Duration =
@@ -152,14 +153,15 @@ pub async fn run_socket_with_runtime(
                     }
                     Some(Err(error)) => {
                         hub.cleanup(socket_id).await;
-                        let too_big = error.into_inner()
-                            .downcast::<tokio_tungstenite::tungstenite::Error>()
-                            .is_ok_and(|error| matches!(*error, tokio_tungstenite::tungstenite::Error::Capacity(_)));
-                        if too_big {
-                            close(&mut sender, CLOSE_MESSAGE_TOO_BIG, "message_too_big").await;
+                        let (code, reason) = if error.into_inner()
+                            .downcast::<WebSocketError>()
+                            .is_ok_and(|error| matches!(*error, WebSocketError::Capacity(_)))
+                        {
+                            (CLOSE_MESSAGE_TOO_BIG, "message_too_big")
                         } else {
-                            close(&mut sender, CLOSE_PROTOCOL_ERROR, "protocol_error").await;
-                        }
+                            (CLOSE_PROTOCOL_ERROR, "protocol_error")
+                        };
+                        close(&mut sender, code, reason).await;
                         break;
                     }
                 }

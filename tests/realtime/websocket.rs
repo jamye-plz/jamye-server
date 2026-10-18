@@ -12,8 +12,9 @@ use jamye_server::{
     ports::realtime::{ConversationAuthorizer, RealtimeClock, RealtimeFuture},
     transport::http::realtime::limit_websocket_upgrade,
     transport::realtime::{
-        CLOSE_MEMBERSHIP_REQUIRED, CLOSE_PROTOCOL_ERROR, CLOSE_REALTIME_AUTH_EXPIRED,
-        LocalRealtimeHub, SocketTiming, run_socket_with_runtime,
+        CLOSE_MEMBERSHIP_REQUIRED, CLOSE_MESSAGE_TOO_BIG, CLOSE_PROTOCOL_ERROR,
+        CLOSE_REALTIME_AUTH_EXPIRED, CLOSE_TRY_AGAIN_LATER, LocalRealtimeHub, SocketTiming,
+        run_socket_with_runtime,
     },
 };
 use serde_json::{Value, json};
@@ -56,7 +57,9 @@ async fn text_message_over_4096_closes_1009() -> TestResult {
     socket
         .send(ClientMessage::Text(padded_ping(4097).into()))
         .await?;
-    assert_eq!(u16::from(next_close(&mut socket).await?.code), 1009);
+    let close = next_close(&mut socket).await?;
+    assert_eq!(u16::from(close.code), CLOSE_MESSAGE_TOO_BIG);
+    assert_eq!(close.reason.as_str(), "message_too_big");
     assert_eq!(hub.registry_counts().await, (0, 0, 0));
     stop(shutdown, server).await
 }
@@ -80,7 +83,9 @@ async fn fragmented_message_over_4096_closes_1009() -> TestResult {
             true,
         )))
         .await?;
-    assert_eq!(u16::from(next_close(&mut socket).await?.code), 1009);
+    let close = next_close(&mut socket).await?;
+    assert_eq!(u16::from(close.code), CLOSE_MESSAGE_TOO_BIG);
+    assert_eq!(close.reason.as_str(), "message_too_big");
     assert_eq!(hub.registry_counts().await, (0, 0, 0));
     stop(shutdown, server).await
 }
@@ -131,7 +136,9 @@ async fn ninth_socket_per_user_closes_1013() -> TestResult {
         connections.push((socket, shutdown, server));
     }
     let (mut rejected, rejected_shutdown, rejected_server) = connect(state.clone()).await?;
-    assert_eq!(u16::from(next_close(&mut rejected).await?.code), 1013);
+    let close = next_close(&mut rejected).await?;
+    assert_eq!(u16::from(close.code), CLOSE_TRY_AGAIN_LATER);
+    assert_eq!(close.reason.as_str(), "socket_limit");
     assert_eq!(hub.registry_counts().await, (8, 8, 0));
     for (socket, _, _) in &mut connections {
         assert_ping(socket).await?;
@@ -152,6 +159,7 @@ async fn ninth_socket_per_user_closes_1013() -> TestResult {
 
 #[tokio::test]
 async fn slot_released_on_disconnect_expiry_and_shutdown() -> TestResult {
+    // Shutdown means a live server-side session ends; process exit drops the in-memory registry.
     for ending in ["close", "drop", "expiry", "heartbeat"] {
         let hub = LocalRealtimeHub::default();
         let mut state = default_limit_state(hub.clone())?;
@@ -182,7 +190,7 @@ async fn slot_released_on_disconnect_expiry_and_shutdown() -> TestResult {
                 u16::from(next_close(&mut socket).await?.code),
                 CLOSE_PROTOCOL_ERROR
             ),
-            _ => unreachable!(),
+            _ => unreachable!("unknown session ending"),
         }
         wait_for_socket_count(&hub, 7).await?;
         state.session.access_token_expires_at =
