@@ -44,6 +44,7 @@ impl ProductionTokenCodec {
 
     fn validation(&self) -> Validation {
         let mut validation = Validation::new(Algorithm::HS256);
+        validation.leeway = 0;
         validation.set_audience(&[self.audience.as_str()]);
         validation.set_issuer(&[self.issuer.as_str()]);
         validation.set_required_spec_claims(&["sub", "iss", "aud", "iat", "exp"]);
@@ -114,3 +115,48 @@ impl fmt::Display for ProductionTokenConfigError {
 }
 
 impl std::error::Error for ProductionTokenConfigError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+    #[test]
+    fn access_token_expired_30_seconds_ago_is_rejected() -> TestResult {
+        let codec = ProductionTokenCodec::new(
+            b"task-5-production-token-secret-32-bytes",
+            "https://api.jamye.test",
+            "jamye-mobile",
+        )?;
+        let now = OffsetDateTime::now_utc();
+        let token = codec.issue(
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            now - time::Duration::seconds(90),
+            now - time::Duration::seconds(30),
+        )?;
+
+        assert!(codec.verify(&token).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn access_token_expiring_in_300_seconds_is_accepted() -> TestResult {
+        let codec = ProductionTokenCodec::new(
+            b"task-5-production-token-secret-32-bytes",
+            "https://api.jamye.test",
+            "jamye-mobile",
+        )?;
+        let now = OffsetDateTime::now_utc();
+        let token = codec.issue(
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            now,
+            now + time::Duration::seconds(300),
+        )?;
+
+        assert!(codec.verify(&token).is_ok());
+        Ok(())
+    }
+}
