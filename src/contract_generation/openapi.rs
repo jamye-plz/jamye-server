@@ -3,7 +3,9 @@
 use serde_json::{Value, json};
 use utoipa::{Modify, OpenApi};
 
-use jamye_server::application::messaging::CURRENT_CONTRACT_VERSION;
+use jamye_server::application::messaging::{
+    CURRENT_CONTRACT_VERSION, DEFAULT_DELTA_LIMIT, MAX_DELTA_LIMIT,
+};
 use jamye_server::transport::http::health::{
     DependencyCheck, DependencyChecks, DependencyStatus, LivenessResponse, LivenessStatus,
     ReadinessResponse, ReadinessStatus,
@@ -185,6 +187,36 @@ fn create_message_contract() {}
 #[allow(dead_code)]
 fn conversation_events_contract() {}
 
+#[cfg(test)]
+mod s1_limit_tests {
+    use super::{BoxError, document, document_release_candidate};
+
+    #[test]
+    fn s1_limit_metadata_matches_runtime_policy() -> Result<(), BoxError> {
+        for openapi in [document()?, document_release_candidate()?] {
+            let operation =
+                &openapi["paths"]["/api/v1/conversations/{conversation_id}/events"]["get"];
+            assert_eq!(operation["operationId"], "S1");
+            let parameters = operation["parameters"]
+                .as_array()
+                .ok_or("S1 parameters are missing")?;
+            let limits = parameters
+                .iter()
+                .filter(|parameter| parameter["name"] == "limit")
+                .collect::<Vec<_>>();
+            assert_eq!(limits.len(), 1);
+            let limit = limits[0];
+            assert_eq!(limit["in"], "query");
+            assert_eq!(limit["description"], "Bounded page size");
+            assert_eq!(limit["schema"]["format"], "int32");
+            assert_eq!(limit["schema"]["minimum"], 1);
+            assert_eq!(limit["schema"]["default"], 50);
+            assert_eq!(limit["schema"]["maximum"], 100);
+        }
+        Ok(())
+    }
+}
+
 #[utoipa::path(
     post,
     operation_id = "R1",
@@ -293,8 +325,26 @@ pub fn document() -> Result<Value, BoxError> {
     enforce_exact_null_details(&mut value)?;
     enforce_message_content_rule(&mut value)?;
     enforce_contract_version_headers(&mut value)?;
+    enforce_s1_limit_metadata(&mut value)?;
     validate_operation_ids(&value, C0_OPERATION_IDS, "C0")?;
     Ok(value)
+}
+
+fn enforce_s1_limit_metadata(openapi: &mut Value) -> Result<(), BoxError> {
+    let schema = openapi
+        .pointer_mut("/paths/~1api~1v1~1conversations~1{conversation_id}~1events/get/parameters")
+        .and_then(Value::as_array_mut)
+        .and_then(|parameters| {
+            parameters
+                .iter_mut()
+                .find(|parameter| parameter["name"] == "limit" && parameter["in"] == "query")
+        })
+        .and_then(|parameter| parameter.get_mut("schema"))
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| invalid_data("S1 limit parameter schema is missing"))?;
+    schema.insert("default".to_owned(), Value::from(DEFAULT_DELTA_LIMIT));
+    schema.insert("maximum".to_owned(), Value::from(MAX_DELTA_LIMIT));
+    Ok(())
 }
 
 pub fn document_release_candidate() -> Result<Value, BoxError> {

@@ -3599,7 +3599,9 @@
             "name": "limit",
             "required": false,
             "schema": {
+              "default": 50,
               "format": "int32",
+              "maximum": 100,
               "minimum": 1,
               "type": "integer"
             }
