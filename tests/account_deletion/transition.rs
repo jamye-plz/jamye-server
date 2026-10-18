@@ -4,25 +4,17 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
 };
 
 use jamye_server::{
-    adapters::{
-        oauth::OsCredentialSource,
-        postgres::{
-            account_deletion::PostgresAccountDeletionRepository, groups::PostgresGroupsRepository,
-            push::PostgresPushRepository, transactions::SqlxTransactionManager,
-        },
+    adapters::postgres::{
+        account_deletion::PostgresAccountDeletionRepository, push::PostgresPushRepository,
+        transactions::SqlxTransactionManager,
     },
     application::{
         account_deletion::{
             ANONYMOUS_AUTHOR_NICKNAME, AccountDeletionDependencies, AccountDeletionError,
             AccountDeletionService,
-        },
-        groups::{
-            GroupsDependencies, GroupsEndpointRateLimit, GroupsRateLimitPolicy, GroupsService,
-            SystemGroupsClock,
         },
         realtime::membership_revocation::RealtimeControlIntent,
     },
@@ -32,17 +24,10 @@ use jamye_server::{
             AccountDeletionReport, AccountDeletionRepository, AccountDeletionRepositoryError,
             AccountDeletionRepositoryFuture,
         },
-        groups::{
-            CreateGroupCommand, CreateInviteCommand, GetGroupQuery, GroupActorCommand, GroupPage,
-            GroupRecord, GroupsRepository, GroupsRepositoryFuture, InviteJoinRecord, InviteRecord,
-            ListGroupsQuery, ListMembersQuery, MemberPage, RedeemInviteCommand,
-            RemoveMemberCommand, RenameGroupCommand, SetMemberRoleCommand,
-        },
         push::{
             FenceGroupPushCommand, FenceMembershipPushCommand, PushPrivacyFence,
             PushPrivacyFenceFuture,
         },
-        rate_limit::{RateLimitFuture, RateLimitOutcome, RateLimitRequest, RateLimiter},
         transactions::{
             BoxTransactionHandle, TransactionFuture, TransactionHandle, TransactionManager,
         },
@@ -1038,29 +1023,6 @@ fn service_harness(pool: &PgPool, repository_mode: RepositoryMode) -> TestResult
         SqlxTransactionManager::new(pool.clone()),
     ));
     let membership_calls = MembershipCallLog::default();
-    let groups_repository = Arc::new(RecordingGroupsRepository {
-        inner: PostgresGroupsRepository::new(pool.clone()),
-        calls: membership_calls.clone(),
-    });
-    let groups = Arc::new(GroupsService::new(
-        GroupsDependencies {
-            transactions: transactions.clone(),
-            repository: groups_repository,
-            rate_limiter: Arc::new(AllowRateLimiter),
-            credentials: Arc::new(OsCredentialSource),
-            clock: Arc::new(SystemGroupsClock),
-        },
-        GroupsRateLimitPolicy {
-            invite_issue: GroupsEndpointRateLimit {
-                limit: 10,
-                window: Duration::from_secs(60),
-            },
-            invite_redeem: GroupsEndpointRateLimit {
-                limit: 20,
-                window: Duration::from_secs(60),
-            },
-        },
-    )?);
     let push_privacy_fence = Arc::new(RecordingPushPrivacyFence {
         inner: PostgresPushRepository::new(pool.clone()),
         calls: membership_calls.clone(),
@@ -1075,7 +1037,6 @@ fn service_harness(pool: &PgPool, repository_mode: RepositoryMode) -> TestResult
     };
     let service = AccountDeletionService::new(AccountDeletionDependencies {
         transactions: transactions.clone(),
-        groups,
         push_privacy_fence,
         repository,
         apple_identity_provider: None,
@@ -1173,7 +1134,6 @@ fn transaction_handle_id(transaction: &mut dyn TransactionHandle) -> usize {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum MembershipBoundary {
-    Groups,
     Push,
 }
 
@@ -1203,83 +1163,6 @@ impl MembershipCallLog {
 
     fn snapshot(&self) -> Vec<MembershipCall> {
         mutex_guard(&self.0).clone()
-    }
-}
-
-struct RecordingGroupsRepository {
-    inner: PostgresGroupsRepository,
-    calls: MembershipCallLog,
-}
-
-impl GroupsRepository for RecordingGroupsRepository {
-    fn create_group<'a>(
-        &'a self,
-        transaction: &'a mut dyn TransactionHandle,
-        command: &'a CreateGroupCommand,
-    ) -> GroupsRepositoryFuture<'a, GroupRecord> {
-        self.inner.create_group(transaction, command)
-    }
-
-    fn list_groups(&self, query: ListGroupsQuery) -> GroupsRepositoryFuture<'_, GroupPage> {
-        self.inner.list_groups(query)
-    }
-
-    fn get_group(&self, query: GetGroupQuery) -> GroupsRepositoryFuture<'_, GroupRecord> {
-        self.inner.get_group(query)
-    }
-
-    fn list_members(&self, query: ListMembersQuery) -> GroupsRepositoryFuture<'_, MemberPage> {
-        self.inner.list_members(query)
-    }
-
-    fn rename_group<'a>(
-        &'a self,
-        transaction: &'a mut dyn TransactionHandle,
-        command: &'a RenameGroupCommand,
-    ) -> GroupsRepositoryFuture<'a, GroupRecord> {
-        self.inner.rename_group(transaction, command)
-    }
-
-    fn delete_group<'a>(
-        &'a self,
-        transaction: &'a mut dyn TransactionHandle,
-        command: &'a GroupActorCommand,
-    ) -> GroupsRepositoryFuture<'a, ()> {
-        self.inner.delete_group(transaction, command)
-    }
-
-    fn remove_member<'a>(
-        &'a self,
-        transaction: &'a mut dyn TransactionHandle,
-        command: &'a RemoveMemberCommand,
-    ) -> GroupsRepositoryFuture<'a, ()> {
-        self.calls
-            .record(MembershipBoundary::Groups, command.group_id, transaction);
-        self.inner.remove_member(transaction, command)
-    }
-
-    fn set_member_role<'a>(
-        &'a self,
-        transaction: &'a mut dyn TransactionHandle,
-        command: &'a SetMemberRoleCommand,
-    ) -> GroupsRepositoryFuture<'a, ()> {
-        self.inner.set_member_role(transaction, command)
-    }
-
-    fn create_invite<'a>(
-        &'a self,
-        transaction: &'a mut dyn TransactionHandle,
-        command: &'a CreateInviteCommand,
-    ) -> GroupsRepositoryFuture<'a, InviteRecord> {
-        self.inner.create_invite(transaction, command)
-    }
-
-    fn redeem_invite<'a>(
-        &'a self,
-        transaction: &'a mut dyn TransactionHandle,
-        command: &'a RedeemInviteCommand,
-    ) -> GroupsRepositoryFuture<'a, InviteJoinRecord> {
-        self.inner.redeem_invite(transaction, command)
     }
 }
 
@@ -1351,15 +1234,6 @@ impl AccountDeletionRepository for FailAfterFinalizeRepository {
             self.finalized.store(true, Ordering::SeqCst);
             Err(AccountDeletionRepositoryError::Unavailable)
         })
-    }
-}
-
-#[derive(Clone, Copy)]
-struct AllowRateLimiter;
-
-impl RateLimiter for AllowRateLimiter {
-    fn check<'a>(&'a self, _request: &'a RateLimitRequest) -> RateLimitFuture<'a> {
-        Box::pin(async { Ok(RateLimitOutcome::Allowed) })
     }
 }
 

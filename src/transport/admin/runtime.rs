@@ -6,19 +6,15 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
-    adapters::{
-        oauth::OsCredentialSource,
-        postgres::{
-            account_deletion::PostgresAccountDeletionRepository, groups::PostgresGroupsRepository,
-            messaging::PostgresMessagingRepository, moderation::PostgresModerationRepository,
-            push::PostgresPushRepository, runtime_pool, transactions::SqlxTransactionManager,
-        },
+    adapters::postgres::{
+        account_deletion::PostgresAccountDeletionRepository,
+        messaging::PostgresMessagingRepository, moderation::PostgresModerationRepository,
+        push::PostgresPushRepository, runtime_pool, transactions::SqlxTransactionManager,
     },
     application::{
         account_deletion::{
             AccountDeletionDependencies, AccountDeletionError, AccountDeletionService,
         },
-        groups::{GroupsDependencies, GroupsService, SystemGroupsClock},
         moderation::{
             ModerationDependencies, ModerationError, ModerationService, ModerationSettings,
             admin::{
@@ -27,7 +23,7 @@ use crate::{
             },
         },
     },
-    config::{AppConfig, rate_limit::RateLimitConfig},
+    config::AppConfig,
     ports::rate_limit::{RateLimitError, RateLimitFuture, RateLimitRequest, RateLimiter},
     transport::admin::{
         cli::Command,
@@ -42,14 +38,12 @@ pub const EXIT_USAGE: u8 = 2;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AdminCompositionError {
     Postgres,
-    Groups,
 }
 
 impl std::fmt::Display for AdminCompositionError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(match self {
             Self::Postgres => "the PostgreSQL connection settings are invalid",
-            Self::Groups => "the groups service could not be composed",
         })
     }
 }
@@ -86,7 +80,7 @@ pub fn compose(config: &AppConfig) -> Result<AdminServices, AdminCompositionErro
         ModerationDependencies {
             transactions: transactions.clone(),
             repository: moderation_repository.clone(),
-            rate_limiter: offline_limiter.clone(),
+            rate_limiter: offline_limiter,
         },
         ModerationSettings::default(),
     ));
@@ -96,23 +90,8 @@ pub fn compose(config: &AppConfig) -> Result<AdminServices, AdminCompositionErro
         messaging: Arc::new(PostgresMessagingRepository::new(pool.clone())),
     }));
 
-    // The deletion service carries a groups service it does not use on the grace path.
-    let groups = Arc::new(
-        GroupsService::new(
-            GroupsDependencies {
-                transactions: transactions.clone(),
-                repository: Arc::new(PostgresGroupsRepository::new(pool.clone())),
-                rate_limiter: offline_limiter,
-                credentials: Arc::new(OsCredentialSource),
-                clock: Arc::new(SystemGroupsClock),
-            },
-            RateLimitConfig::default().groups,
-        )
-        .map_err(|_| AdminCompositionError::Groups)?,
-    );
     let accounts = Arc::new(AccountDeletionService::new(AccountDeletionDependencies {
         transactions,
-        groups,
         push_privacy_fence: Arc::new(PostgresPushRepository::new(pool.clone())),
         repository: Arc::new(PostgresAccountDeletionRepository::new(pool)),
         apple_identity_provider: None,

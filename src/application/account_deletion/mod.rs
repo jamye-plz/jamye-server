@@ -4,21 +4,17 @@ pub mod cleanup;
 
 use std::{fmt, sync::Arc};
 
-use crate::{
-    application::groups::GroupsService,
-    ports::{
-        account_deletion::{
-            AccountDeletionCommand, AccountDeletionReport, AccountDeletionRepository,
-            AccountDeletionRepositoryError, AppleReauthenticationProof,
-        },
-        apple_identity_provider::{
-            AppleAuthorizationCodeRevocationRequest, AppleIdentityProvider,
-            AppleIdentityProviderError, AppleIdentityVerificationRequest, AppleRevocationProvider,
-            AppleRevocationProviderError,
-        },
-        push::{FenceMembershipPushCommand, PushPrivacyFence},
-        transactions::{BoxTransactionHandle, TransactionManager},
+use crate::ports::{
+    account_deletion::{
+        AccountDeletionCommand, AccountDeletionReport, AccountDeletionRepository,
+        AccountDeletionRepositoryError, AppleReauthenticationProof,
     },
+    apple_identity_provider::{
+        AppleAuthorizationCodeRevocationRequest, AppleIdentityProvider, AppleIdentityProviderError,
+        AppleIdentityVerificationRequest, AppleRevocationProvider, AppleRevocationProviderError,
+    },
+    push::{FenceMembershipPushCommand, PushPrivacyFence},
+    transactions::{BoxTransactionHandle, TransactionManager},
 };
 
 pub use crate::ports::account_deletion::ANONYMOUS_AUTHOR_NICKNAME;
@@ -31,7 +27,6 @@ pub struct AccountDeletionService {
 #[derive(Clone)]
 pub struct AccountDeletionDependencies {
     pub transactions: Arc<dyn TransactionManager>,
-    pub groups: Arc<GroupsService>,
     pub push_privacy_fence: Arc<dyn PushPrivacyFence>,
     pub repository: Arc<dyn AccountDeletionRepository>,
     pub apple_identity_provider: Option<Arc<dyn AppleIdentityProvider>>,
