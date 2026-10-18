@@ -162,6 +162,46 @@ async fn retry_metadata_then_dead_letter_preserves_the_single_canonical_occurren
 }
 
 #[tokio::test]
+async fn eighth_failure_dead_letters_without_scheduling_another_retry() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let topology = pending_topology(&pool).await?;
+    sqlx::query("UPDATE push_delivery_intents SET attempt_count = 7 WHERE id = $1")
+        .bind(topology.occurrence_id)
+        .execute(&pool)
+        .await?;
+    let repository = PostgresPushRepository::new(pool.clone());
+    let claim = repository
+        .claim_deliveries(claim_request("retry-owner", 2_000))
+        .await?
+        .pop()
+        .ok_or("pending push occurrence was not claimed")?;
+    assert_eq!(claim.attempt_count, 7);
+    assert_eq!(
+        repository
+            .record_delivery_failure(
+                &claim,
+                PushDeliveryFailureCode::ExpoUnavailable,
+                Duration::from_secs(128),
+                8,
+            )
+            .await?,
+        PushDeliveryFailureDisposition::DeadLettered
+    );
+    assert_dead_letter(&pool, topology.occurrence_id, 8, "expo_unavailable").await?;
+    let retry_is_absent = sqlx::query_scalar::<_, bool>(
+        "SELECT next_attempt_at IS NULL FROM push_delivery_intents WHERE id = $1",
+    )
+    .bind(topology.occurrence_id)
+    .fetch_one(&pool)
+    .await?;
+    assert!(retry_is_absent);
+
+    pool.close().await;
+    database.dispose().await
+}
+
+#[tokio::test]
 async fn retry_delay_crossing_the_deadline_dead_letters_before_max_attempts() -> TestResult {
     let database = TestDatabase::migrated().await?;
     let pool = database.pool()?;

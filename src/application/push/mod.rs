@@ -451,10 +451,15 @@ impl PushWorker {
         max_attempts: u32,
         report: &mut PushWorkerReport,
     ) -> Result<(), PushWorkerError> {
+        let attempt = claim.attempt_count.saturating_add(1);
+        let retry_delay = self
+            .config
+            .retry_delay
+            .saturating_mul(1 << attempt.saturating_sub(1).min(10));
         match self
             .dependencies
             .repository
-            .record_delivery_failure(claim, code, self.config.retry_delay, max_attempts)
+            .record_delivery_failure(claim, code, retry_delay, max_attempts)
             .await
             .map_err(|_| PushWorkerError::RepositoryUnavailable)?
         {

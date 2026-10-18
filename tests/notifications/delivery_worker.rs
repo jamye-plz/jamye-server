@@ -221,6 +221,74 @@ async fn preview_outage_and_expo_outage_or_timeout_remain_retryable_without_fals
 }
 
 #[tokio::test]
+async fn retry_delays_double_for_each_failed_attempt() {
+    let harness = Harness::new(
+        Ok(Some(authorized_delivery(None))),
+        Ok(None),
+        ProviderBehavior::Error(PushProviderError::Unavailable),
+        Ok(PushDeliveryFailureDisposition::RetryScheduled),
+        Ok(true),
+    );
+    let mut config = worker_config();
+    config.retry_delay = Duration::from_millis(1_000);
+    config.max_attempts = 8;
+    let worker = match PushWorker::new(harness.dependencies.clone(), config) {
+        Ok(worker) => worker,
+        Err(error) => panic!("test worker configuration must remain valid: {error:?}"),
+    };
+
+    for previous_failures in 0..7 {
+        *crate::lock_test_mutex(&harness.repository.attempt_count, "attempt count") =
+            previous_failures;
+        assert_eq!(
+            worker.run_once().await,
+            Ok(PushWorkerReport {
+                claimed: 1,
+                retries: 1,
+                ..PushWorkerReport::default()
+            })
+        );
+    }
+    let failures = harness.repository.failures();
+    let delays: Vec<_> = failures.iter().map(|(_, delay, _)| *delay).collect();
+    let expected_delays = [1, 2, 4, 8, 16, 32, 64].map(Duration::from_secs).to_vec();
+    assert_eq!(delays, expected_delays);
+    assert!(delays.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(failures.iter().all(|(code, _, max_attempts)| {
+        *code == PushDeliveryFailureCode::ExpoUnavailable && *max_attempts == 8
+    }));
+}
+
+#[tokio::test]
+async fn retry_delay_caps_the_exponent_and_saturates_duration() {
+    let harness = Harness::new(
+        Ok(Some(authorized_delivery(None))),
+        Ok(None),
+        ProviderBehavior::Error(PushProviderError::Unavailable),
+        Ok(PushDeliveryFailureDisposition::RetryScheduled),
+        Ok(true),
+    );
+    *crate::lock_test_mutex(&harness.repository.attempt_count, "attempt count") = u32::MAX;
+    let mut config = worker_config();
+    config.retry_delay = Duration::from_secs(1);
+    config.max_attempts = u32::MAX;
+    let worker = match PushWorker::new(harness.dependencies.clone(), config.clone()) {
+        Ok(worker) => worker,
+        Err(error) => panic!("test worker configuration must remain valid: {error:?}"),
+    };
+    assert!(worker.run_once().await.is_ok());
+    config.retry_delay = Duration::MAX;
+    let worker = match PushWorker::new(harness.dependencies.clone(), config) {
+        Ok(worker) => worker,
+        Err(error) => panic!("test worker configuration must remain valid: {error:?}"),
+    };
+    assert!(worker.run_once().await.is_ok());
+    let failures = harness.repository.failures();
+    assert_eq!(failures[0].1, Duration::from_secs(1_024));
+    assert_eq!(failures[1].1, Duration::MAX);
+}
+
+#[tokio::test]
 async fn non_retryable_provider_rejection_dead_letters_without_false_success() {
     let harness = Harness::new(
         Ok(Some(authorized_delivery(None))),
@@ -336,6 +404,7 @@ impl Harness {
         let repository = Arc::new(RecordingRepository {
             calls: calls.clone(),
             claim_requests: Mutex::new(Vec::new()),
+            attempt_count: Mutex::new(0),
             failures: Mutex::new(Vec::new()),
             invalid_destinations: Mutex::new(Vec::new()),
             authorization_result,
@@ -417,6 +486,7 @@ impl TransactionManager for RecordingTransactions {
 struct RecordingRepository {
     calls: Arc<Mutex<Vec<Call>>>,
     claim_requests: Mutex<Vec<PushDeliveryClaimRequest>>,
+    attempt_count: Mutex<u32>,
     failures: Mutex<Vec<(PushDeliveryFailureCode, Duration, u32)>>,
     invalid_destinations: Mutex<Vec<(PushDeliveryClaim, ExpoPushDestination)>>,
     authorization_result: Result<Option<AuthorizedPushDelivery>, PushRepositoryError>,
@@ -445,7 +515,8 @@ impl PushDeliveryRepository for RecordingRepository {
     ) -> PushDeliveryRepositoryFuture<'_, Vec<ClaimedPushDelivery>> {
         record(&self.calls, Call::Claim);
         crate::lock_test_mutex(&self.claim_requests, "claim request").push(request);
-        Box::pin(async { Ok(vec![claimed_delivery()]) })
+        let attempt_count = *crate::lock_test_mutex(&self.attempt_count, "attempt count");
+        Box::pin(async move { Ok(vec![claimed_delivery(attempt_count)]) })
     }
 
     fn mark_delivery_succeeded<'a>(
@@ -573,11 +644,11 @@ fn worker_config() -> PushWorkerConfig {
     }
 }
 
-fn claimed_delivery() -> ClaimedPushDelivery {
+fn claimed_delivery(attempt_count: u32) -> ClaimedPushDelivery {
     ClaimedPushDelivery {
         claim: claim(),
         claim_expires_at: OffsetDateTime::UNIX_EPOCH,
-        attempt_count: 1,
+        attempt_count,
     }
 }
 
