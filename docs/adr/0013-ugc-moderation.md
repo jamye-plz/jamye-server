@@ -2,7 +2,7 @@
 
 ## Status
 
-task-20b 서버 구현에서 채택하고 task-u12에서 moderation soft delete 결정을 개정했다. 아직 운영에 배포하지 않았다.
+task-20b 서버 구현에서 채택하고 task-u12에서 moderation soft delete 결정(migration `0021`)으로 개정했으며, 2026-10-18 운영에 배포했다.
 
 ## Context
 
