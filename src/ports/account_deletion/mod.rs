@@ -96,6 +96,17 @@ pub trait AccountDeletionRepository: Send + Sync {
     }
 }
 
+/// Counts in order: outbox published/dead-letter, push succeeded/failed/
+/// dead-letter, and object deletion succeeded.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TerminalRetentionReport {
+    pub deleted: [u64; 6],
+}
+
+pub trait TerminalRetentionRepository: Send + Sync {
+    fn purge_terminal_rows(&self) -> AccountDeletionRepositoryFuture<'_, TerminalRetentionReport>;
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountPurgeClaimRequest {
     pub claim_owner: String,

@@ -528,12 +528,13 @@ pub fn worker(
     let realtime =
         realtime_composition::worker(config).map_err(WorkerCompositionError::Realtime)?;
     let push = push_composition::worker(config, push).map_err(WorkerCompositionError::Push)?;
-    let (cleanup, purge) = account_cleanup_workers(config, object_storage, cleanup)?;
+    let (cleanup, purge, retention) = account_cleanup_workers(config, object_storage, cleanup)?;
     Ok(ProductionWorkerRuntime {
         realtime,
         push,
         cleanup,
         purge,
+        retention,
     })
 }
 
@@ -542,6 +543,7 @@ pub struct ProductionWorkerRuntime {
     push: push_composition::WorkerRuntime,
     cleanup: crate::application::account_deletion::cleanup::AccountObjectDeletionWorker,
     purge: crate::application::account_deletion::cleanup::AccountPurgeWorker,
+    retention: Arc<dyn crate::ports::account_deletion::TerminalRetentionRepository>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -568,12 +570,14 @@ impl ProductionWorkerRuntime {
             push,
             cleanup,
             purge,
+            retention,
         } = self;
         let (stop, receiver) = tokio::sync::watch::channel(());
         let realtime_stop = receiver.clone();
         let push_stop = receiver.clone();
         let cleanup_stop = receiver.clone();
-        let purge_stop = receiver;
+        let purge_stop = receiver.clone();
+        let retention_stop = receiver;
         let mut runners = tokio::task::JoinSet::new();
         runners.spawn(async move {
             realtime
@@ -602,6 +606,23 @@ impl ProductionWorkerRuntime {
                 let mut receiver = purge_stop;
                 let _ = receiver.changed().await;
             })
+            .await;
+        });
+        runners.spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            let ticks = futures_util::stream::unfold(interval, |mut interval| async move {
+                interval.tick().await;
+                Some(((), interval))
+            });
+            crate::application::account_deletion::cleanup::run_terminal_retention_until(
+                retention,
+                ticks,
+                async move {
+                    let mut receiver = retention_stop;
+                    let _ = receiver.changed().await;
+                },
+            )
             .await;
         });
         supervise_runners(shutdown, &mut runners, stop).await
@@ -643,6 +664,7 @@ fn account_cleanup_workers(
     (
         crate::application::account_deletion::cleanup::AccountObjectDeletionWorker,
         crate::application::account_deletion::cleanup::AccountPurgeWorker,
+        Arc<dyn crate::ports::account_deletion::TerminalRetentionRepository>,
     ),
     WorkerCompositionError,
 > {
@@ -672,12 +694,12 @@ fn account_cleanup_workers(
     let purge_worker = AccountPurgeWorker::new(
         AccountPurgeWorkerDependencies {
             transactions: Arc::new(SqlxTransactionManager::new(pool)),
-            repository,
+            repository: repository.clone(),
         },
         cleanup.purge_worker_config(),
     )
     .map_err(|_| WorkerCompositionError::CleanupWorker)?;
-    Ok((object_worker, purge_worker))
+    Ok((object_worker, purge_worker, repository))
 }
 
 async fn run_cleanup_until<F>(

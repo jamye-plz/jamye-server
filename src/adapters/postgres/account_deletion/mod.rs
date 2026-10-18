@@ -6,6 +6,7 @@
 //! account-deletion-specific transition on that same transaction.
 
 pub mod cleanup;
+mod retention;
 
 mod grace;
 mod payload_scrub;

@@ -20,6 +20,8 @@ mod push_barriers;
 mod send_topology_support;
 #[path = "account_deletion/support.rs"]
 mod support;
+#[path = "account_deletion/terminal_retention.rs"]
+mod terminal_retention;
 #[path = "account_deletion/transition.rs"]
 mod transition;
 
