@@ -32,6 +32,11 @@ pub fn runtime_pool(
 ) -> Result<PgPool, health::PostgresInitError> {
     let options = PgConnectOptions::from_str(database_url)
         .map_err(|_| health::PostgresInitError)?
+        .options([
+            ("lock_timeout", "5s"),
+            ("idle_in_transaction_session_timeout", "30s"),
+            ("statement_timeout", "120s"),
+        ])
         .disable_statement_logging();
     Ok(PgPoolOptions::new()
         .max_connections(8)

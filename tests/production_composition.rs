@@ -63,6 +63,8 @@ mod composition;
 mod contract_generation;
 #[path = "../src/contract_generation/mod.rs"]
 mod contract_snapshot;
+#[path = "production_composition/database_timeouts.rs"]
+mod database_timeouts;
 #[path = "production_composition/migration_chain.rs"]
 mod migration_chain;
 #[path = "production_composition/postgres.rs"]
