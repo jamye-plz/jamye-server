@@ -39,7 +39,7 @@ pub struct AccountDeletionPreparation {
     pub memberships: Vec<AccountDeletionMembership>,
 }
 
-/// One membership that the deletion service must remove through `GroupsService`.
+/// One membership removed by the account deletion repository while preparing the grace period.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AccountDeletionMembership {
     pub membership_id: Uuid,

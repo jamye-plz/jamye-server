@@ -343,7 +343,6 @@ pub fn router_with_runtime(
     ));
     let deletion = Arc::new(AccountDeletionService::new(AccountDeletionDependencies {
         transactions: transactions.clone(),
-        groups: groups_service.clone(),
         push_privacy_fence: push_repository.clone(),
         repository: Arc::new(PostgresAccountDeletionRepository::new(pool.clone())),
         apple_identity_provider: apple_provider.as_ref().map(|provider| {

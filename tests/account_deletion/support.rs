@@ -5,7 +5,6 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
-    time::Duration,
 };
 
 use axum::{
@@ -14,21 +13,13 @@ use axum::{
     http::{Request, header::AUTHORIZATION},
 };
 use jamye_server::{
-    adapters::{
-        oauth::OsCredentialSource,
-        postgres::{
-            account_deletion::PostgresAccountDeletionRepository, auth::PostgresAuthRepository,
-            groups::PostgresGroupsRepository, push::PostgresPushRepository,
-            transactions::SqlxTransactionManager,
-        },
+    adapters::postgres::{
+        account_deletion::PostgresAccountDeletionRepository, auth::PostgresAuthRepository,
+        push::PostgresPushRepository, transactions::SqlxTransactionManager,
     },
     application::{
         account_deletion::{AccountDeletionDependencies, AccountDeletionService},
         auth::{AccessIdentity, AccessTokenVerifier, AuthenticationError},
-        groups::{
-            GroupsDependencies, GroupsEndpointRateLimit, GroupsRateLimitPolicy, GroupsService,
-            SystemGroupsClock,
-        },
         users::UserService,
     },
     ports::{
@@ -43,7 +34,6 @@ use jamye_server::{
             AppleIdentityVerificationRequest, AppleRevocationProvider,
             AppleRevocationProviderError, AppleRevocationProviderFuture,
         },
-        rate_limit::{RateLimitFuture, RateLimitOutcome, RateLimitRequest, RateLimiter},
         transactions::TransactionHandle,
     },
     transport::http::{
@@ -81,28 +71,8 @@ pub(super) fn test_router_with_apple_repository(
 ) -> TestResult<Router> {
     let verifier: Arc<dyn AccessTokenVerifier> = Arc::new(TestAccessVerifier);
     let transactions = Arc::new(SqlxTransactionManager::new(pool.clone()));
-    let groups = Arc::new(GroupsService::new(
-        GroupsDependencies {
-            transactions: transactions.clone(),
-            repository: Arc::new(PostgresGroupsRepository::new(pool.clone())),
-            rate_limiter: Arc::new(AllowRateLimiter),
-            credentials: Arc::new(OsCredentialSource),
-            clock: Arc::new(SystemGroupsClock),
-        },
-        GroupsRateLimitPolicy {
-            invite_issue: GroupsEndpointRateLimit {
-                limit: 10,
-                window: Duration::from_secs(60),
-            },
-            invite_redeem: GroupsEndpointRateLimit {
-                limit: 20,
-                window: Duration::from_secs(60),
-            },
-        },
-    )?);
     let account_deletion = Arc::new(AccountDeletionService::new(AccountDeletionDependencies {
         transactions: transactions.clone(),
-        groups,
         push_privacy_fence: Arc::new(PostgresPushRepository::new(pool.clone())),
         repository,
         apple_identity_provider: apple_identity_provider.map(|provider| {
@@ -325,14 +295,5 @@ impl AccessTokenVerifier for TestAccessVerifier {
             .and_then(|value| Uuid::try_parse(value).ok())
             .ok_or(AuthenticationError)?;
         Ok(AccessIdentity::new(user_id, Uuid::nil(), "task-11-test"))
-    }
-}
-
-#[derive(Clone, Copy)]
-struct AllowRateLimiter;
-
-impl RateLimiter for AllowRateLimiter {
-    fn check<'a>(&'a self, _request: &'a RateLimitRequest) -> RateLimitFuture<'a> {
-        Box::pin(async { Ok(RateLimitOutcome::Allowed) })
     }
 }
