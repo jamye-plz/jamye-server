@@ -149,9 +149,9 @@ impl ModerationAdminRepository for PostgresModerationRepository {
                 .map_err(|_| ModerationRepositoryError::InvalidData)?;
             let connection =
                 connection(transaction).map_err(|_| ModerationRepositoryError::InvalidData)?;
-            // Retention expiry is the explicit D15 physical-delete exception and also removes
-            // already-soft-deleted handled reports once they cross the same cutoff.
-            // One cutoff for both statements, so a report cannot expire between them.
+            // Report expiry is an explicit physical-delete exception to D14 soft delete (same
+            // class as the D15 account purge); one cutoff covers both statements, including
+            // already-soft-deleted handled reports, so a report cannot expire between them.
             let cutoff = sqlx::query_scalar::<_, OffsetDateTime>(
                 "SELECT clock_timestamp() - make_interval(days => $1)",
             )

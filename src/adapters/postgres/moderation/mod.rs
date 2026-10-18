@@ -282,7 +282,8 @@ async fn block_user(
     }
     sqlx::query(
         "INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2) \
-         ON CONFLICT (blocker_id, blocked_id) DO UPDATE SET deleted_at = NULL",
+         ON CONFLICT (blocker_id, blocked_id) DO UPDATE SET deleted_at = NULL \
+         WHERE user_blocks.deleted_at IS NOT NULL",
     )
     .bind(command.blocker_id)
     .bind(command.blocked_id)
