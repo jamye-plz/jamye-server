@@ -309,6 +309,30 @@ mod refresh_ip {
     }
 
     #[tokio::test]
+    async fn verified_ipv6_refresh_budget_is_keyed_by_prefix() -> TestResult {
+        let database = TestDatabase::migrated().await?;
+        let pool = database.pool()?;
+        let (state, recorder, mut token) = fixture(pool.clone()).await?;
+        let router = router_with_trusted_proxies(auth::router(state), Some(TRUSTED))?;
+        for client in ["2001:db8::1", "2001:db8::2:3"] {
+            let response = refresh(&router, &token, TRUSTED, &[client]).await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            let calls = recorder.take();
+            assert_calls(
+                &calls,
+                &["auth_refresh_ip", "auth_refresh", "rotate_session"],
+            );
+            assert_eq!(calls[0].subject, "ip:2001:db8::");
+            token = body(response).await?["refresh_token"]
+                .as_str()
+                .ok_or("missing refresh token")?
+                .to_owned();
+        }
+        pool.close().await;
+        database.dispose().await
+    }
+
+    #[tokio::test]
     async fn verified_ip_limiter_unavailable_preserves_503_before_repository() -> TestResult {
         let database = TestDatabase::migrated().await?;
         let pool = database.pool()?;

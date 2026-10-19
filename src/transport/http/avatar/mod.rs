@@ -147,6 +147,7 @@ async fn read_avatar(
     let (parts, _) = request.into_parts();
     let request_id = request_id(&parts);
     let rate_key = client_ip::client_ip(&parts)
+        .map(client_ip::rate_limit_address)
         .map(|address| format!("ip:{address}"))
         .unwrap_or_else(|| "ip:unknown".to_owned());
     match state.service.read_public(&rate_key, &avatar_id).await {

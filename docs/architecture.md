@@ -188,7 +188,7 @@ local-dev example은 15개 키를 설명한다. 핵심 process 설정과 Postgre
 environment와 PostgreSQL URL은 필수이며 Redis/MinIO URL은 미설정 시 degraded로
 동작한다. 시작 시 존재하는 값과 모든 범위를 검증하고 잘못된 설정은 명확한 safe
 error로 process를 종료한다.
-`JAMYE_TRUSTED_PROXIES`가 미설정이거나 비어 있으면 어떤 proxy도 신뢰하지 않아 `X-Forwarded-For`를 무시하고, 그 밖의 잘못된 값은 시작을 실패시키며, 목록에 있는 TCP peer가 보낸 단일 값 `X-Forwarded-For`만 사용한다.
+`JAMYE_TRUSTED_PROXIES`가 미설정이거나 비어 있으면 어떤 proxy도 신뢰하지 않아 `X-Forwarded-For`를 무시하고, 그 밖의 잘못된 값은 시작을 실패시키며, 목록에 있는 TCP peer가 보낸 단일 값 `X-Forwarded-For`만 사용한다. rate limit key는 IPv6 주소를 /64 prefix로 묶고, IPv4와 IPv4-mapped 주소는 그대로 쓴다.
 
 ```text
 JAMYE_ENVIRONMENT

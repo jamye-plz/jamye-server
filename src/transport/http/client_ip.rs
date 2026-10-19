@@ -1,7 +1,7 @@
 //! Resolve client addresses only across explicitly trusted, single-hop proxies.
 
 use std::{
-    net::{IpAddr, SocketAddr},
+    net::{IpAddr, Ipv6Addr, SocketAddr},
     sync::Arc,
 };
 
@@ -51,10 +51,29 @@ pub fn client_ip(parts: &Parts) -> Option<IpAddr> {
     })
 }
 
+/// Key rate limits on the IPv6 /64 a host controls, so rotating addresses inside it
+/// does not open new buckets; IPv4 and IPv4-mapped addresses stay exact.
+pub fn rate_limit_address(address: IpAddr) -> IpAddr {
+    match address {
+        IpAddr::V4(_) => address,
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => IpAddr::V4(v4),
+            None => {
+                let [a, b, c, d, ..] = v6.segments();
+                IpAddr::V6(Ipv6Addr::new(a, b, c, d, 0, 0, 0, 0))
+            }
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{TrustedProxyPeers, forwarded_client_ip};
-    use std::{error::Error, net::SocketAddr, sync::Arc};
+    use super::{TrustedProxyPeers, forwarded_client_ip, rate_limit_address};
+    use std::{
+        error::Error,
+        net::{IpAddr, SocketAddr},
+        sync::Arc,
+    };
 
     use axum::{
         extract::ConnectInfo,
@@ -104,6 +123,26 @@ mod tests {
         assert_eq!(forwarded_client_ip(&parts), None);
         parts.extensions.remove::<ConnectInfo<SocketAddr>>();
         assert_eq!(forwarded_client_ip(&parts), None);
+        Ok(())
+    }
+
+    #[test]
+    fn rate_limit_address_groups_ipv6_by_prefix_and_keeps_ipv4_exact() -> Result<(), Box<dyn Error>>
+    {
+        for (address, expected) in [
+            ("198.51.100.20", "198.51.100.20"),
+            ("::ffff:198.51.100.20", "198.51.100.20"),
+            ("2001:db8::20", "2001:db8::"),
+            ("2001:db8::1:2:3:4", "2001:db8::"),
+            ("2001:db8:0:1::20", "2001:db8:0:1::"),
+            ("::1", "::"),
+        ] {
+            assert_eq!(
+                rate_limit_address(address.parse::<IpAddr>()?),
+                expected.parse::<IpAddr>()?,
+                "{address}"
+            );
+        }
         Ok(())
     }
 }
