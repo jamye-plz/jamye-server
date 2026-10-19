@@ -42,28 +42,8 @@ services:
       retries: 30
       start_period: 3s
 
-  minio:
-    image: docker.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
-    restart: "no"
-    environment:
-      MINIO_ROOT_USER: ${JAMYE_TEST_MINIO_ADMIN_USER:?set by just env-create}
-      MINIO_ROOT_PASSWORD: ${JAMYE_TEST_MINIO_ADMIN_PASSWORD:?set by just env-create}
-    command: ["server", "/data", "--address", ":9000", "--console-address", ":9001"]
-    ports:
-      - "127.0.0.1:9000:9000"
-    volumes:
-      - minio-data:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 2s
-      timeout: 3s
-      retries: 30
-      start_period: 5s
-
 volumes:
   postgres-data:
     name: jamye-server-test-postgres-data
   redis-data:
     name: jamye-server-test-redis-data
-  minio-data:
-    name: jamye-server-test-minio-data

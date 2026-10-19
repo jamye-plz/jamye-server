@@ -36,25 +36,32 @@ Cargo 산출물이며 원격 NixOS 서비스와 별개지만, 정리 후 테스�
 ## 로컬 서비스
 
 1. `just env-create`를 한 번 실행해 mode `0600`의 `.env.local`을 만든다.
-2. `just infra-up`으로 repository 소유의 PostgreSQL, Redis, MinIO test service를
-   시작하고 health 상태까지 기다린다.
+2. `just infra-up`으로 Compose의 PostgreSQL·Redis와 flake-pinned host MinIO를
+   시작하고 health 상태까지 기다린다. 최초 MinIO 실현은 소스 빌드가 필요할 수 있다.
 3. `just infra-status`로 상태를 확인한다.
-4. `just infra-down`으로 data를 보존한 채 container를 정지한다.
+4. `just minio-policy`로 분리된 app identity에 테스트용 최소 권한을 연결한다.
+5. `just infra-down`으로 data를 보존한 채 서비스를 정지한다.
 
-`just infra-reset`은 repository가 소유하는 disposable volume 세 개만 삭제한다.
-`JAMYE_CONFIRM_INFRA_RESET=jamye-server-test` 확인값이 필요하며 `.env.local`은
-보존한다. Podman machine은 항상 사용자 소유이며 repository 명령은 이를 생성·시작·정지·
-삭제하지 않는다.
+기본 engine은 rootless Podman이며 devShell이 Compose provider를 Nix store에 고정한다.
+macOS의 Podman machine은 사용자 소유이고 repository 명령은 이를 생성·시작·정지·삭제하지
+않는다. CI처럼 Docker를 사용할 때는 `JAMYE_TEST_CONTAINER_ENGINE=docker`를 설정한다.
 
-MinIO app identity는 disposable administrator와 분리한다. media integration test에
-필요한 최소 권한 policy는 `just minio-policy`로 연결한다.
+MinIO는 `.env.local`의 관리자 자격증명을 process 환경으로 받고 `127.0.0.1:9000`과
+`127.0.0.1:9001`에만 bind한다. data, PID, log는 Git에서 제외된
+`.local/infra/minio/`에 보관한다. 반복 `infra-up`은 같은 process를 재사용한다.
+`infra-down`은 TERM으로 최대 10초간 종료를 기다리며 강제 종료하지 않는다. PID가 다른
+process를 가리키거나 포트가 외부 process에 점유돼 있으면 종료하고 해당 process를 건드리지 않는다.
+리스너 소유 확인에는 macOS의 `lsof` 또는 Linux의 `ss`가 필요하다.
 
-알려진 제한: `compose.yaml`의 MinIO image는 더 이상 pull할 수 없다. 따라서 CI의
-`contract-drift` workflow는 PostgreSQL·Redis만 Compose로 시작하고, flake가 고정한
-`nixpkgs` input에서 MinIO binary를 실현해 runner에서 직접 시작한다. 로컬 harness의
-`just infra-up`은 여전히 `compose.yaml`을 사용하므로 MinIO image가 필요한 환경에서는
-이 제한을 만날 수 있다. 이 문서화는 local harness의 한계를 기록하는 것이며
-`compose.yaml`을 production 정의로 바꾸거나 수정하는 것을 뜻하지 않는다.
+이전 Compose MinIO를 사용했다면 첫 `infra-up`이 project와 `minio` service label이
+일치하는 기존 container만 제거해 포트를 비운다. 기존 `jamye-server-test-minio-data`
+volume은 유지되지만 새 host data 경로로 자동 이전되지는 않는다. 기존 데이터가 필요하면
+reset 전에 별도로 보관·이전한다.
+
+`JAMYE_CONFIRM_INFRA_RESET=jamye-server-test just infra-reset`은 project와 volume
+ownership label 및 고정 MinIO 경로를 검증하고 MinIO 종료에 성공한 뒤 PostgreSQL·Redis
+volume, 존재하는 legacy MinIO volume, host MinIO data/PID/log를 삭제한다. 확인값이
+없으면 삭제하지 않으며 `.env.local`은 항상 보존한다.
 
 ## Process와 health
 

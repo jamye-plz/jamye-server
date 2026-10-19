@@ -47,10 +47,10 @@ job으로 dependency와 secret 검사를 비차단으로 실행한다. `ci` job�
 배포 처리 요청일 뿐, 이 repository의 CI 통과가 production 배포·health smoke 성공을
 뜻하지 않는다.
 
-CI는 Compose의 더 이상 pull할 수 없는 MinIO image를 사용하지 않고 flake의 `nixpkgs`
-input에서 MinIO를 시작한다. 이는 CI harness의 known limitation 우회이며
-`compose.yaml` 변경이나 production image 선택을 의미하지 않는다. CI는 `just check`만
-실행하며 `just flake-check`(NixOS module 평가 `nixos-module`, Linux host의
+CI의 `ci` job은 Docker를 선택하고 devShell에서 `just env-create`, `just infra-up`,
+`just minio-policy`를 실행한 다음 `cargo fetch --locked`와 `just check`를 실행한다.
+생성한 네 암호는 파일 기록 전에 GitHub Actions mask로 등록한다. 서비스 lifecycle은
+[로컬 서비스 가이드](development.md#로컬-서비스)와 같다. CI는 `just flake-check`(NixOS module 평가 `nixos-module`, Linux host의
 `nixos-module-smoke` VM health smoke)는 포함하지 않는다. module 정의는
 `nix/module.nix`에 있고, 실제 host·secret·ingress와 배포 결과는 homelab 배포
 evidence로 확인한다. `just check` 통과만으로 배포 준비 완료를 선언하지 않는다.

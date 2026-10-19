@@ -17,6 +17,7 @@ docs/plans/
 .env.local
 .env.*.local
 !.env.example
+/.local/infra/minio/
 
 # Local coverage output
 /coverage/

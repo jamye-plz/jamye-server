@@ -267,6 +267,10 @@
     in {
       packages = {
         inherit api worker admin;
+        minio = (import nixpkgs {
+          inherit system;
+          config.allowInsecurePredicate = package: lib.getName package == "minio";
+        }).minio;
       };
 
       checks =

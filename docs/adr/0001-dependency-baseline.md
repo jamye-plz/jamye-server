@@ -128,6 +128,10 @@ Sources:
 
 MinIO upstream repository는 2026-04-25 archived됐고 2025-10 security source release 이후 새 official prebuilt container를 제공하지 않았다. 따라서 이 tag는 loopback-bound disposable local compatibility test에만 사용한다. production image 또는 lifecycle 결정을 뜻하지 않으며 task-8 D11과 homelab security review가 별도로 materialize한다.
 
+N1에서 이 결정과 위 표의 MinIO 항목을 개정했으며, 해당 Compose image tag는 더 이상
+사용하지 않는다. 로컬과 CI는 모두 같은 flake-pinned nixpkgs MinIO host process를
+사용한다. 위 표와 당시 image 제한은 M0 결정의 이력이다.
+
 ## Lock and verification gate
 
 에이전트는 lock/build를 실행하지 않는다. 사용자가 [lock card](../commands/task-1/locks.md)로 다음을 증명한다.
@@ -147,3 +151,6 @@ package build, current-system flake check, Linux builder matrix는 별도 card�
 - 비용: dependency owner마다 official compatibility 확인과 user lock gate가 반복된다.
 - 위험: nixos-unstable과 community tool input은 symbolic ref로 시작한다. `flake.lock`이 없으면 reproducible하다고 주장할 수 없다.
 - 위험: MinIO local image는 production 적합성 근거가 아니다. loopback/local-only 경계를 깨뜨리면 이 ADR의 허용 범위를 벗어난다.
+
+N1에서 위 MinIO image 위험의 적용 대상을 개정했으며, 로컬과 CI의 현재 대상은
+flake-pinned host MinIO다. 이 disposable 설정은 production 적합성 근거가 아니다.
