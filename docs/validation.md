@@ -48,7 +48,8 @@ job으로 dependency와 secret 검사를 비차단으로 실행한다. `ci` job�
 뜻하지 않는다. `dispatch` job의 timeout은 5분이다.
 
 CI의 `ci` job은 Docker를 선택하고 devShell에서 `just env-create`, `just infra-up`,
-`just minio-policy`를 실행한 다음 `cargo fetch --locked`와 `just check`를 실행한다.
+`just minio-policy`를 실행하고 MinIO live-health probe를 확인한 다음 `cargo fetch --locked`와
+`just check`를 실행한다.
 생성한 네 암호는 파일 기록 전에 GitHub Actions mask로 등록한다. 서비스 lifecycle은
 [로컬 개발](development.md#로컬-서비스)을 따른다. CI는 `just check`만 실행하며
 `just flake-check`(NixOS module 평가 `nixos-module`, Linux host의

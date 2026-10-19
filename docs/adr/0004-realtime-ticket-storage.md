@@ -1,6 +1,6 @@
 # ADR 0004: Redis-only one-time realtime tickets and durable PostgreSQL delivery
 
-- 상태: Accepted; task-4b GREEN/recovery evidence complete
+- 상태: Accepted; task-4b GREEN/recovery evidence complete; task-u08에서 close code 1009·1013 개정
 - 날짜: 2026-08-25
 - 범위: R1 realtime ticket, WebSocket admission, outbox delivery acceleration
 

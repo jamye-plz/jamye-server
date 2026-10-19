@@ -219,7 +219,7 @@ M0 MinIO check는 official unauthenticated `/minio/health/live` URL만 사용한
 지원 system은 `aarch64-darwin`, `aarch64-linux`, `x86_64-linux`다. macOS에 Linux builder가 없으면 Linux package 실현은 별도 배포 준비 단계의 blocker이며, 현재 host의 평가 성공을 Linux build 성공으로 간주하지 않는다.
 
 로컬 disposable harness는 PostgreSQL과 Redis를 Compose로, MinIO를 flake-pinned host
-process로 실행한다. lifecycle은 [로컬 개발](development.md#로컬-서비스), CI gate는
+MinIO로 실행한다. lifecycle은 [로컬 개발](development.md#로컬-서비스), CI gate는
 [검증 절차](validation.md)를 따른다. production은 native Nix package와 NixOS systemd
 module이며 host/secret/service/volume/ingress/monitoring/backup/restore와 배포 dispatch는
 별도 homelab repository가 소유한다.

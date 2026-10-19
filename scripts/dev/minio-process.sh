@@ -7,9 +7,12 @@ MINIO_DIR="$REPO_ROOT/.local/infra/minio"
 MINIO_DATA_DIR="$MINIO_DIR/data"
 MINIO_PID_FILE="$MINIO_DIR/minio.pid"
 MINIO_LOG_FILE="$MINIO_DIR/minio.log"
+MINIO_VERIFIED_PID=""
 
 require_safe_minio_dir() {
-  if [[ -L "$MINIO_DIR" || "$(realpath -m -- "$MINIO_DIR")" != "$MINIO_DIR" ]]; then
+  if [[ "$MINIO_DIR" != "$REPO_ROOT/.local/infra/minio" \
+    || -L "$MINIO_DIR" \
+    || "$(realpath -m -- "$MINIO_DIR")" != "$MINIO_DIR" ]]; then
     printf '%s\n' 'error: unsafe MinIO state directory' >&2
     exit 2
   fi
@@ -19,10 +22,11 @@ require_safe_minio_dir() {
 # PID that belongs to another process. Never signal a mismatched PID.
 minio_running() {
   local pid process binary state
+  MINIO_VERIFIED_PID=""
   [[ -f "$MINIO_PID_FILE" ]] || return 1
   pid="$(cat "$MINIO_PID_FILE")"
   if [[ ! "$pid" =~ ^[1-9][0-9]*$ ]]; then
-    printf '%s\n' 'error: invalid MinIO PID file' >&2
+    printf 'error: invalid MinIO PID file %s; verify and remove it\n' "$MINIO_PID_FILE" >&2
     return 2
   fi
   require_command ps
@@ -38,25 +42,31 @@ minio_running() {
   binary="${process%% *}"
   case "$binary" in
     /nix/store/*/bin/minio) ;;
-    *) printf 'error: PID %s is not the local MinIO process; if %s is stale, verify and remove it\n' "$pid" "$MINIO_PID_FILE" >&2; return 2 ;;
+    *) printf 'error: PID %s is not the flake-pinned host MinIO process; if %s is stale, verify and remove it\n' "$pid" "$MINIO_PID_FILE" >&2; return 2 ;;
   esac
   if [[ "$process" != *"$binary"*"$MINIO_DATA_DIR"* ]]; then
-    printf 'error: PID %s does not use the local MinIO data directory; if %s is stale, verify and remove it\n' "$pid" "$MINIO_PID_FILE" >&2
+    printf 'error: PID %s does not use the flake-pinned host MinIO data directory; if %s is stale, verify and remove it\n' "$pid" "$MINIO_PID_FILE" >&2
     return 2
   fi
   if minio_port_in_use && ! minio_owns_port "$pid"; then
-    printf '%s\n' 'error: port 9000 is not owned by the local MinIO PID' >&2
+    printf '%s\n' 'error: port 9000 is not owned by the flake-pinned host MinIO PID' >&2
     return 2
   fi
+  MINIO_VERIFIED_PID="$pid"
   return 0
 }
 
 # A stopped PID is safe only when the port is also free.
 minio_state() {
-  local status=0
+  local status=0 legacy_containers
   minio_running || status=$?
   if [[ "$status" -eq 1 ]] && minio_port_in_use; then
-    printf '%s\n' 'error: port 9000 is occupied by an unmanaged process' >&2
+    legacy_containers="$(legacy_minio_containers)" || return $?
+    if [[ -n "$legacy_containers" ]]; then
+      printf '%s\n' 'error: port 9000 is occupied and a legacy Compose MinIO container exists; run `just infra-up` or `just infra-down` to remove it' >&2
+    else
+      printf '%s\n' 'error: port 9000 is occupied by an unmanaged process' >&2
+    fi
     return 2
   fi
   return "$status"
@@ -83,13 +93,18 @@ minio_owns_port() {
   esac
 }
 
-# podman-compose 1.6.0 does not remove the legacy container with up --remove-orphans.
-remove_legacy_minio_container() {
+legacy_minio_containers() {
+  "$CONTAINER_ENGINE" ps -a -q \
+    --filter "label=com.docker.compose.project=$COMPOSE_PROJECT" \
+    --filter 'label=com.docker.compose.service=minio'
+}
+
+# podman-compose 1.6.0 does not remove the legacy Compose MinIO container with
+# up --remove-orphans.
+remove_legacy_minio_containers() {
   local legacy_containers container_id
   local -a legacy_ids=()
-  legacy_containers="$("$CONTAINER_ENGINE" ps -a -q \
-    --filter "label=com.docker.compose.project=$COMPOSE_PROJECT" \
-    --filter 'label=com.docker.compose.service=minio')"
+  legacy_containers="$(legacy_minio_containers)" || return $?
   if [[ -n "$legacy_containers" ]]; then
     while IFS= read -r container_id; do
       legacy_ids+=("$container_id")
@@ -108,7 +123,7 @@ start_minio() {
       for path in "$MINIO_LOG_FILE" "$MINIO_PID_FILE"; do
         if [[ -f "$path" ]]; then chmod 600 -- "$path"; fi
       done
-      printf '%s\n' 'local MinIO is already running'
+      printf '%s\n' 'flake-pinned host MinIO is already running'
       return 0
       ;;
     1) ;;
@@ -140,21 +155,22 @@ status_minio() {
   local status=0
   minio_state || status=$?
   case "$status" in
-    0) printf 'local MinIO running (PID %s)\n' "$(cat "$MINIO_PID_FILE")" ;;
-    1) printf '%s\n' 'local MinIO is stopped' ;;
+    0) printf 'flake-pinned host MinIO running (PID %s)\n' "$(cat "$MINIO_PID_FILE")" ;;
+    1) printf '%s\n' 'flake-pinned host MinIO is stopped' ;;
     *) return "$status" ;;
   esac
 }
 
 stop_minio() {
   local status=0 pid attempt
+  require_safe_minio_dir
   minio_state || status=$?
   case "$status" in
     0) ;;
-    1) rm -f -- "$MINIO_PID_FILE"; printf '%s\n' 'local MinIO is already stopped'; return 0 ;;
+    1) rm -f -- "$MINIO_PID_FILE"; printf '%s\n' 'flake-pinned host MinIO is already stopped'; return 0 ;;
     *) return "$status" ;;
   esac
-  pid="$(cat "$MINIO_PID_FILE")"
+  pid="$MINIO_VERIFIED_PID"
   kill -TERM "$pid"
   for attempt in {1..10}; do
     sleep 1
@@ -162,7 +178,7 @@ stop_minio() {
     minio_running || status=$?
     case "$status" in
       0) continue ;;
-      1) rm -f -- "$MINIO_PID_FILE"; printf '%s\n' 'local MinIO stopped'; return 0 ;;
+      1) rm -f -- "$MINIO_PID_FILE"; printf '%s\n' 'flake-pinned host MinIO stopped'; return 0 ;;
       *) return "$status" ;;
     esac
   done

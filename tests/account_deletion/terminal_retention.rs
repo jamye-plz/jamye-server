@@ -18,9 +18,7 @@ use tracing::instrument::WithSubscriber;
 use uuid::Uuid;
 
 use crate::{
-    TestResult,
-    logging_support::{SharedWriter, interest_sentinel},
-    postgres_support::TestDatabase,
+    TestResult, logging_support::SharedWriter, postgres_support::TestDatabase,
     support::finish_database_test,
 };
 
@@ -442,22 +440,24 @@ async fn nonzero_success_logs_one_completion_event_with_all_counts() -> TestResu
     let result: TestResult = async {
         let now: OffsetDateTime = sqlx::query_scalar("SELECT now()").fetch_one(&pool).await?;
         let seeds = Seeds::new(&pool).await?;
-        for (table, status, days) in PAIRS {
-            seeds
-                .insert(&pool, table, status, now - time::Duration::days(days + 1))
-                .await?;
+        for (index, (table, status, days)) in PAIRS.into_iter().enumerate() {
+            for _ in 0..=index {
+                seeds
+                    .insert(&pool, table, status, now - time::Duration::days(days + 1))
+                    .await?;
+            }
         }
         let writer = SharedWriter::default();
         let output = writer.clone();
         let subscriber = build_json_subscriber(writer, "jamye_server=info")?;
-        let _interest_sentinel = interest_sentinel();
+        let _interest_sentinel = crate::logging_support::interest_sentinel();
 
         let report = run_one_logged_tick(
             PostgresAccountDeletionRepository::new(pool.clone()),
             subscriber,
         )
         .await?;
-        assert_eq!(report.deleted, [1; 6]);
+        assert_eq!(report.deleted, [1, 2, 3, 4, 5, 6]);
         let entries = output.parsed_lines()?;
         let completed = entries_with_message(&entries, "terminal retention batch completed");
         assert_eq!(completed.len(), 1);
@@ -476,7 +476,7 @@ async fn all_zero_success_logs_no_completion_event() -> TestResult {
         let writer = SharedWriter::default();
         let output = writer.clone();
         let subscriber = build_json_subscriber(writer, "jamye_server=info")?;
-        let _interest_sentinel = interest_sentinel();
+        let _interest_sentinel = crate::logging_support::interest_sentinel();
 
         let report = run_one_logged_tick(
             PostgresAccountDeletionRepository::new(pool.clone()),
@@ -528,7 +528,7 @@ async fn partial_adapter_failure_logs_one_completion_event_and_delete_warning() 
         let output = writer.clone();
         let subscriber = build_json_subscriber(writer, "jamye_server=info")?;
         let _guard = tracing::subscriber::set_default(subscriber);
-        let _interest_sentinel = interest_sentinel();
+        let _interest_sentinel = crate::logging_support::interest_sentinel();
         let repository = PostgresAccountDeletionRepository::new(pool.clone());
 
         assert_eq!(

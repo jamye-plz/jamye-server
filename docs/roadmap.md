@@ -216,9 +216,9 @@ M1은 /Users/poby/Developer/jamye-plz의 정확한 PF1 source set을 determinist
 - credential 생성, bounded wait, guarded deletion, service recovery처럼 안전 경계가 있는 동작만 `scripts/dev/`와 `scripts/recovery/`에 둔다.
 - 현재 후속 Cargo 공유 파일 owner는 의존 순서가 보장된 task-3c(dev-only JWT), task-5(auth), task-8(S3/media)다. task-3c는 optional JWT로 dev surface를 열었고, task-5는 같은 `jsonwebtoken` verifier를 production 기본 graph로 승격하면서 PKCE Base64URL과 OAuth form/JSON feature만 추가한다. 각 owner 뒤 사용자가 lock/no-drift와 dependency/license card를 다시 실행한다.
 - Task-13은 루트 `Justfile` 검증 체계 정리·통과 확인(1단계)과 실제 NixOS module(`nix/module.nix`)·package realization·runtime health smoke(2단계, `nix/smoke-test.nix`)를 모두 완료했다. homelab이 `services.jamye-server`로 이 module을 midgard에 배포했다(homelab PR #75, 2026-09-08; `homelab/services/jamye-server.nix`; 공개 URL `https://jamye-api.ridewithmin.com`, `https://jamye-media.ridewithmin.com`). 이후의 host 이전은 homelab이 독립적으로 진행하며 이 로드맵과 무관하다.
-- rootless Podman `compose.yaml`은 local disposable PostgreSQL·Redis 전용이고, MinIO는 flake-pinned host process로 실행한다. macOS podman machine과 lifecycle/reset은 사용자가 실행한다. 로컬 lifecycle은 [로컬 개발](development.md), CI의 `contract-drift` gate와 production 배포 경계는 [검증 절차](validation.md)에 정리한다. compose.yaml은 production SSOT가 아니다.
+- rootless Podman `compose.yaml`은 local disposable PostgreSQL·Redis 전용이고, MinIO는 flake-pinned host MinIO로 실행한다. macOS podman machine과 lifecycle/reset은 사용자가 실행한다. 로컬 lifecycle은 [로컬 개발](development.md), CI의 `contract-drift` gate와 production 배포 경계는 [검증 절차](validation.md)에 정리한다. compose.yaml은 production SSOT가 아니다.
 - production은 native Nix package와 NixOS systemd module이다. Podman compose는 production SSOT가 아니다.
-- flake는 supported system마다 api/worker/admin package, checks, devShell, nixosModules.default를 export한다.
+- flake는 supported system마다 api/worker/admin package와 local/CI harness 전용 `packages.minio`(nixpkgs insecure 예외는 minio만), checks, devShell, nixosModules.default를 export한다.
 - api/worker package matrix는 세 system 모두를 대상으로 한다. Linux builder가 없으면 production lane blocker이며 현재-host 평가 성공을 Linux build 성공으로 기록하지 않는다.
 - `just test`는 default-feature와 all-feature Rust suite를 연속 실행한다.
 - `just coverage`는 library, binaries, integration targets를 포함하는 all-feature 관측 도구다. 고정 퍼센트는 구현 완료 권한이 아니며 `just check` 통과를 대신하지 않는다.
@@ -305,7 +305,7 @@ task-10은 사용자 승인 STT non-goal로 삭제했다. 기존 참조 안정�
 - Git history가 구현 이력을, `Cargo.lock`과 `flake.lock`이 dependency resolution을 보존한다.
 - 배포 준비는 실제 NixOS module 평가, 대상 Linux package realization, service health smoke가 모두 통과해야 별도로 완료된다.
 
-세부 명령과 부작용은 [validation](validation.md)과 [local development](development.md)에 기록한다.
+세부 명령과 부작용은 [검증 절차](validation.md)와 [로컬 개발](development.md)에 기록한다.
 
 ## 13. 다음 단계
 
@@ -459,4 +459,4 @@ SELECT version, success FROM _sqlx_migrations WHERE version = 13;
   - pending 업로드 sweep: U4 뒤 PUT하지 않았거나 만료·U5 422로 끝난 pending 행과 객체는 다음 U4나 계정 purge 전까지 남는다(사용자당 최대 1행, 1 MiB 이하). 만료된 pending을 `released`로 바꿔 삭제 큐에 넣는 주기 sweep이 필요하다.
   - U6 rate limit key(U05에서 해소): `JAMYE_TRUSTED_PROXIES`에 나열된 TCP peer의 단일 값 `X-Forwarded-For`를 사용해 client IP별 bucket을 적용한다.
   - 로컬 테스트 시계 어긋남: 처음에는 병렬 부하에 따른 간헐 실패로 보았던 `realtime::ticket::structured_ticket_logs_exclude_raw_and_digest_credentials`, all-features `production_composition`, media adapter 테스트 실패의 원인은 Mac 잠자기 뒤 Podman VM 시계가 호스트보다 늦어진 것이었다(2026-10-07 측정 1127초, 76초). 테스트는 호스트 시각으로 `created_at`을 넣고 DB는 자기 시계로 검사한다. VM에서 `chronyd`를 재시작해 시계를 맞추고 검사 중 `caffeinate -i`로 잠자기를 막자 `oma agent verify` 아래 전체 `just test`도 통과했다. `just infra-up`/`test`가 VM 시계 차이를 확인하거나 테스트가 DB 시계를 쓰도록 바꾸는 것이 서버 (D) 묶음·task-16 후보다.
-  - local/CI harness 문서: 이번 세션 작업(커밋 `4e493ea`, `0de4782`)에서 MinIO image를 더 이상 pull할 수 없어 MinIO를 flake-pinned host process로 옮겼고, 현재 lifecycle과 CI gate를 [로컬 개발](development.md)과 [검증 절차](validation.md)로 정리했다. 이후 flake input 정책이 바뀌면 해당 문서를 함께 갱신한다.
+  - local/CI harness 문서(2026-10-19 local/CI harness 정비에서 해소): MinIO image를 더 이상 pull할 수 없어 MinIO를 flake-pinned host MinIO로 옮겼고, lifecycle과 CI gate는 [로컬 개발](development.md)과 [검증 절차](validation.md)에 있다. 이후 flake input 정책이 바뀌면 해당 문서를 함께 갱신한다.

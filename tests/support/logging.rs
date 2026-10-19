@@ -7,8 +7,9 @@ use serde_json::Value;
 use tracing_subscriber::fmt::MakeWriter;
 
 pub fn interest_sentinel() -> tracing::Dispatch {
-    // tracing-core register_dispatch sets has_just_one for a sole dispatcher, so
-    // Rebuilder::JustOne uses its thread's default; a live second NoSubscriber forces the multi-dispatcher path.
+    // Keep a second dispatcher registered so a parallel test thread that reaches the same
+    // callsite first cannot cache it as disabled: has_just_one would otherwise select
+    // Rebuilder::JustOne and reuse that thread's default dispatcher.
     tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default())
 }
 

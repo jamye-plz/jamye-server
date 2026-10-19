@@ -14,7 +14,7 @@ fi
 expected_volumes=(
   jamye-server-test-postgres-data
   jamye-server-test-redis-data
-  jamye-server-test-minio-data # Legacy volume from the former Compose MinIO service.
+  jamye-server-test-minio-data # Legacy Compose MinIO volume.
 )
 
 require_safe_minio_dir
@@ -36,6 +36,7 @@ for volume in "${expected_volumes[@]}"; do
   fi
 done
 
+remove_legacy_minio_containers
 stop_minio
 compose down --remove-orphans
 
@@ -44,7 +45,8 @@ for volume in "${expected_volumes[@]}"; do
     "$CONTAINER_ENGINE" volume rm "$volume"
   fi
 done
+require_safe_minio_dir
 rm -rf -- "$MINIO_DIR"
 
-printf '%s\n' 'deleted guarded disposable volumes and local MinIO data'
+printf '%s\n' 'deleted guarded disposable volumes and flake-pinned host MinIO data'
 printf '%s\n' '.env.local was preserved; delete it separately only if you intend to rotate local credentials'

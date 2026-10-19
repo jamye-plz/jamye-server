@@ -117,7 +117,12 @@ infra-status: require-nix-shell
     source scripts/dev/minio-process.sh
     prepare_infra
     compose ps
-    status_minio
+    legacy_containers="$(legacy_minio_containers)"
+    if [[ -n "$legacy_containers" ]]; then
+      printf '%s\n' 'legacy Compose MinIO container present; run `just infra-up` or `just infra-down` to migrate'
+    else
+      status_minio
+    fi
 
 # Stop local services while preserving their data.
 infra-down: require-nix-shell
@@ -126,10 +131,14 @@ infra-down: require-nix-shell
     source scripts/dev/common.sh
     source scripts/dev/minio-process.sh
     prepare_infra
+    legacy_status=0
+    remove_legacy_minio_containers || legacy_status=$?
     minio_status=0
+    # Capture safety exits in a subshell so Compose teardown still runs.
     (stop_minio) || minio_status=$?
     compose_status=0
     compose down --remove-orphans || compose_status=$?
+    if [[ "$legacy_status" -ne 0 ]]; then exit "$legacy_status"; fi
     if [[ "$minio_status" -ne 0 ]]; then exit "$minio_status"; fi
     if [[ "$compose_status" -ne 0 ]]; then exit "$compose_status"; fi
     printf '%s\n' 'local services stopped; data was preserved'

@@ -54,7 +54,7 @@ local-dev 키의 목적·기본값·소유 모듈은 `.env.example`에, producti
 
 ## 로컬 인프라
 
-로컬 PostgreSQL과 Redis는 Compose에서, MinIO는 flake가 고정한 host process로 실행한다.
+로컬 PostgreSQL과 Redis는 Compose에서, MinIO는 flake-pinned host MinIO로 실행한다.
 시작·종료·reset과 기존 MinIO 데이터 전환은 [로컬 개발](docs/development.md#로컬-서비스)을,
 CI 게이트는 [검증 절차](docs/validation.md)를 참고한다.
 
