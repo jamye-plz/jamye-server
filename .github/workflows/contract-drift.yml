@@ -16,6 +16,8 @@ jobs:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      JAMYE_TEST_CONTAINER_ENGINE: docker
     permissions:
       contents: read
     steps:
@@ -31,33 +33,14 @@ jobs:
         run: |
           nix develop . --command bash -euo pipefail -c '
             just env-create
-            source scripts/dev/infra-wait.sh
-            source scripts/dev/minio-identity.sh
-            compose() {
-              docker compose --env-file "$LOCAL_ENV_FILE" --file "$COMPOSE_FILE" --project-name "$COMPOSE_PROJECT" "$@"
-            }
-            validate_compose_project
-            load_local_env
-            compose up --detach postgres redis
-            # The MinIO image in compose.yaml is no longer published.
-            minio_package="$(NIXPKGS_ALLOW_INSECURE=1 nix build --impure --no-link --print-out-paths --inputs-from . nixpkgs#minio)"
-            MINIO_ROOT_USER="$JAMYE_TEST_MINIO_ADMIN_USER" \
-              MINIO_ROOT_PASSWORD="$JAMYE_TEST_MINIO_ADMIN_PASSWORD" \
-              setsid nohup "$minio_package/bin/minio" server "$RUNNER_TEMP/jamye-minio-data" \
-                --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
-                >"$RUNNER_TEMP/jamye-minio.log" 2>&1 </dev/null &
-            wait_for_infra
-            prepare_minio_identity
+            just infra-up
             just minio-policy
-            bucket="$(jq -er ".Statement[] | select(.Sid == \"Task8BucketLifecycle\") | .Resource[] | sub(\"^arn:aws:s3:::\"; \"\")" scripts/dev/minio-app-policy.json)"
-            export "MC_HOST_jamye_test_ci=http://${JAMYE_TEST_MINIO_APP_USER}:${JAMYE_TEST_MINIO_APP_PASSWORD}@127.0.0.1:9000"
-            mc mb --ignore-existing "jamye_test_ci/$bucket"
-            unset MC_HOST_jamye_test_ci
           '
 
       - name: Run service-backed checks
         run: |
           nix develop . --command bash -euo pipefail -c '
+            curl --fail --silent --show-error --max-time 3 http://127.0.0.1:9000/minio/health/live >/dev/null
             cargo fetch --locked
             just check
           '
@@ -89,6 +72,7 @@ jobs:
     needs: ci
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     permissions: {}
     steps:
       - name: Send repository_dispatch to smg1024/homelab

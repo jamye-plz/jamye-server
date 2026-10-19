@@ -24,6 +24,10 @@ redis_password="$(random_hex)"
 minio_admin_password="$(random_hex)"
 minio_app_password="$(random_hex)"
 
+if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
+  printf '::add-mask::%s\n' "$postgres_password" "$redis_password" "$minio_admin_password" "$minio_app_password"
+fi
+
 umask 077
 temporary="$(mktemp "$REPO_ROOT/.env.local.tmp.XXXXXX")"
 trap 'rm -f -- "$temporary"' EXIT

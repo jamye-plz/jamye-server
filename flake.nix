@@ -267,6 +267,10 @@
     in {
       packages = {
         inherit api worker admin;
+        minio = (import nixpkgs {
+          inherit system;
+          config.allowInsecurePredicate = package: lib.getName package == "minio";
+        }).minio;
       };
 
       checks =
@@ -321,8 +325,8 @@
           pkgs.sqlx-cli
         ];
 
-        # podman compose must use the provider pinned by flake.lock. An
-        # ambient Docker Compose or Homebrew provider is never selected.
+        # The default podman compose provider is pinned by flake.lock; CI
+        # explicitly selects docker via JAMYE_TEST_CONTAINER_ENGINE.
         PODMAN_COMPOSE_PROVIDER = "${pkgs.podman-compose}/bin/podman-compose";
         RUST_BACKTRACE = "1";
       };

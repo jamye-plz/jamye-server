@@ -3,10 +3,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
 COMPOSE_FILE="$REPO_ROOT/compose.yaml"
 LOCAL_ENV_FILE="$REPO_ROOT/.env.local"
 COMPOSE_PROJECT="jamye-server-test"
+CONTAINER_ENGINE="${JAMYE_TEST_CONTAINER_ENGINE:-podman}"
 
 require_nix_shell() {
   if [[ -z "${IN_NIX_SHELL:-}" ]]; then
@@ -101,7 +102,7 @@ require_rootless_podman() {
 }
 
 compose() {
-  podman compose \
+  "$CONTAINER_ENGINE" compose \
     --env-file "$LOCAL_ENV_FILE" \
     --file "$COMPOSE_FILE" \
     --project-name "$COMPOSE_PROJECT" \
@@ -111,7 +112,13 @@ compose() {
 prepare_infra() {
   require_nix_shell
   validate_compose_project
-  require_compose_provider
+  case "$CONTAINER_ENGINE" in
+    podman) require_compose_provider ;;
+    docker) require_command docker ;;
+    *) printf 'error: unsupported container engine: %s\n' "$CONTAINER_ENGINE" >&2; exit 2 ;;
+  esac
   load_local_env
-  require_rootless_podman
+  if [[ "$CONTAINER_ENGINE" == podman ]]; then
+    require_rootless_podman
+  fi
 }

@@ -5,7 +5,7 @@
 > Podman, destructive-operation, and production ownership boundaries remain in
 > force.
 
-- 상태: Accepted, task-module boundary amended
+- 상태: Accepted, task-module boundary amended, N1에서 MinIO host process와 CI Docker engine으로 개정
 - 날짜: 2026-08-24
 
 ## Context
@@ -53,13 +53,24 @@ Just는 tool을 설치하거나 version을 고정하지 않는다. 세부 근거
 
 ### Podman boundary
 
-`compose.yaml`은 top-level project `jamye-server-test`와 정확히 PostgreSQL, Redis, MinIO 세 local service만 가진다. loopback port, fixed non-latest image tag, healthcheck, project-owned named volume을 사용한다.
+M0에서 `compose.yaml`은 top-level project `jamye-server-test`와 PostgreSQL, Redis,
+MinIO를 local service로 정의했다. loopback port, fixed non-latest image tag,
+healthcheck, project-owned named volume을 사용했다.
+
+N1에서 이 구성을 개정했으며 Compose는 PostgreSQL과 Redis만 실행하고 MinIO는 같은
+flake-pinned nixpkgs의 host process로 실행한다. 상세 lifecycle은
+[로컬 개발](../development.md#로컬-서비스)을 따른다.
 
 devShell은 Podman client와 `podman-compose`를 제공하며 `PODMAN_COMPOSE_PROVIDER`를 Nix store executable에 고정한다. `just tools-check`는 service를 시작하지 않고 ambient fallback이 없는지 먼저 확인한다.
+CI는 `JAMYE_TEST_CONTAINER_ENGINE=docker`를 명시적으로 선택하며, 로컬 기본값은
+Nix 고정 provider와 rootless 검사를 사용하는 Podman이다.
 
 macOS `podman machine`은 user-owned prerequisite다. repository/Just/agent는 VM을 만들거나 시작·정지·reset·삭제하지 않는다. Linux는 VM layer 없이 같은 rootless project를 사용한다.
 
-service lifecycle도 사용자가 명시적으로 루트 명령을 실행해야만 바뀐다. `infra-down`은 bytes를 보존한다. `infra-reset`은 별도 confirmation, exact project, exact volume 이름과 ownership label을 검증해 local test volume 세 개만 삭제한다.
+service lifecycle도 사용자가 명시적으로 루트 명령을 실행해야만 바뀐다. `infra-down`은 bytes를 보존한다. M0의 `infra-reset`은 별도 confirmation, exact project, exact volume 이름과 ownership label을 검증해 세 local test volume을 삭제했다.
+
+N1에서 reset 대상을 개정했으며 PostgreSQL·Redis volume, 존재하는 legacy MinIO
+volume과 guarded host MinIO data를 삭제한다. confirmation과 volume label 검사는 유지한다.
 
 M0 MinIO bootstrap은 disposable admin과 별도 app identity만 준비한다. app은 권한이 없고 bucket/policy/lifecycle은 만들지 않는다. task-8에서 사용자가 D11을 선택하기 전까지 production 또는 local object policy를 선점하지 않는다.
 
@@ -95,3 +106,7 @@ flake command는 Git-tracked working tree를 source로 사용한다. 새 flake �
 - 비용: macOS의 Linux production build에는 별도 builder가 필요하다.
 - 위험: nixpkgs의 Podman Darwin availability 또는 external provider compatibility가 lock revision에서 깨질 수 있다. provider card 실패 시 ambient 도구로 우회하지 않고 flake를 수정한다.
 - 위험: fixed Compose image의 security/availability는 local compatibility 목적에만 유효하다. production 선택으로 전이하지 않는다.
+
+N1에서 위 image 위험의 적용 범위를 개정했으며 현재 Compose image는 PostgreSQL과
+Redis에만 적용된다. MinIO는 로컬과 CI 모두 flake-pinned host package를 사용하며,
+어느 쪽도 production 적합성의 근거는 아니다.

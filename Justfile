@@ -109,24 +109,32 @@ env-create: require-nix-shell
 infra-up: require-nix-shell
     bash scripts/dev/infra-up.sh
 
-# Show the guarded local Compose project status.
+# Show the guarded local service status.
 infra-status: require-nix-shell
     #!/usr/bin/env bash
     set -euo pipefail
     source scripts/dev/common.sh
+    source scripts/dev/minio-process.sh
     prepare_infra
     compose ps
+    status_minio
 
-# Stop local containers while preserving named-volume data.
+# Stop local services while preserving their data.
 infra-down: require-nix-shell
     #!/usr/bin/env bash
     set -euo pipefail
     source scripts/dev/common.sh
+    source scripts/dev/minio-process.sh
     prepare_infra
-    compose down --remove-orphans
-    printf '%s\n' 'local containers stopped; named-volume data was preserved'
+    minio_status=0
+    (stop_minio) || minio_status=$?
+    compose_status=0
+    compose down --remove-orphans || compose_status=$?
+    if [[ "$minio_status" -ne 0 ]]; then exit "$minio_status"; fi
+    if [[ "$compose_status" -ne 0 ]]; then exit "$compose_status"; fi
+    printf '%s\n' 'local services stopped; data was preserved'
 
-# Delete only guarded disposable volumes after explicit confirmation.
+# Delete guarded disposable infrastructure data after explicit confirmation.
 infra-reset: require-nix-shell
     bash scripts/dev/infra-reset.sh
 

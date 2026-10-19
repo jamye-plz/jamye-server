@@ -35,7 +35,7 @@ devShell에 들어왔다고 서비스가 시작되지는 않는다. 지원하는
 
 에이전트는 프로젝트별 devShell을 한 번 열어 후속 명령에 재사용한다. 명령마다 환경을 다시
 열거나 `path:.`로 로컬 산출물까지 flake 입력에 포함하지 않는다. 자세한 운영 규칙은
-[devShell 세션 재사용](docs/development.md#devshell-진입과-세션-재사용)을 따른다.
+[로컬 개발](docs/development.md#devshell-진입과-세션-재사용)을 따른다.
 
 ```text
 just
@@ -44,7 +44,7 @@ just infra-status
 just test-recovery
 ```
 
-`just check`는 format, strict Clippy, default/all-feature tests와 contract drift를 한 번에 실행하는 구현 완료 게이트다. 서비스 stop/start recovery와 flake 검증은 각각 `just test-recovery`, `just flake-check`로 분리한다. 자세한 의미는 [검증 가이드](docs/validation.md)와 [로컬 개발 가이드](docs/development.md)에 있다.
+`just check`는 format, strict Clippy, default/all-feature tests와 contract drift를 한 번에 실행하는 구현 완료 게이트다. 서비스 stop/start recovery와 flake 검증은 각각 `just test-recovery`, `just flake-check`로 분리한다. 자세한 의미는 [검증 절차](docs/validation.md)와 [로컬 개발](docs/development.md)에 있다.
 
 ## 로컬 테스트 환경
 
@@ -54,11 +54,9 @@ local-dev 키의 목적·기본값·소유 모듈은 `.env.example`에, producti
 
 ## 로컬 인프라
 
-`compose.yaml`은 정확히 PostgreSQL, Redis, MinIO 세 서비스만 제공한다. loopback에만 bind하고 project-isolated named volume을 사용한다. MinIO 관리 계정과 앱 계정은 분리하며 `just minio-policy`가 테스트용 최소 권한만 연결한다.
-
-macOS의 `podman machine`은 저장소나 Nix가 소유하지 않는 사용자 관리 VM이다. 생성·시작·정지·삭제는 사용자가 명시적으로 실행한다. Linux에서는 같은 Compose project를 rootless Podman으로 직접 실행한다. devShell은 Compose provider를 Nix store 경로로 고정하므로 ambient Docker Compose나 Homebrew provider를 자동 선택하지 않는다.
-
-`just infra-down`은 container와 network만 내리고 데이터를 보존한다. `just infra-reset`은 별도 확인 문자열, project 이름, 세 named-volume 이름과 ownership label을 검증한 뒤 그 local test bytes만 삭제한다.
+로컬 PostgreSQL과 Redis는 Compose에서, MinIO는 flake가 고정한 host process로 실행한다.
+시작·종료·reset과 기존 MinIO 데이터 전환은 [로컬 개발](docs/development.md#로컬-서비스)을,
+CI 게이트는 [검증 절차](docs/validation.md)를 참고한다.
 
 ## Health 의미론
 
@@ -86,7 +84,7 @@ macOS의 `podman machine`은 저장소나 Nix가 소유하지 않는 사용자 �
 ## 문서
 
 - [로드맵](docs/roadmap.md)
-- [검증](docs/validation.md)
+- [검증 절차](docs/validation.md)
 - [로컬 개발](docs/development.md)
 - [아키텍처](docs/architecture.md)
 - [의존성 baseline ADR](docs/adr/0001-dependency-baseline.md)
