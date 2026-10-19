@@ -35,9 +35,9 @@ test: require-nix-shell
     JAMYE_ENABLE_DEV_FIXTURES=true CARGO_NET_OFFLINE=true \
       cargo test --locked --all-targets --all-features
 
-# Generate the committed API and realtime contracts.
+# Regenerate the committed release-candidate API and realtime contracts.
 contract-generate: require-nix-shell
-    cargo run --locked --bin generate_contracts -- generate --output contracts --provenance src/contract_generation/provenance.json
+    cargo run --locked --bin generate_contracts -- generate-release-candidate --output contracts --provenance tests/production_composition/fixtures/contract_generation/dirty.json
 
 # Verify that committed contracts are deterministic and current.
 contract-check: require-nix-shell

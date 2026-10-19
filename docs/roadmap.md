@@ -347,7 +347,7 @@ test-only 후속 fix2는 이 문서 갱신과 함께 브랜치 `docs/task-15-clo
 
 앱 기기 검증(jamye-app M17 라운드 3, 2026-10-07)에서 사용자가 본인 계정으로 업로드·교체·해제를 확인했다. 서버 집계(개수만)는 `user_avatar_uploads` released 5·active 0이고, released 5건의 공개 URL(U6)은 모두 404, `account_object_deletion_intents`의 `avatar/` 객체 5건은 모두 `succeeded`여서 교체·해제된 객체가 worker로 MinIO에서 지워졌다. 이 실제 업로드·삭제로 운영 MinIO 정책의 PUT·DELETE도 확인했다. 계약 변경은 없어 앱의 서버 계약 사본(`openapi.json`)과 서버 `contracts/openapi.json`은 byte 동일하다. 기록은 `.agents/results/device-m17b-20261006-174701.md`다.
 
-후속 후보(task-19): (1) 끝내지 못한 업로드를 정리하는 pending 업로드 sweep, (2) proxy 뒤 실제 client IP 기준 U6 rate limit key(U05에서 해소), (3) 로컬 테스트 시계 어긋남 대비: Mac 잠자기 뒤 Podman VM 시계가 호스트보다 늦어지면 호스트 시각으로 행을 넣는 테스트(media `media_uploads_timestamp_check`, `realtime::ticket` 로그 테스트 등)가 실패한다(서버 (D) 묶음·task-16 후보), (4) 현재 트리에서 거부되는 `just contract-generate`와 `docs/validation.md`의 release-candidate generator 정합. 상세는 §14 task-19다.
+후속 후보(task-19): (1) 끝내지 못한 업로드를 정리하는 pending 업로드 sweep, (2) proxy 뒤 실제 client IP 기준 U6 rate limit key(U05에서 해소), (3) 로컬 테스트 시계 어긋남 대비: Mac 잠자기 뒤 Podman VM 시계가 호스트보다 늦어지면 호스트 시각으로 행을 넣는 테스트(media `media_uploads_timestamp_check`, `realtime::ticket` 로그 테스트 등)가 실패한다(서버 (D) 묶음·task-16 후보). 상세는 §14 task-19다.
 
 ## 14. 후속 과제 상세
 
@@ -388,7 +388,7 @@ Apple 계정 삭제는 U3 JSON body로 `identity_token`, `authorization_code`, `
 
 시작 조건: task-14 완료. 별도 승인: 각 항목은 개별 승인으로 착수하며, homelab 변경이 필요한 항목(백업 연동)은 homelab 로드맵과 별도로 조율한다.
 
-2026-10-07 앱 M17이 사용자 종료 승인으로 닫혔다. 앱 M17(C) 채팅·미디어 기능 확장과 (D) 서버·운영은 착수하지 않고 앱 로드맵 §9 백로그로 남겼다(사용자 결정). 이 task는 계속 `planned_unapproved`다. task-19 후속 후보 중 U6 client IP rate limit key는 U05에서 해소했고, 남은 pending 업로드 sweep·로컬 테스트 시계 확인·`just contract-generate` 정합은 같은 백로그 성격이며 착수하려면 항목별 승인이 필요하다.
+2026-10-07 앱 M17이 사용자 종료 승인으로 닫혔다. 앱 M17(C) 채팅·미디어 기능 확장과 (D) 서버·운영은 착수하지 않고 앱 로드맵 §9 백로그로 남겼다(사용자 결정). 이 task는 계속 `planned_unapproved`다. task-19 후속 후보 중 U6 client IP rate limit key는 U05에서 해소했고, 남은 pending 업로드 sweep과 로컬 테스트 시계 확인은 같은 백로그 성격이며 착수하려면 항목별 승인이 필요하다.
 
 ### task-17 — 앱 M14 라운드 1 서버 지원 (M15)
 
@@ -437,7 +437,7 @@ SELECT version, success FROM _sqlx_migrations WHERE version = 13;
 
 상태: `deployed` (2026-10-06 세션 `20261006-174701`, 브랜치 `feature/task-19-avatar-upload`, 커밋 `a778592`/PR #18 merge `f86012e`, homelab PR #98(기능 꺼짐)·PR #99(활성화), migration `0019`; 배포 절차와 smoke는 §13). 이 task는 앱이 프로필 사진을 직접 올리고 지울 수 있도록 서버 호스팅 아바타를 추가한다. 결정 근거는 `docs/adr/0012-avatar-hosting.md`다. 배포(서버 `main` merge가 운영 재배포를 일으킨다)와 homelab의 `JAMYE_AVATAR_PUBLIC_BASE_URL` 연결은 구현과 별도로 사용자 확인(2026-10-06 "2단계 배포 진행") 뒤 진행했다.
 
-새 operation은 U4~U6이다. 계약은 task-8 media contribution에 둔다. `just contract-generate`가 현재 트리에서 "refusing to overwrite a contract tree with extra files"로 거부돼 `docs/validation.md`가 문서화한 release-candidate generator 명령으로 재생성했다(후속 과제 참고). 현재 커밋된 계약은 devShell 안에서 `cargo run --locked --bin generate_contracts -- generate-release-candidate --output contracts --provenance tests/production_composition/fixtures/contract_generation/dirty.json`으로 재생성한다. `contract-drift` workflow의 `ci` job은 schedule에서 건너뛰고 PR과 `main` push에서 `just check`를 실행하며, `advisory` job은 PR·`main` push·주간 schedule에서 비차단 dependency/secret 검사를 실행한다. `main` push의 `dispatch` job은 ci 통과 뒤 homelab repository에 `repository_dispatch`를 요청한다. 이 CI 경로는 production 배포·health smoke 성공을 증명하지 않는다.
+새 operation은 U4~U6이다. 계약은 task-8 media contribution에 둔다. 이전 검증 당시 recipe는 "refusing to overwrite a contract tree with extra files"로 거부돼 release-candidate generator 명령으로 재생성했다. 현재 계약은 devShell 안에서 `just contract-generate`로 재생성한다(절차는 `docs/validation.md`). `contract-drift` workflow의 `ci` job은 schedule에서 건너뛰고 PR과 `main` push에서 `just check`를 실행하며, `advisory` job은 PR·`main` push·주간 schedule에서 비차단 dependency/secret 검사를 실행한다. `main` push의 `dispatch` job은 ci 통과 뒤 homelab repository에 `repository_dispatch`를 요청한다. 이 CI 경로는 production 배포·health smoke 성공을 증명하지 않는다.
 
 | ID | 경로 | 인증 | 성공 | 오류 |
 |---|---|---|---|---|
@@ -459,4 +459,4 @@ SELECT version, success FROM _sqlx_migrations WHERE version = 13;
   - pending 업로드 sweep: U4 뒤 PUT하지 않았거나 만료·U5 422로 끝난 pending 행과 객체는 다음 U4나 계정 purge 전까지 남는다(사용자당 최대 1행, 1 MiB 이하). 만료된 pending을 `released`로 바꿔 삭제 큐에 넣는 주기 sweep이 필요하다.
   - U6 rate limit key(U05에서 해소): `JAMYE_TRUSTED_PROXIES`에 나열된 TCP peer의 단일 값 `X-Forwarded-For`를 사용해 client IP별 bucket을 적용한다.
   - 로컬 테스트 시계 어긋남: 처음에는 병렬 부하에 따른 간헐 실패로 보았던 `realtime::ticket::structured_ticket_logs_exclude_raw_and_digest_credentials`, all-features `production_composition`, media adapter 테스트 실패의 원인은 Mac 잠자기 뒤 Podman VM 시계가 호스트보다 늦어진 것이었다(2026-10-07 측정 1127초, 76초). 테스트는 호스트 시각으로 `created_at`을 넣고 DB는 자기 시계로 검사한다. VM에서 `chronyd`를 재시작해 시계를 맞추고 검사 중 `caffeinate -i`로 잠자기를 막자 `oma agent verify` 아래 전체 `just test`도 통과했다. `just infra-up`/`test`가 VM 시계 차이를 확인하거나 테스트가 DB 시계를 쓰도록 바꾸는 것이 서버 (D) 묶음·task-16 후보다.
-  - 계약 재생성 recipe 정합: `just contract-generate`는 현재 트리에서 거부되고 `docs/validation.md`는 release-candidate generator 명령을 문서화한다. recipe를 release-candidate 경로로 고쳐 문서와 정합하게 만든다. 현재 `contract-drift` job 구조를 계속 반영하고, MinIO image가 다시 pull 가능해지거나 flake input 정책이 바뀌면 local/CI harness 문서를 함께 갱신한다.
+  - local/CI harness 문서: 현재 `contract-drift` job 구조를 계속 반영하고, MinIO image가 다시 pull 가능해지거나 flake input 정책이 바뀌면 문서를 함께 갱신한다.
