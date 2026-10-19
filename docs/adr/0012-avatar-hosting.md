@@ -2,7 +2,7 @@
 
 ## Status
 
-task-19 서버 구현에서 채택. 아직 운영에 배포하지 않았다.
+task-19 서버 구현에서 채택해 2026-10-06 운영에 배포했고(roadmap §13), task-u05에서 client IP 전달 규칙을 개정했다.
 
 ## Context
 
@@ -38,6 +38,9 @@ presigned URL을 거치며, bucket은 비공개다. 그리고 `avatar_url`은 51
   상태를 구분한 뒤 homelab에서 값을 연결한다. 값은 기존 origin 검증기와 `validate_url`로 검증하고
   잘못되면 시작에 실패한다. U4는 기존 media presign limiter 값을 재사용(counter key 분리)하고,
   U5는 새 limit이 없으며, U6만 `JAMYE_RATE_LIMIT_AVATAR_PUBLIC_READ_*`(기본 600/60초)를 둔다.
+- **client IP와 rate limit.** U6 limiter는 `JAMYE_TRUSTED_PROXIES`에 정확히 등록된 TCP
+  peer가 보낸 단일 값 `X-Forwarded-For`만 client IP로 신뢰한다. peer가 등록되지 않았거나
+  헤더가 없거나 여러 줄·쉼표 목록이거나 IP로 해석되지 않으면 TCP peer 주소를 사용한다.
 - **U2와의 경계.** U2는 계속 임의 https 문자열을 받는다. 호스팅 소유 관계는 U5에서만 생기고,
   U2가 `""` 또는 다른 값을 보내면 active 호스팅 행을 해제한다. 타인의 호스팅 URL을 U2로
   넣어도 본인 화면만 깨지므로 별도 규칙을 만들지 않는다.
@@ -46,9 +49,8 @@ presigned URL을 거치며, bucket은 비공개다. 그리고 `avatar_url`은 51
 
 - 객체는 `image/jpeg`, 1 MiB 이하만 허용한다. 서버는 크기·content type·시그니처(`FF D8 FF`)만
   확인하고 디코딩하지 않으며, EXIF 제거는 앱의 512px JPEG 재인코딩이 맡는다.
-- U6은 요청마다 객체를 메모리(최대 1 MiB)로 읽는다. 공개 읽기 한도는 ConnectInfo(peer 주소)
-  기준이라 reverse proxy 뒤에서는 proxy 주소 단위 bucket이며 기본값은 사실상 전역 상한이다.
-  `X-Forwarded-For` 처리는 MVP에서 하지 않는다.
+- U6은 요청마다 객체를 메모리(최대 1 MiB)로 읽는다. 공개 읽기 한도는 검증된 client IP
+  기준이며, 신뢰할 수 없는 전달 헤더는 TCP peer 주소로 fallback한다.
 - 새 객체 prefix `avatar/`가 운영 MinIO 자격 증명 정책에서 PUT/GET/DELETE 가능해야 한다.
   배포 전 안전 리뷰가 정책 파일을 확인하고, 실제 확인은 첫 업로드로 한다.
 - 계정 삭제 유예 중에는 active 행이 계속 서빙되고 purge가 행을 지우면 같은 URL이 404가 된다.

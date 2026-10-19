@@ -45,7 +45,9 @@ subscription까지 먼저 제거하고 data/error frame 없이 `4001 membership_
 닫는다.
 
 Application heartbeat는 client ping 25초와 추가 pong deadline 10초를 사용한다.
-protocol error는 `4400`, 내부 dependency error는 `1011`이다. local connection registry는
+protocol error는 `4400`, 내부 dependency error는 `1011`이다. client frame/message가
+4096 bytes를 넘으면 `1009 message_too_big`으로 닫고, 한 사용자의 9번째 socket 연결은
+사용자당 8개 제한에 따라 `1013 socket_limit`으로 닫는다. local connection registry는
 구체 transport 구현이며 application port나 runtime plugin registry가 아니다. 각 socket의
 outbound queue는 bounded이며, 가득 찬 queue에 event를 무한 적재하지 않는다. 이때 누락된
 low-latency hint는 reconnect/delta로 복구한다.

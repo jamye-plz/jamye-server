@@ -216,14 +216,14 @@ M1은 /Users/poby/Developer/jamye-plz의 정확한 PF1 source set을 determinist
 - credential 생성, bounded wait, guarded deletion, service recovery처럼 안전 경계가 있는 동작만 `scripts/dev/`와 `scripts/recovery/`에 둔다.
 - 현재 후속 Cargo 공유 파일 owner는 의존 순서가 보장된 task-3c(dev-only JWT), task-5(auth), task-8(S3/media)다. task-3c는 optional JWT로 dev surface를 열었고, task-5는 같은 `jsonwebtoken` verifier를 production 기본 graph로 승격하면서 PKCE Base64URL과 OAuth form/JSON feature만 추가한다. 각 owner 뒤 사용자가 lock/no-drift와 dependency/license card를 다시 실행한다.
 - Task-13은 루트 `Justfile` 검증 체계 정리·통과 확인(1단계)과 실제 NixOS module(`nix/module.nix`)·package realization·runtime health smoke(2단계, `nix/smoke-test.nix`)를 모두 완료했다. homelab이 `services.jamye-server`로 이 module을 midgard에 배포했다(homelab PR #75, 2026-09-08; `homelab/services/jamye-server.nix`; 공개 URL `https://jamye-api.ridewithmin.com`, `https://jamye-media.ridewithmin.com`). 이후의 host 이전은 homelab이 독립적으로 진행하며 이 로드맵과 무관하다.
-- rootless Podman compose.yaml은 local disposable PostgreSQL/Redis/MinIO 전용이다. macOS podman machine과 lifecycle/reset은 사용자가 실행한다. 현재 MinIO image는 더 이상 pull할 수 없어 CI `contract-drift`는 Compose로 PostgreSQL·Redis만 시작하고 flake의 `nixpkgs` MinIO binary를 직접 시작한다. 이는 local harness의 known limitation 우회이며 compose.yaml은 production SSOT가 아니다.
+- rootless Podman `compose.yaml`은 local disposable PostgreSQL·Redis 전용이고, MinIO는 flake-pinned host process로 실행한다. macOS podman machine과 lifecycle/reset은 사용자가 실행한다. 로컬 lifecycle은 [로컬 개발](development.md), CI의 `contract-drift` gate와 production 배포 경계는 [검증 절차](validation.md)에 정리한다. compose.yaml은 production SSOT가 아니다.
 - production은 native Nix package와 NixOS systemd module이다. Podman compose는 production SSOT가 아니다.
 - flake는 supported system마다 api/worker/admin package, checks, devShell, nixosModules.default를 export한다.
 - api/worker package matrix는 세 system 모두를 대상으로 한다. Linux builder가 없으면 production lane blocker이며 현재-host 평가 성공을 Linux build 성공으로 기록하지 않는다.
 - `just test`는 default-feature와 all-feature Rust suite를 연속 실행한다.
 - `just coverage`는 library, binaries, integration targets를 포함하는 all-feature 관측 도구다. 고정 퍼센트는 구현 완료 권한이 아니며 `just check` 통과를 대신하지 않는다.
 - STT worker/inference package와 관련 Nix input/config는 만들지 않는다.
-- NixOS module은 package, listenAddress, environmentFile, migration policy와 선택적 `objectStorage.createLocally`를 소유한다. 로컬 개발·통합 테스트는 rootless Podman Compose를 사용하고, production에서 이 옵션을 켜면 homelab이 소비하는 module이 native `services.minio`를 함께 실행한다. D11=B에 따라 별도 bucket oneshot은 두지 않고 API `ensure_bucket`만 버킷 lifecycle을 소유한다. DB/Redis와 host/domain/volume, SOPS secret, ingress, monitoring, backup/restore는 계속 homelab 소유다.
+- NixOS module은 package, listenAddress, environmentFile, migration policy와 선택적 `objectStorage.createLocally`를 소유한다. 로컬 개발·통합 테스트는 Compose의 PostgreSQL·Redis와 flake-pinned host MinIO를 사용하고, production에서 이 옵션을 켜면 homelab이 소비하는 module이 native `services.minio`를 함께 실행한다. D11=B에 따라 별도 bucket oneshot은 두지 않고 API `ensure_bucket`만 버킷 lifecycle을 소유한다. DB/Redis와 host/domain/volume, SOPS secret, ingress, monitoring, backup/restore는 계속 homelab 소유다.
 
 ## 10. Pending decisions
 
@@ -437,7 +437,7 @@ SELECT version, success FROM _sqlx_migrations WHERE version = 13;
 
 상태: `deployed` (2026-10-06 세션 `20261006-174701`, 브랜치 `feature/task-19-avatar-upload`, 커밋 `a778592`/PR #18 merge `f86012e`, homelab PR #98(기능 꺼짐)·PR #99(활성화), migration `0019`; 배포 절차와 smoke는 §13). 이 task는 앱이 프로필 사진을 직접 올리고 지울 수 있도록 서버 호스팅 아바타를 추가한다. 결정 근거는 `docs/adr/0012-avatar-hosting.md`다. 배포(서버 `main` merge가 운영 재배포를 일으킨다)와 homelab의 `JAMYE_AVATAR_PUBLIC_BASE_URL` 연결은 구현과 별도로 사용자 확인(2026-10-06 "2단계 배포 진행") 뒤 진행했다.
 
-새 operation은 U4~U6이다. 계약은 task-8 media contribution에 둔다. 이전 검증 당시 recipe는 "refusing to overwrite a contract tree with extra files"로 거부돼 release-candidate generator 명령으로 재생성했다. 현재 계약은 devShell 안에서 `just contract-generate`로 재생성한다(절차는 `docs/validation.md`). `contract-drift` workflow의 `ci` job은 schedule에서 건너뛰고 PR과 `main` push에서 `just check`를 실행하며, `advisory` job은 PR·`main` push·주간 schedule에서 비차단 dependency/secret 검사를 실행한다. `main` push의 `dispatch` job은 ci 통과 뒤 homelab repository에 `repository_dispatch`를 요청한다. 이 CI 경로는 production 배포·health smoke 성공을 증명하지 않는다.
+새 operation은 U4~U6이다. 계약은 task-8 media contribution에 둔다. 이전 검증 당시 recipe는 "refusing to overwrite a contract tree with extra files"로 거부돼 release-candidate generator 명령으로 재생성했다. 현재 계약 생성과 `contract-drift`의 검증·배포 경계는 [검증 절차](validation.md)에 정리한다. 이 CI 경로는 production 배포·health smoke 성공을 증명하지 않는다.
 
 | ID | 경로 | 인증 | 성공 | 오류 |
 |---|---|---|---|---|
@@ -459,4 +459,4 @@ SELECT version, success FROM _sqlx_migrations WHERE version = 13;
   - pending 업로드 sweep: U4 뒤 PUT하지 않았거나 만료·U5 422로 끝난 pending 행과 객체는 다음 U4나 계정 purge 전까지 남는다(사용자당 최대 1행, 1 MiB 이하). 만료된 pending을 `released`로 바꿔 삭제 큐에 넣는 주기 sweep이 필요하다.
   - U6 rate limit key(U05에서 해소): `JAMYE_TRUSTED_PROXIES`에 나열된 TCP peer의 단일 값 `X-Forwarded-For`를 사용해 client IP별 bucket을 적용한다.
   - 로컬 테스트 시계 어긋남: 처음에는 병렬 부하에 따른 간헐 실패로 보았던 `realtime::ticket::structured_ticket_logs_exclude_raw_and_digest_credentials`, all-features `production_composition`, media adapter 테스트 실패의 원인은 Mac 잠자기 뒤 Podman VM 시계가 호스트보다 늦어진 것이었다(2026-10-07 측정 1127초, 76초). 테스트는 호스트 시각으로 `created_at`을 넣고 DB는 자기 시계로 검사한다. VM에서 `chronyd`를 재시작해 시계를 맞추고 검사 중 `caffeinate -i`로 잠자기를 막자 `oma agent verify` 아래 전체 `just test`도 통과했다. `just infra-up`/`test`가 VM 시계 차이를 확인하거나 테스트가 DB 시계를 쓰도록 바꾸는 것이 서버 (D) 묶음·task-16 후보다.
-  - local/CI harness 문서: 현재 `contract-drift` job 구조를 계속 반영하고, MinIO image가 다시 pull 가능해지거나 flake input 정책이 바뀌면 문서를 함께 갱신한다.
+  - local/CI harness 문서: 이번 세션 작업(커밋 `4e493ea`, `0de4782`)에서 MinIO image를 더 이상 pull할 수 없어 MinIO를 flake-pinned host process로 옮겼고, 현재 lifecycle과 CI gate를 [로컬 개발](development.md)과 [검증 절차](validation.md)로 정리했다. 이후 flake input 정책이 바뀌면 해당 문서를 함께 갱신한다.
