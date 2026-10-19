@@ -39,6 +39,7 @@ const TRUSTED: &str = "192.0.2.10";
 const UNTRUSTED: &str = "192.0.2.11";
 const CLIENT_A: &str = "198.51.100.20";
 const CLIENT_B: &str = "2001:db8::20";
+const CLIENT_B_PREFIX: &str = "2001:db8::";
 
 #[derive(Clone, Copy)]
 enum Route {
@@ -192,7 +193,16 @@ async fn all_three_limiters_trusted_peer_single_xff_gives_distinct_buckets() -> 
         .check(Some(TRUSTED), &[CLIENT_A], Some(CLIENT_A))
         .await?;
     fixture
-        .check(Some(TRUSTED), &["  2001:db8::20  "], Some(CLIENT_B))
+        .check(Some(TRUSTED), &["  2001:db8::20  "], Some(CLIENT_B_PREFIX))
+        .await?;
+    fixture
+        .check(Some(TRUSTED), &["2001:db8::21"], Some(CLIENT_B_PREFIX))
+        .await?;
+    fixture
+        .check(Some(TRUSTED), &["2001:db8:0:1::20"], Some("2001:db8:0:1::"))
+        .await?;
+    fixture
+        .check(Some(TRUSTED), &["::ffff:198.51.100.20"], Some(CLIENT_A))
         .await?;
     Ok(())
 }

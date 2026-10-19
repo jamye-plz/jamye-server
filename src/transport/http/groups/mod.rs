@@ -409,6 +409,7 @@ fn empty_result(result: Result<(), GroupsError>, request_id: Uuid) -> Response {
 
 fn rate_limit_subject(parts: &axum::http::request::Parts, user_id: Uuid) -> String {
     let address = client_ip::client_ip(parts)
+        .map(client_ip::rate_limit_address)
         .map(|address| address.to_string())
         .unwrap_or_else(|| "unavailable".to_owned());
     format!("user:{user_id}:ip:{address}")

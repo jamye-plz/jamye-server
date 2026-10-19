@@ -338,8 +338,9 @@ async fn exchange(
 async fn refresh(State(state): State<AuthHttpState>, request: Request) -> Response {
     let (parts, body) = request.into_parts();
     let request_id = request_id(&parts);
-    let client_ip_subject =
-        client_ip::forwarded_client_ip(&parts).map(|address| format!("ip:{address}"));
+    let client_ip_subject = client_ip::forwarded_client_ip(&parts)
+        .map(client_ip::rate_limit_address)
+        .map(|address| format!("ip:{address}"));
     let result = parse_json::<RefreshBody>(body).await;
     let result = match result {
         Ok(input) => {
@@ -382,6 +383,7 @@ where
 
 fn network_subject(parts: &axum::http::request::Parts) -> String {
     client_ip::client_ip(parts)
+        .map(client_ip::rate_limit_address)
         .map(|address| format!("ip:{address}"))
         .unwrap_or_else(|| "ip:unavailable".to_owned())
 }
