@@ -103,6 +103,22 @@ pub struct TerminalRetentionReport {
     pub deleted: [u64; 6],
 }
 
+impl TerminalRetentionReport {
+    pub(crate) fn log_completed(self) {
+        tracing::info!(
+            target: "jamye_server",
+            event_kind = "terminal_retention_batch",
+            outbox_events_published = self.deleted[0],
+            outbox_events_dead_letter = self.deleted[1],
+            push_delivery_intents_succeeded = self.deleted[2],
+            push_delivery_intents_failed = self.deleted[3],
+            push_delivery_intents_dead_letter = self.deleted[4],
+            account_object_deletion_intents_succeeded = self.deleted[5],
+            "terminal retention batch completed"
+        );
+    }
+}
+
 pub trait TerminalRetentionRepository: Send + Sync {
     fn purge_terminal_rows(&self) -> AccountDeletionRepositoryFuture<'_, TerminalRetentionReport>;
 }

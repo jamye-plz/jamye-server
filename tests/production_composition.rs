@@ -57,6 +57,8 @@ use uuid::Uuid;
 
 #[path = "production_composition/client_ip.rs"]
 mod client_ip;
+#[path = "support/client_ip.rs"]
+mod client_ip_support;
 #[path = "production_composition/composition.rs"]
 mod composition;
 #[path = "production_composition/contract_generation.rs"]

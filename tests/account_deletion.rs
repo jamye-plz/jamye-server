@@ -6,6 +6,8 @@ pub type TestResult<T = ()> = Result<T, Box<dyn Error + Send + Sync>>;
 mod cleanup;
 #[path = "account_deletion/http.rs"]
 mod http;
+#[path = "support/logging.rs"]
+mod logging_support;
 #[path = "account_deletion/migration.rs"]
 mod migration;
 #[path = "support/postgres.rs"]

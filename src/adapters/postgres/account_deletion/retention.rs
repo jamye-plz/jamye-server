@@ -126,17 +126,7 @@ impl PostgresAccountDeletionRepository {
         if failed {
             // Preserve counts from successful statements even when another pair failed.
             if report.deleted.iter().any(|count| *count > 0) {
-                tracing::info!(
-                    target: "jamye_server",
-                    event_kind = "terminal_retention_batch",
-                    outbox_events_published = report.deleted[0],
-                    outbox_events_dead_letter = report.deleted[1],
-                    push_delivery_intents_succeeded = report.deleted[2],
-                    push_delivery_intents_failed = report.deleted[3],
-                    push_delivery_intents_dead_letter = report.deleted[4],
-                    account_object_deletion_intents_succeeded = report.deleted[5],
-                    "terminal retention batch completed"
-                );
+                report.log_completed();
             }
             Err(AccountDeletionRepositoryError::Unavailable)
         } else {

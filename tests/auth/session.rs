@@ -11,7 +11,6 @@ use crate::{
 
 mod refresh_ip {
     use std::{
-        net::SocketAddr,
         sync::{
             Arc, Mutex,
             atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -22,13 +21,11 @@ mod refresh_ip {
     use axum::{
         Router,
         body::{Body, to_bytes},
-        extract::ConnectInfo,
         http::{Request, StatusCode, header::RETRY_AFTER},
         response::Response,
     };
     use jamye_server::{
         adapters::postgres::auth::PostgresAuthRepository,
-        config::{AppConfig, ConfigInput},
         ports::{
             auth::{
                 AuthRepository, AuthRepositoryFuture, CredentialDigest, IssuedSession,
@@ -40,7 +37,7 @@ mod refresh_ip {
             },
             transactions::TransactionHandle,
         },
-        transport::http::{auth, client_ip},
+        transport::http::auth,
     };
     use serde_json::{Value, json};
     use sqlx::PgPool;
@@ -51,6 +48,7 @@ mod refresh_ip {
     use crate::{
         TestResult,
         auth_helpers::{authorize, exchange, harness_with_repository_and_rate_limiter},
+        client_ip_support::{router_with_trusted_proxies, with_peer_and_xff},
         postgres_support::TestDatabase,
     };
 
@@ -194,34 +192,16 @@ mod refresh_ip {
         ))
     }
 
-    fn router(state: auth::AuthHttpState, trusted: Option<&str>) -> TestResult<Router> {
-        let config = AppConfig::try_from(ConfigInput {
-            environment: Some("test".to_owned()),
-            database_url: Some("postgres://localhost/jamye_test".to_owned()),
-            trusted_proxies: trusted.map(ToOwned::to_owned),
-            ..ConfigInput::default()
-        })?;
-        Ok(client_ip::with_trusted_proxies(
-            auth::router(state),
-            &config,
-        ))
-    }
-
     async fn refresh(
         router: &Router,
         token: &str,
         peer: &str,
         headers: &[&str],
     ) -> TestResult<Response> {
-        let mut builder =
+        let builder =
             Request::post("/api/v1/auth/refresh").header("content-type", "application/json");
-        for header in headers {
-            builder = builder.header("x-forwarded-for", *header);
-        }
-        let mut request = builder.body(Body::from(json!({"refresh_token": token}).to_string()))?;
-        request
-            .extensions_mut()
-            .insert(ConnectInfo(SocketAddr::new(peer.parse()?, 4000)));
+        let request = builder.body(Body::from(json!({"refresh_token": token}).to_string()))?;
+        let request = with_peer_and_xff(request, Some(peer), headers)?;
         Ok(router.clone().oneshot(request).await?)
     }
 
@@ -241,7 +221,7 @@ mod refresh_ip {
         let database = TestDatabase::migrated().await?;
         let pool = database.pool()?;
         let (state, recorder, mut token) = fixture(pool.clone()).await?;
-        let router = router(state, Some(TRUSTED))?;
+        let router = router_with_trusted_proxies(auth::router(state), Some(TRUSTED))?;
 
         let invalid = refresh(&router, "invalid", TRUSTED, &[CLIENT]).await?;
         assert_eq!(invalid.status(), StatusCode::UNPROCESSABLE_ENTITY);
@@ -312,7 +292,7 @@ mod refresh_ip {
             (Some(TRUSTED), "192.0.2.11", vec![CLIENT]),
             (None, TRUSTED, vec![CLIENT]),
         ] {
-            let router = router(state.clone(), trusted)?;
+            let router = router_with_trusted_proxies(auth::router(state.clone()), trusted)?;
             let response = refresh(&router, &token, peer, &headers).await?;
             assert_eq!(response.status(), StatusCode::OK);
             let calls = recorder.take();
@@ -334,7 +314,8 @@ mod refresh_ip {
         let pool = database.pool()?;
         let (state, recorder, token) = fixture(pool.clone()).await?;
         recorder.ip_unavailable.store(true, Ordering::SeqCst);
-        let response = refresh(&router(state, Some(TRUSTED))?, &token, TRUSTED, &[CLIENT]).await?;
+        let router = router_with_trusted_proxies(auth::router(state), Some(TRUSTED))?;
+        let response = refresh(&router, &token, TRUSTED, &[CLIENT]).await?;
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(
             body(response).await?["error"]["code"],
@@ -352,7 +333,7 @@ mod refresh_ip {
         let database = TestDatabase::migrated().await?;
         let pool = database.pool()?;
         let (state, recorder, token) = fixture(pool.clone()).await?;
-        let router = router(state, Some(TRUSTED))?;
+        let router = router_with_trusted_proxies(auth::router(state), Some(TRUSTED))?;
 
         let response = refresh(&router, &token, TRUSTED, &[CLIENT]).await?;
         assert_eq!(response.status(), StatusCode::OK);

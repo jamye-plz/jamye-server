@@ -4,6 +4,13 @@ use std::{fs, io};
 #[path = "messaging/delta.rs"]
 mod delta;
 #[cfg(feature = "dev-fixtures")]
+#[allow(
+    dead_code,
+    reason = "messaging tests use the shared interest sentinel but keep their existing writer"
+)]
+#[path = "support/logging.rs"]
+mod logging_support;
+#[cfg(feature = "dev-fixtures")]
 #[path = "messaging/media_ordering.rs"]
 mod media_ordering;
 #[cfg(feature = "dev-fixtures")]

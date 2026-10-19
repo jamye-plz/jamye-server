@@ -37,17 +37,9 @@ pub async fn run_terminal_retention_until<S, F>(
                     break;
                 }
                 match repository.purge_terminal_rows().await {
-                    Ok(report) if report.deleted.iter().any(|count| *count > 0) => tracing::info!(
-                        target: "jamye_server",
-                        event_kind = "terminal_retention_batch",
-                        outbox_events_published = report.deleted[0],
-                        outbox_events_dead_letter = report.deleted[1],
-                        push_delivery_intents_succeeded = report.deleted[2],
-                        push_delivery_intents_failed = report.deleted[3],
-                        push_delivery_intents_dead_letter = report.deleted[4],
-                        account_object_deletion_intents_succeeded = report.deleted[5],
-                        "terminal retention batch completed"
-                    ),
+                    Ok(report) if report.deleted.iter().any(|count| *count > 0) => {
+                        report.log_completed();
+                    }
                     Ok(_) => {}
                     Err(_) => tracing::warn!(
                         target: "jamye_server",
