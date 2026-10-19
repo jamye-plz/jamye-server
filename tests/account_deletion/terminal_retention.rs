@@ -338,13 +338,10 @@ impl TerminalRetentionRepository for ObservedRepository {
     }
 }
 
-async fn run_one_logged_tick<S>(
+async fn run_one_logged_tick(
     repository: PostgresAccountDeletionRepository,
-    subscriber: S,
-) -> TestResult<TerminalRetentionReport>
-where
-    S: tracing::Subscriber + Send + Sync + 'static,
-{
+    subscriber: impl Into<tracing::Dispatch>,
+) -> TestResult<TerminalRetentionReport> {
     let (tick_tx, tick_rx) = mpsc::unbounded_channel();
     let ticks = stream::unfold(tick_rx, |mut rx| async move {
         rx.recv().await.map(|()| ((), rx))
@@ -475,16 +472,24 @@ async fn all_zero_success_logs_no_completion_event() -> TestResult {
     let result: TestResult = async {
         let writer = SharedWriter::default();
         let output = writer.clone();
-        let subscriber = build_json_subscriber(writer, "jamye_server=info")?;
+        let dispatch = tracing::Dispatch::new(build_json_subscriber(writer, "jamye_server=info")?);
         let _interest_sentinel = crate::logging_support::interest_sentinel();
 
         let report = run_one_logged_tick(
             PostgresAccountDeletionRepository::new(pool.clone()),
-            subscriber,
+            dispatch.clone(),
         )
         .await?;
         assert_eq!(report.deleted, [0; 6]);
+        // A positive control keeps this negative assertion from passing with dead capture.
+        tracing::dispatcher::with_default(&dispatch, || {
+            tracing::info!(target: "jamye_server", "capture control");
+        });
         let entries = output.parsed_lines()?;
+        assert!(
+            !entries_with_message(&entries, "capture control").is_empty(),
+            "log capture is not wired"
+        );
         assert!(entries_with_message(&entries, "terminal retention batch completed").is_empty());
         Ok(())
     }

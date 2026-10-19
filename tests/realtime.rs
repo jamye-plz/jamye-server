@@ -26,7 +26,7 @@ pub use postgres_support::TestResult;
 mod fixture_support;
 #[allow(
     dead_code,
-    reason = "realtime tests use the shared interest sentinel but keep their existing writer"
+    reason = "realtime tests read raw log snapshots and do not use parsed_lines"
 )]
 #[path = "support/logging.rs"]
 mod logging_support;

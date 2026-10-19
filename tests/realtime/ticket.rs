@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    io,
     sync::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
@@ -32,10 +31,9 @@ use jamye_server::{
 };
 use time::OffsetDateTime;
 use tower::ServiceExt;
-use tracing_subscriber::fmt::MakeWriter;
 use uuid::Uuid;
 
-use crate::{TestResult, postgres_support::TestDatabase};
+use crate::{TestResult, logging_support::SharedWriter, postgres_support::TestDatabase};
 
 #[tokio::test]
 async fn unsupported_versions_create_no_ticket_material() -> TestResult {
@@ -379,43 +377,5 @@ struct AlwaysAuthorized;
 impl ConversationAuthorizer for AlwaysAuthorized {
     fn is_authorized(&self, _user_id: Uuid, _conversation_id: Uuid) -> RealtimeFuture<'_, bool> {
         Box::pin(async { Ok(true) })
-    }
-}
-
-#[derive(Clone, Default)]
-struct SharedWriter(Arc<Mutex<Vec<u8>>>);
-
-impl SharedWriter {
-    fn snapshot(&self) -> io::Result<String> {
-        let bytes = self
-            .0
-            .lock()
-            .map_err(|_| io::Error::other("log writer lock poisoned"))?
-            .clone();
-        String::from_utf8(bytes).map_err(io::Error::other)
-    }
-}
-
-impl<'a> MakeWriter<'a> for SharedWriter {
-    type Writer = SharedWriterGuard;
-
-    fn make_writer(&'a self) -> Self::Writer {
-        SharedWriterGuard(self.0.clone())
-    }
-}
-
-struct SharedWriterGuard(Arc<Mutex<Vec<u8>>>);
-
-impl io::Write for SharedWriterGuard {
-    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-        self.0
-            .lock()
-            .map_err(|_| io::Error::other("log writer lock poisoned"))?
-            .extend_from_slice(buffer);
-        Ok(buffer.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
     }
 }
