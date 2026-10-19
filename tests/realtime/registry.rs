@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use jamye_server::transport::realtime::LocalRealtimeHub;
 use tokio::sync::Barrier;
@@ -60,5 +60,21 @@ async fn cleanup_atomically_removes_socket_user_and_conversation_entries() -> Te
     assert_eq!(hub.registry_counts().await, (0, 0, 0));
     assert_eq!(hub.publish(conversation_id, "late".to_owned()).await, 0);
     assert_eq!(connection.outbound.recv().await, None);
+    Ok(())
+}
+
+#[tokio::test]
+async fn shutdown_waits_for_the_session_after_registry_cleanup() -> TestResult {
+    tokio::time::pause();
+    let hub = LocalRealtimeHub::default();
+    let connection = hub.register(Uuid::new_v4()).await?;
+    hub.shutdown().await;
+    assert!(hub.cleanup(connection.socket_id).await);
+    assert_eq!(hub.registry_counts().await, (0, 0, 0));
+    assert!(hub.register(Uuid::new_v4()).await.is_err());
+
+    assert!(!hub.wait_for_drain(Duration::from_secs(2)).await);
+    drop(connection);
+    assert!(hub.wait_for_drain(Duration::from_secs(2)).await);
     Ok(())
 }

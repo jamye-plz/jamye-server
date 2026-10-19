@@ -184,8 +184,12 @@ fn websocket_state(
             allowed: [conversation_id].into_iter().collect(),
         }),
         clock: Arc::new(FixedClock(OffsetDateTime::UNIX_EPOCH)),
-        timing: SocketTiming::new(Duration::from_secs(5), Duration::from_secs(5))
-            .ok_or_else(|| io::Error::other("invalid task-6c socket timing"))?,
+        timing: SocketTiming::new(
+            Duration::from_secs(5),
+            Duration::from_secs(5),
+            Duration::from_secs(5),
+        )
+        .ok_or_else(|| io::Error::other("invalid task-6c socket timing"))?,
     })
 }
 

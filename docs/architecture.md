@@ -208,7 +208,7 @@ JAMYE_ACCOUNT_OBJECT_DELETION_SECRET_ACCESS_KEY
 JAMYE_ENABLE_DEV_FIXTURES
 ```
 
-`/health/live`는 process liveness만 보고한다. `/health/ready`는 bounded timeout으로 세 dependency를 독립 확인하고 PostgreSQL만 readiness HTTP status를 결정한다. Redis/MinIO 실패는 typed degraded detail이다. log는 JSON이고 caller의 request ID를 신뢰하지 않는다. 서버가 UUID를 발급해 response와 log에 같은 ID를 전파한다. SIGTERM/SIGINT에서 listener를 닫고 configurable grace period 동안 in-flight request를 drain한다.
+`/health/live`는 process liveness만 보고한다. `/health/ready`는 bounded timeout으로 세 dependency를 독립 확인하고 PostgreSQL만 readiness HTTP status를 결정한다. Redis/MinIO 실패는 typed degraded detail이다. log는 JSON이고 caller의 request ID를 신뢰하지 않는다. 서버가 UUID를 발급해 response와 log에 같은 ID를 전파한다. SIGTERM/SIGINT를 받으면 먼저 realtime WebSocket을 `1001 server_shutdown`으로 닫으며 최대 min(grace/2, 5초) 기다린다. 그다음 listener를 닫고 남은 grace period 동안 in-flight request를 drain한다.
 
 M0 MinIO check는 official unauthenticated `/minio/health/live` URL만 사용한다. S3 SDK, bucket, region, credential, path-style은 task-8 전까지 config/Cargo graph/composition에 없다.
 

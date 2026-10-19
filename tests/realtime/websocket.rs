@@ -12,7 +12,7 @@ use jamye_server::{
     ports::realtime::{ConversationAuthorizer, RealtimeClock, RealtimeFuture},
     transport::http::realtime::limit_websocket_upgrade,
     transport::realtime::{
-        CLOSE_MEMBERSHIP_REQUIRED, CLOSE_MESSAGE_TOO_BIG, CLOSE_PROTOCOL_ERROR,
+        CLOSE_GOING_AWAY, CLOSE_MEMBERSHIP_REQUIRED, CLOSE_MESSAGE_TOO_BIG, CLOSE_PROTOCOL_ERROR,
         CLOSE_REALTIME_AUTH_EXPIRED, CLOSE_TRY_AGAIN_LATER, LocalRealtimeHub, SocketTiming,
         run_socket_with_runtime,
     },
@@ -168,9 +168,12 @@ async fn slot_released_on_disconnect_expiry_and_shutdown() -> TestResult {
                 OffsetDateTime::UNIX_EPOCH + time::Duration::milliseconds(500);
         }
         if ending == "heartbeat" {
-            state.timing =
-                SocketTiming::new(Duration::from_millis(400), Duration::from_millis(100))
-                    .ok_or_else(|| io::Error::other("invalid heartbeat timing"))?;
+            state.timing = SocketTiming::new(
+                Duration::from_millis(400),
+                Duration::from_millis(100),
+                Duration::from_secs(1),
+            )
+            .ok_or_else(|| io::Error::other("invalid heartbeat timing"))?;
         }
         let mut held = Vec::new();
         for _ in 0..7 {
@@ -195,8 +198,12 @@ async fn slot_released_on_disconnect_expiry_and_shutdown() -> TestResult {
         wait_for_socket_count(&hub, 7).await?;
         state.session.access_token_expires_at =
             OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(30);
-        state.timing = SocketTiming::new(Duration::from_secs(5), Duration::from_secs(5))
-            .ok_or_else(|| io::Error::other("invalid replacement timing"))?;
+        state.timing = SocketTiming::new(
+            Duration::from_secs(5),
+            Duration::from_secs(5),
+            Duration::from_secs(1),
+        )
+        .ok_or_else(|| io::Error::other("invalid replacement timing"))?;
         let (mut replacement, replacement_shutdown, replacement_server) = connect(state).await?;
         assert_ping(&mut replacement).await?;
         assert_eq!(hub.registry_counts().await, (8, 8, 0));
@@ -209,6 +216,31 @@ async fn slot_released_on_disconnect_expiry_and_shutdown() -> TestResult {
         wait_for_socket_count(&hub, 0).await?;
     }
     Ok(())
+}
+
+#[tokio::test]
+async fn shutdown_closes_existing_and_new_sockets_and_drains_registry() -> TestResult {
+    let hub = LocalRealtimeHub::default();
+    let state = default_limit_state(hub.clone())?;
+    let (mut socket, shutdown, server) = connect(state.clone()).await?;
+    assert_ping(&mut socket).await?;
+    assert_eq!(hub.registry_counts().await, (1, 1, 0));
+
+    hub.shutdown().await;
+    let close = next_close(&mut socket).await?;
+    assert_eq!(u16::from(close.code), CLOSE_GOING_AWAY);
+    assert_eq!(close.reason.as_str(), "server_shutdown");
+    assert!(hub.wait_for_drain(Duration::from_secs(2)).await);
+    assert_eq!(hub.registry_counts().await, (0, 0, 0));
+
+    let (mut new_socket, new_shutdown, new_server) = connect(state).await?;
+    let close = next_close(&mut new_socket).await?;
+    assert_eq!(u16::from(close.code), CLOSE_GOING_AWAY);
+    assert_eq!(close.reason.as_str(), "server_shutdown");
+    assert_eq!(hub.registry_counts().await, (0, 0, 0));
+
+    stop(new_shutdown, new_server).await?;
+    stop(shutdown, server).await
 }
 
 #[tokio::test]
@@ -505,7 +537,7 @@ fn websocket_state_with_contract<const N: usize>(
             allowed: allowed_conversations.into_iter().collect(),
         }),
         clock: Arc::new(FixedClock(OffsetDateTime::UNIX_EPOCH)),
-        timing: SocketTiming::new(ping_interval, pong_deadline)
+        timing: SocketTiming::new(ping_interval, pong_deadline, Duration::from_secs(1))
             .ok_or_else(|| io::Error::other("invalid test socket timing"))?,
     })
 }
