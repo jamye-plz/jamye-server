@@ -2,7 +2,7 @@
 
 ## Status
 
-task-19 서버 구현에서 채택했고 U05에서 client IP 전달 규칙을 개정했다.
+task-19 서버 구현에서 채택해 2026-10-06 운영에 배포했고(roadmap §13), task-u05에서 client IP 전달 규칙을 개정했다.
 
 ## Context
 
@@ -40,7 +40,7 @@ presigned URL을 거치며, bucket은 비공개다. 그리고 `avatar_url`은 51
   U5는 새 limit이 없으며, U6만 `JAMYE_RATE_LIMIT_AVATAR_PUBLIC_READ_*`(기본 600/60초)를 둔다.
 - **client IP와 rate limit.** U6 limiter는 `JAMYE_TRUSTED_PROXIES`에 정확히 등록된 TCP
   peer가 보낸 단일 값 `X-Forwarded-For`만 client IP로 신뢰한다. peer가 등록되지 않았거나
-  헤더가 없거나 여러 값이면 TCP peer 주소를 사용한다.
+  헤더가 없거나 여러 줄·쉼표 목록이거나 IP로 해석되지 않으면 TCP peer 주소를 사용한다.
 - **U2와의 경계.** U2는 계속 임의 https 문자열을 받는다. 호스팅 소유 관계는 U5에서만 생기고,
   U2가 `""` 또는 다른 값을 보내면 active 호스팅 행을 해제한다. 타인의 호스팅 URL을 U2로
   넣어도 본인 화면만 깨지므로 별도 규칙을 만들지 않는다.
