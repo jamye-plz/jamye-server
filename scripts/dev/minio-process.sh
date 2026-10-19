@@ -110,6 +110,7 @@ remove_legacy_minio_containers() {
       legacy_ids+=("$container_id")
     done <<< "$legacy_containers"
     "$CONTAINER_ENGINE" rm --force "${legacy_ids[@]}"
+    printf '%s\n' "removed ${#legacy_ids[@]} legacy Compose MinIO container(s); volume $COMPOSE_PROJECT-minio-data is not migrated to .local/infra/minio" >&2
   fi
 }
 
@@ -162,7 +163,7 @@ status_minio() {
 }
 
 stop_minio() {
-  local status=0 pid attempt
+  local status=0 pid
   require_safe_minio_dir
   minio_state || status=$?
   case "$status" in
@@ -172,7 +173,7 @@ stop_minio() {
   esac
   pid="$MINIO_VERIFIED_PID"
   kill -TERM "$pid"
-  for attempt in {1..10}; do
+  for _ in {1..10}; do
     sleep 1
     status=0
     minio_running || status=$?

@@ -43,9 +43,13 @@ contract-generate: require-nix-shell
 contract-check: require-nix-shell
     bash scripts/check-contracts.sh
 
+# Lint repository shell scripts; warnings and errors fail.
+shell-check: require-nix-shell
+    shellcheck -x -S warning scripts/*.sh scripts/dev/*.sh scripts/recovery/*.sh
+
 # Primary implementation-complete gate.
-check: format-check clippy test contract-check
-    @printf '%s\n' 'format, Clippy, tests, and contract drift checks passed'
+check: format-check clippy shell-check test contract-check
+    @printf '%s\n' 'format, Clippy, shellcheck, tests, and contract drift checks passed'
 
 # Produce an informational all-feature coverage report; this is not a completion gate.
 coverage: require-nix-shell

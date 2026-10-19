@@ -15,6 +15,13 @@ if [[ ! -d contracts ]]; then
   exit 2
 fi
 
+# `just contract-generate` regenerates from the test fixture; it must stay the committed provenance.
+if ! cmp -s src/contract_generation/provenance.json \
+  tests/production_composition/fixtures/contract_generation/dirty.json; then
+  printf '%s\n' 'error: tests/production_composition/fixtures/contract_generation/dirty.json (input of just contract-generate) differs from src/contract_generation/provenance.json; make them identical' >&2
+  exit 1
+fi
+
 temporary_root="$(mktemp -d "${TMPDIR:-/tmp}/jamye-contract-check.XXXXXX")"
 trap 'rm -rf -- "$temporary_root"' EXIT
 generated="$temporary_root/generated"

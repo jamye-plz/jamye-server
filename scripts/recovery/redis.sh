@@ -54,8 +54,7 @@ test_pid=''
 redis_stopped=0
 
 wait_for_redis() {
-  local attempt
-  for attempt in $(seq 1 30); do
+  for _ in $(seq 1 30); do
     if redis_is_healthy; then
       return 0
     fi
@@ -68,8 +67,7 @@ wait_for_redis() {
 
 wait_for_marker() {
   local marker="$1"
-  local attempt
-  for attempt in $(seq 1 600); do
+  for _ in $(seq 1 600); do
     if [[ -f "$coordination_dir/$marker" ]]; then
       return 0
     fi
