@@ -34,15 +34,15 @@ impl DependencyProbe for PostgresHealthProbe {
             match tokio::time::timeout(self.timeout, query).await {
                 Ok(Ok(1)) => ProbeOutcome::Reachable,
                 Ok(Ok(_)) => {
-                    log_failure("unexpected_result");
+                    log_failure("unexpected_result", None);
                     ProbeOutcome::Unreachable
                 }
-                Ok(Err(_)) => {
-                    log_failure("query");
+                Ok(Err(error)) => {
+                    log_failure("query", Some(&error));
                     ProbeOutcome::Unreachable
                 }
                 Err(_) => {
-                    log_failure("timeout");
+                    log_failure("timeout", None);
                     ProbeOutcome::Unreachable
                 }
             }
@@ -50,10 +50,12 @@ impl DependencyProbe for PostgresHealthProbe {
     }
 }
 
-fn log_failure(failure_kind: &'static str) {
+fn log_failure(failure_kind: &'static str, error: Option<&sqlx::Error>) {
+    let sqlstate = error.and_then(crate::adapters::postgres::sqlstate);
     tracing::warn!(
         dependency = "postgres",
         failure_kind,
+        sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
         "dependency readiness check failed"
     );
 }

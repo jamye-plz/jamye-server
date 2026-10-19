@@ -20,6 +20,8 @@ mod push_barriers;
 )]
 #[path = "notifications/send_authorization/helpers.rs"]
 mod send_topology_support;
+#[path = "account_deletion/sqlstate.rs"]
+mod sqlstate;
 #[path = "account_deletion/support.rs"]
 mod support;
 #[path = "account_deletion/terminal_retention.rs"]

@@ -149,10 +149,12 @@ pub(super) fn database_error(operation: &'static str, error: sqlx::Error) -> Gro
             _ => {}
         }
     }
+    let sqlstate = crate::adapters::postgres::sqlstate(&error);
     tracing::warn!(
         dependency = "postgres",
         failure_kind = "groups",
         operation,
+        sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
         "PostgreSQL group operation failed"
     );
     GroupsRepositoryError::Unavailable

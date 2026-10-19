@@ -29,8 +29,8 @@ impl TransactionManager for SqlxTransactionManager {
                 .map(|transaction| {
                     Box::new(SqlxTransactionHandle::new(transaction)) as BoxTransactionHandle
                 })
-                .map_err(|_| {
-                    log_failure("begin");
+                .map_err(|error| {
+                    log_failure("begin", &error);
                     TransactionError
                 })
         })
@@ -38,8 +38,8 @@ impl TransactionManager for SqlxTransactionManager {
 
     fn commit<'a>(&'a self, handle: BoxTransactionHandle) -> TransactionFuture<'a, ()> {
         Box::pin(async move {
-            into_transaction(handle)?.commit().await.map_err(|_| {
-                log_failure("commit");
+            into_transaction(handle)?.commit().await.map_err(|error| {
+                log_failure("commit", &error);
                 TransactionError
             })
         })
@@ -47,8 +47,8 @@ impl TransactionManager for SqlxTransactionManager {
 
     fn rollback<'a>(&'a self, handle: BoxTransactionHandle) -> TransactionFuture<'a, ()> {
         Box::pin(async move {
-            into_transaction(handle)?.rollback().await.map_err(|_| {
-                log_failure("rollback");
+            into_transaction(handle)?.rollback().await.map_err(|error| {
+                log_failure("rollback", &error);
                 TransactionError
             })
         })
@@ -98,11 +98,13 @@ fn into_transaction(
     handle.transaction.take().ok_or(TransactionError)
 }
 
-fn log_failure(operation: &'static str) {
+fn log_failure(operation: &'static str, error: &sqlx::Error) {
+    let sqlstate = crate::adapters::postgres::sqlstate(error);
     tracing::warn!(
         dependency = "postgres",
         failure_kind = "transaction",
         operation,
+        sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
         "PostgreSQL transaction operation failed"
     );
 }

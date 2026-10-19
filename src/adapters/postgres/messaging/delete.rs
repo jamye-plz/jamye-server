@@ -37,7 +37,7 @@ pub(super) async fn delete_message(
     command: &DeleteMessageCommand,
 ) -> Result<(), MessagingRepositoryError> {
     let connection = crate::adapters::postgres::transactions::connection(handle)
-        .map_err(|_| database_error("transaction_handle"))?;
+        .map_err(|_| database_error("transaction_handle", None))?;
     let group_id = lock_live_chatroom(connection, command.chatroom_id).await?;
     require_membership(connection, group_id, command.actor_id).await?;
     let Some(deleted_at) = lock_authorized_message(connection, command).await? else {
@@ -65,13 +65,13 @@ pub(super) async fn moderator_delete_message(
     command: &ModeratorDeleteMessageCommand,
 ) -> Result<ModeratorDeleteOutcome, MessagingRepositoryError> {
     let connection = crate::adapters::postgres::transactions::connection(handle)
-        .map_err(|_| database_error("transaction_handle"))?;
+        .map_err(|_| database_error("transaction_handle", None))?;
     let chatroom_id =
         sqlx::query_scalar::<_, Uuid>("SELECT chatroom_id FROM messages WHERE id = $1")
             .bind(command.message_id)
             .fetch_optional(&mut *connection)
             .await
-            .map_err(|_| database_error("moderator_delete_lookup"))?
+            .map_err(|error| database_error("moderator_delete_lookup", Some(&error)))?
             .ok_or(MessagingRepositoryError::MessageNotFound)?;
     let group_id = lock_live_chatroom(connection, chatroom_id).await?;
     let moderated = ModeratedMessage {
@@ -140,7 +140,7 @@ async fn lock_live_chatroom(
     .bind(chatroom_id)
     .fetch_optional(&mut *connection)
     .await
-    .map_err(|_| database_error("delete_chatroom_lock"))?
+    .map_err(|error| database_error("delete_chatroom_lock", Some(&error)))?
     .ok_or(MessagingRepositoryError::MessageNotFound)
 }
 
@@ -158,7 +158,7 @@ async fn require_membership(
     .bind(actor_id)
     .fetch_optional(&mut *connection)
     .await
-    .map_err(|_| database_error("delete_membership_lock"))?;
+    .map_err(|error| database_error("delete_membership_lock", Some(&error)))?;
     if membership.is_none() {
         return Err(MessagingRepositoryError::MembershipRequired);
     }
@@ -180,7 +180,7 @@ async fn fetch_locked_message(
     .bind(chatroom_id)
     .fetch_optional(&mut *connection)
     .await
-    .map_err(|_| database_error("delete_message_lock"))?
+    .map_err(|error| database_error("delete_message_lock", Some(&error)))?
     .ok_or(MessagingRepositoryError::MessageNotFound)
 }
 
@@ -190,7 +190,7 @@ async fn server_timestamp(
     sqlx::query_scalar::<_, OffsetDateTime>("SELECT clock_timestamp()")
         .fetch_one(connection)
         .await
-        .map_err(|_| database_error("delete_timestamp"))
+        .map_err(|error| database_error("delete_timestamp", Some(&error)))
 }
 
 async fn lock_authorized_message(
@@ -228,7 +228,7 @@ async fn lock_message_media(
     .bind(message_id)
     .fetch_all(connection)
     .await
-    .map_err(|_| database_error("delete_media_lock"))
+    .map_err(|error| database_error("delete_media_lock", Some(&error)))
 }
 
 async fn enqueue_object_deletions(
@@ -254,7 +254,7 @@ async fn enqueue_object_deletions(
         .bind(object_key)
         .execute(&mut *connection)
         .await
-        .map_err(|_| database_error("delete_object_intent_insert"))?;
+        .map_err(|error| database_error("delete_object_intent_insert", Some(&error)))?;
     }
     Ok(())
 }
@@ -286,7 +286,7 @@ async fn mark_media_uploads_deleted(
     .execute(connection)
     .await
     .map(|_| ())
-    .map_err(|_| database_error("delete_media_uploads"))
+    .map_err(|error| database_error("delete_media_uploads", Some(&error)))
 }
 
 async fn delete_message_media(
@@ -298,7 +298,7 @@ async fn delete_message_media(
         .execute(connection)
         .await
         .map(|_| ())
-        .map_err(|_| database_error("delete_message_media"))
+        .map_err(|error| database_error("delete_message_media", Some(&error)))
 }
 
 async fn scrub_message_row(
@@ -316,7 +316,7 @@ async fn scrub_message_row(
     .execute(connection)
     .await
     .map(|_| ())
-    .map_err(|_| database_error("delete_message_scrub"))
+    .map_err(|error| database_error("delete_message_scrub", Some(&error)))
 }
 
 async fn scrub_message_created_events(
@@ -339,7 +339,7 @@ async fn scrub_message_created_events(
     .bind(removal.message_id)
     .fetch_all(connection)
     .await
-    .map_err(|_| database_error("delete_message_event_scrub"))
+    .map_err(|error| database_error("delete_message_event_scrub", Some(&error)))
 }
 
 async fn scrub_message_created_outbox(
@@ -363,7 +363,7 @@ async fn scrub_message_created_outbox(
     .execute(connection)
     .await
     .map(|_| ())
-    .map_err(|_| database_error("delete_message_outbox_scrub"))
+    .map_err(|error| database_error("delete_message_outbox_scrub", Some(&error)))
 }
 
 async fn stop_message_push_occurrences(
@@ -390,7 +390,7 @@ async fn stop_message_push_occurrences(
     .execute(connection)
     .await
     .map(|_| ())
-    .map_err(|_| database_error("delete_message_push_stop"))
+    .map_err(|error| database_error("delete_message_push_stop", Some(&error)))
 }
 
 async fn hide_message_notifications(
@@ -418,7 +418,7 @@ async fn hide_message_notifications(
     .execute(connection)
     .await
     .map(|_| ())
-    .map_err(|_| database_error("delete_message_notifications"))
+    .map_err(|error| database_error("delete_message_notifications", Some(&error)))
 }
 
 async fn append_message_deleted_event(
@@ -435,7 +435,8 @@ async fn append_message_deleted_event(
         deleted_by: removal.deleted_by,
         reason: removal.reason.to_owned(),
     };
-    let payload = serde_json::to_value(&data).map_err(|_| database_error("delete_payload"))?;
+    let payload =
+        serde_json::to_value(&data).map_err(|_| database_error("delete_payload", None))?;
     let (cursor, occurred_at) = sqlx::query_as::<_, (i64, OffsetDateTime)>(
         "INSERT INTO conversation_events \
              (id, conversation_id, event_type, event_version, payload) \
@@ -447,7 +448,7 @@ async fn append_message_deleted_event(
     .bind(payload)
     .fetch_one(&mut *connection)
     .await
-    .map_err(|_| database_error("delete_event_insert"))?;
+    .map_err(|error| database_error("delete_event_insert", Some(&error)))?;
     let event = RealtimeServerEvent::MessageDeleted(MessageDeletedEvent {
         version: 1,
         event_type: MessageDeletedType::MessageDeleted,
@@ -458,7 +459,7 @@ async fn append_message_deleted_event(
         data,
     });
     let outbox_payload =
-        serde_json::to_value(event).map_err(|_| database_error("delete_outbox_payload"))?;
+        serde_json::to_value(event).map_err(|_| database_error("delete_outbox_payload", None))?;
     sqlx::query(
         "INSERT INTO outbox_events \
              (id, intent_type, event_type, event_version, aggregate_type, aggregate_id, \
@@ -472,14 +473,19 @@ async fn append_message_deleted_event(
     .execute(connection)
     .await
     .map(|_| ())
-    .map_err(|_| database_error("delete_outbox_insert"))
+    .map_err(|error| database_error("delete_outbox_insert", Some(&error)))
 }
 
-fn database_error(operation: &'static str) -> MessagingRepositoryError {
+fn database_error(
+    operation: &'static str,
+    error: Option<&sqlx::Error>,
+) -> MessagingRepositoryError {
+    let sqlstate = error.and_then(crate::adapters::postgres::sqlstate);
     tracing::warn!(
         dependency = "postgres",
         failure_kind = "message_delete",
         operation,
+        sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
         "PostgreSQL message delete failed"
     );
     MessagingRepositoryError::DatabaseUnavailable

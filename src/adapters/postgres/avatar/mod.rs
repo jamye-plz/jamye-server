@@ -357,10 +357,12 @@ fn database_error(operation: &'static str, error: sqlx::Error) -> AvatarReposito
     {
         return AvatarRepositoryError::InvalidData;
     }
+    let sqlstate = crate::adapters::postgres::sqlstate(&error);
     tracing::warn!(
         dependency = "postgres",
         failure_kind = "avatar",
         operation,
+        sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
         "PostgreSQL avatar operation failed"
     );
     AvatarRepositoryError::Unavailable

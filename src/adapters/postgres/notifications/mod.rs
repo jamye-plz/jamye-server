@@ -91,12 +91,14 @@ impl NotificationEventsRepository for PostgresNotificationsRepository {
 
 pub(super) fn database_error(
     operation: &'static str,
-    _error: sqlx::Error,
+    error: sqlx::Error,
 ) -> NotificationsRepositoryError {
+    let sqlstate = crate::adapters::postgres::sqlstate(&error);
     tracing::warn!(
         dependency = "postgres",
         failure_kind = "notifications",
         operation,
+        sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
         "PostgreSQL notification operation failed"
     );
     NotificationsRepositoryError::Unavailable

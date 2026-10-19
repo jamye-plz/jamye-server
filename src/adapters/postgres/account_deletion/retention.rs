@@ -77,12 +77,14 @@ impl TerminalRetentionRepository for PostgresAccountDeletionRepository {
             let now = sqlx::query_scalar::<_, OffsetDateTime>("SELECT now()")
                 .fetch_one(&self.pool)
                 .await
-                .map_err(|_| {
+                .map_err(|error| {
+                    let sqlstate = crate::adapters::postgres::sqlstate(&error);
                     tracing::warn!(
                         target: "jamye_server",
                         event_kind = "terminal_retention_batch",
                         dependency = "postgres",
                         failure_kind = "retention_clock",
+                        sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
                         "terminal retention database clock query failed"
                     );
                     AccountDeletionRepositoryError::Unavailable
@@ -111,7 +113,7 @@ impl PostgresAccountDeletionRepository {
                 Ok(result) => report.deleted[index] = result.rows_affected(),
                 Err(error) => {
                     failed = true;
-                    let sqlstate = error.as_database_error().and_then(|error| error.code());
+                    let sqlstate = crate::adapters::postgres::sqlstate(&error);
                     tracing::warn!(
                         target: "jamye_server",
                         event_kind = "terminal_retention_batch",

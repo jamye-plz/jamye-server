@@ -621,10 +621,12 @@ fn message_binding_database_error(
             _ => {}
         }
     }
+    let sqlstate = crate::adapters::postgres::sqlstate(&error);
     tracing::warn!(
         dependency = "postgres",
         failure_kind = "message_media_binding",
         operation,
+        sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
         "PostgreSQL message-media binding failed"
     );
     MediaRepositoryError::Unavailable

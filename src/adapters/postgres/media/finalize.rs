@@ -391,10 +391,12 @@ fn finalize_database_error(operation: &'static str, error: sqlx::Error) -> Media
             _ => {}
         }
     }
+    let sqlstate = crate::adapters::postgres::sqlstate(&error);
     tracing::warn!(
         dependency = "postgres",
         failure_kind = "media_finalize",
         operation,
+        sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
         "PostgreSQL media finalize operation failed"
     );
     MediaRepositoryError::Unavailable
