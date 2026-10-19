@@ -267,6 +267,7 @@
     in {
       packages = {
         inherit api worker admin;
+        # MinIO is archived upstream; allow only this package for the local/CI harness.
         minio = (import nixpkgs {
           inherit system;
           config.allowInsecurePredicate = package: lib.getName package == "minio";

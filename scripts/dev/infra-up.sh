@@ -8,7 +8,7 @@ source "$SCRIPT_DIR/minio-identity.sh"
 source "$SCRIPT_DIR/minio-process.sh"
 
 prepare_infra
-remove_legacy_minio_container
+remove_legacy_minio_containers
 status=0
 minio_state || status=$?
 case "$status" in
