@@ -583,10 +583,7 @@ async fn apple_delete_revoke_success_then_grace_failure_reports_500_without_muta
         let output = writer.clone();
         let subscriber = build_json_subscriber(writer, "info")?;
         let _guard = tracing::subscriber::set_default(subscriber);
-        // Keep a second dispatcher registered so a parallel test thread that
-        // reaches the same callsite first cannot cache it as disabled.
-        let _interest_sentinel =
-            tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
+        let _interest_sentinel = crate::logging_support::interest_sentinel();
         let forbidden = [
             "APPLE_GRACE_FAIL_IDENTITY_TOKEN_SENTINEL",
             "APPLE_GRACE_FAIL_AUTHORIZATION_CODE_SENTINEL",

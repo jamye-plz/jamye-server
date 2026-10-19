@@ -9,12 +9,11 @@ mod avatar_support;
 #[path = "../groups/helpers.rs"]
 mod groups_helpers;
 
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use axum::{
     Router,
     body::Body,
-    extract::ConnectInfo,
     http::{Method, Request, StatusCode},
 };
 use jamye_server::{
@@ -23,16 +22,18 @@ use jamye_server::{
         avatar::{AvatarDependencies, AvatarEndpointRateLimit, AvatarService, AvatarSettings},
         media::MediaEndpointRateLimit,
     },
-    config::{AppConfig, ConfigInput},
     platform::shutdown::serve_with_graceful_shutdown,
-    transport::http::{auth, avatar, client_ip, groups},
+    transport::http::{auth, avatar, groups},
 };
 use sqlx::postgres::PgPoolOptions;
 use tokio::{net::TcpListener, sync::oneshot};
 use tower::ServiceExt;
 use uuid::Uuid;
 
-use crate::TestResult;
+use crate::{
+    TestResult,
+    client_ip_support::{router_with_trusted_proxies, with_peer_and_xff},
+};
 
 const TRUSTED: &str = "192.0.2.10";
 const UNTRUSTED: &str = "192.0.2.11";
@@ -101,12 +102,6 @@ struct Fixture {
 
 impl Fixture {
     fn new(trusted_proxies: Option<&str>) -> TestResult<Self> {
-        let config = AppConfig::try_from(ConfigInput {
-            environment: Some("test".to_owned()),
-            database_url: Some("postgres://localhost/jamye_test".to_owned()),
-            trusted_proxies: trusted_proxies.map(ToOwned::to_owned),
-            ..ConfigInput::default()
-        })?;
         // The denied limiter stops each route before any database access.
         let pool = PgPoolOptions::new().connect_lazy("postgres://localhost/jamye_test")?;
         let limiter = Arc::new(avatar_support::RecordingLimiter::default());
@@ -144,10 +139,10 @@ impl Fixture {
             Arc::new(avatar_service),
             Arc::new(groups_helpers::TestAccessVerifier),
         ));
-        let router = client_ip::with_trusted_proxies(
+        let router = router_with_trusted_proxies(
             auth_router.merge(avatar_router).merge(group_router),
-            &config,
-        );
+            trusted_proxies,
+        )?;
         Ok(Self {
             router,
             limiter,
@@ -175,19 +170,13 @@ impl Fixture {
         for route in ROUTES {
             self.limiter.deny(route.endpoint());
             let previous_count = self.limiter.requests().len();
-            let mut builder = Request::builder()
+            let builder = Request::builder()
                 .method(route.method())
                 .uri(route.path())
                 .header("content-type", "application/json")
                 .header("authorization", groups_helpers::bearer(self.actor));
-            for value in headers {
-                builder = builder.header("x-forwarded-for", *value);
-            }
-            let mut request = builder.body(Body::from(route.body()))?;
-            if let Some(peer) = peer {
-                let address = SocketAddr::new(peer.parse()?, 4000);
-                request.extensions_mut().insert(ConnectInfo(address));
-            }
+            let request = builder.body(Body::from(route.body()))?;
+            let request = with_peer_and_xff(request, peer, headers)?;
             let response = self.router.clone().oneshot(request).await?;
             assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
             self.assert_last_subject(route, previous_count, expected);

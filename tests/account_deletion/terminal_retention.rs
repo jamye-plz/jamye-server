@@ -4,17 +4,25 @@ use futures_util::stream;
 use jamye_server::{
     adapters::postgres::account_deletion::PostgresAccountDeletionRepository,
     application::account_deletion::cleanup::run_terminal_retention_until,
+    platform::logging::build_json_subscriber,
     ports::account_deletion::{
         AccountDeletionRepositoryError, AccountDeletionRepositoryFuture, TerminalRetentionReport,
         TerminalRetentionRepository,
     },
 };
+use serde_json::Value;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use tokio::sync::{mpsc, oneshot};
+use tracing::instrument::WithSubscriber;
 use uuid::Uuid;
 
-use crate::{TestResult, postgres_support::TestDatabase, support::finish_database_test};
+use crate::{
+    TestResult,
+    logging_support::{SharedWriter, interest_sentinel},
+    postgres_support::TestDatabase,
+    support::finish_database_test,
+};
 
 #[derive(Clone, Copy)]
 enum Table {
@@ -173,6 +181,31 @@ async fn exists(pool: &PgPool, table: Table, id: Uuid) -> TestResult<bool> {
     Ok(sqlx::query_scalar(query).bind(id).fetch_one(pool).await?)
 }
 
+const COMPLETION_FIELDS: [&str; 6] = [
+    "outbox_events_published",
+    "outbox_events_dead_letter",
+    "push_delivery_intents_succeeded",
+    "push_delivery_intents_failed",
+    "push_delivery_intents_dead_letter",
+    "account_object_deletion_intents_succeeded",
+];
+
+fn entries_with_message<'a>(entries: &'a [Value], message: &str) -> Vec<&'a Value> {
+    entries
+        .iter()
+        .filter(|entry| entry.get("message").and_then(Value::as_str) == Some(message))
+        .collect()
+}
+
+fn assert_completion_event(entry: &Value, report: TerminalRetentionReport) {
+    assert_eq!(entry["target"], "jamye_server");
+    assert_eq!(entry["event_kind"], "terminal_retention_batch");
+    assert_eq!(entry["message"], "terminal retention batch completed");
+    for (field, expected) in COMPLETION_FIELDS.into_iter().zip(report.deleted) {
+        assert_eq!(entry[field].as_u64(), Some(expected), "wrong {field}");
+    }
+}
+
 #[tokio::test]
 async fn terminal_retention_boundaries_by_table_and_state() -> TestResult {
     let database = TestDatabase::migrated().await?;
@@ -307,6 +340,39 @@ impl TerminalRetentionRepository for ObservedRepository {
     }
 }
 
+async fn run_one_logged_tick<S>(
+    repository: PostgresAccountDeletionRepository,
+    subscriber: S,
+) -> TestResult<TerminalRetentionReport>
+where
+    S: tracing::Subscriber + Send + Sync + 'static,
+{
+    let (tick_tx, tick_rx) = mpsc::unbounded_channel();
+    let ticks = stream::unfold(tick_rx, |mut rx| async move {
+        rx.recv().await.map(|()| ((), rx))
+    });
+    let (done_tx, mut done_rx) = mpsc::unbounded_channel();
+    let (stop_tx, stop_rx) = oneshot::channel();
+    let repository = Arc::new(ObservedRepository {
+        inner: repository,
+        completed: done_tx,
+    });
+    let runner = tokio::spawn(
+        run_terminal_retention_until(repository, ticks, async move {
+            let _ = stop_rx.await;
+        })
+        .with_subscriber(subscriber),
+    );
+    tick_tx.send(())?;
+    let report = done_rx
+        .recv()
+        .await
+        .ok_or("runner stopped before completing the retention tick")?;
+    stop_tx.send(()).map_err(|_| "runner already stopped")?;
+    runner.await?;
+    Ok(report)
+}
+
 #[tokio::test]
 async fn terminal_purge_is_periodic_without_account_candidates() -> TestResult {
     let database = TestDatabase::migrated().await?;
@@ -363,6 +429,128 @@ async fn terminal_purge_is_periodic_without_account_candidates() -> TestResult {
         stop_tx.send(()).map_err(|_| "runner already stopped")?;
         runner.await?;
         assert!(tick_tx.send(()).is_err());
+        Ok(())
+    }
+    .await;
+    finish_database_test(database, pool, result).await
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn nonzero_success_logs_one_completion_event_with_all_counts() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let result: TestResult = async {
+        let now: OffsetDateTime = sqlx::query_scalar("SELECT now()").fetch_one(&pool).await?;
+        let seeds = Seeds::new(&pool).await?;
+        for (table, status, days) in PAIRS {
+            seeds
+                .insert(&pool, table, status, now - time::Duration::days(days + 1))
+                .await?;
+        }
+        let writer = SharedWriter::default();
+        let output = writer.clone();
+        let subscriber = build_json_subscriber(writer, "jamye_server=info")?;
+        let _interest_sentinel = interest_sentinel();
+
+        let report = run_one_logged_tick(
+            PostgresAccountDeletionRepository::new(pool.clone()),
+            subscriber,
+        )
+        .await?;
+        assert_eq!(report.deleted, [1; 6]);
+        let entries = output.parsed_lines()?;
+        let completed = entries_with_message(&entries, "terminal retention batch completed");
+        assert_eq!(completed.len(), 1);
+        assert_completion_event(completed[0], report);
+        Ok(())
+    }
+    .await;
+    finish_database_test(database, pool, result).await
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn all_zero_success_logs_no_completion_event() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let result: TestResult = async {
+        let writer = SharedWriter::default();
+        let output = writer.clone();
+        let subscriber = build_json_subscriber(writer, "jamye_server=info")?;
+        let _interest_sentinel = interest_sentinel();
+
+        let report = run_one_logged_tick(
+            PostgresAccountDeletionRepository::new(pool.clone()),
+            subscriber,
+        )
+        .await?;
+        assert_eq!(report.deleted, [0; 6]);
+        let entries = output.parsed_lines()?;
+        assert!(entries_with_message(&entries, "terminal retention batch completed").is_empty());
+        Ok(())
+    }
+    .await;
+    finish_database_test(database, pool, result).await
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn partial_adapter_failure_logs_one_completion_event_and_delete_warning() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let result: TestResult = async {
+        let now: OffsetDateTime = sqlx::query_scalar("SELECT now()").fetch_one(&pool).await?;
+        let seeds = Seeds::new(&pool).await?;
+        for (table, status, days) in PAIRS {
+            seeds
+                .insert(&pool, table, status, now - time::Duration::days(days + 1))
+                .await?;
+        }
+        sqlx::query(
+            "CREATE FUNCTION reject_published_retention_delete() RETURNS trigger \
+             LANGUAGE plpgsql AS $retention$ BEGIN \
+               IF OLD.status = 'published' THEN \
+                 RAISE EXCEPTION USING ERRCODE = 'P0001', \
+                   MESSAGE = 'test-only retention delete failure'; \
+               END IF; \
+               RETURN OLD; \
+             END $retention$",
+        )
+        .execute(&pool)
+        .await?;
+        sqlx::query(
+            "CREATE TRIGGER reject_published_retention_delete \
+             BEFORE DELETE ON outbox_events FOR EACH ROW \
+             EXECUTE FUNCTION reject_published_retention_delete()",
+        )
+        .execute(&pool)
+        .await?;
+
+        let writer = SharedWriter::default();
+        let output = writer.clone();
+        let subscriber = build_json_subscriber(writer, "jamye_server=info")?;
+        let _guard = tracing::subscriber::set_default(subscriber);
+        let _interest_sentinel = interest_sentinel();
+        let repository = PostgresAccountDeletionRepository::new(pool.clone());
+
+        assert_eq!(
+            repository.purge_terminal_rows_at(now).await,
+            Err(AccountDeletionRepositoryError::Unavailable)
+        );
+        let entries = output.parsed_lines()?;
+        let completed = entries_with_message(&entries, "terminal retention batch completed");
+        assert_eq!(completed.len(), 1);
+        assert_completion_event(
+            completed[0],
+            TerminalRetentionReport {
+                deleted: [0, 1, 1, 1, 1, 1],
+            },
+        );
+        let warnings = entries_with_message(&entries, "terminal retention delete failed");
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0]["target"], "jamye_server");
+        assert_eq!(warnings[0]["event_kind"], "terminal_retention_batch");
+        assert_eq!(warnings[0]["dependency"], "postgres");
+        assert_eq!(warnings[0]["failure_kind"], "retention_delete");
+        assert_eq!(warnings[0]["sqlstate"], "P0001");
         Ok(())
     }
     .await;

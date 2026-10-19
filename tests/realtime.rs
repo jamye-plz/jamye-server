@@ -24,6 +24,12 @@ mod postgres_support;
 pub use postgres_support::TestResult;
 #[path = "support/fixtures.rs"]
 mod fixture_support;
+#[allow(
+    dead_code,
+    reason = "realtime tests use the shared interest sentinel but keep their existing writer"
+)]
+#[path = "support/logging.rs"]
+mod logging_support;
 
 #[test]
 fn realtime_surface_is_statically_registered_without_a_parallel_uow() -> io::Result<()> {

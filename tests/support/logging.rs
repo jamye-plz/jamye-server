@@ -6,6 +6,12 @@ use std::{
 use serde_json::Value;
 use tracing_subscriber::fmt::MakeWriter;
 
+pub fn interest_sentinel() -> tracing::Dispatch {
+    // tracing-core register_dispatch sets has_just_one for a sole dispatcher, so
+    // Rebuilder::JustOne uses its thread's default; a live second NoSubscriber forces the multi-dispatcher path.
+    tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default())
+}
+
 #[derive(Clone, Default)]
 pub struct SharedWriter(Arc<Mutex<Vec<u8>>>);
 
