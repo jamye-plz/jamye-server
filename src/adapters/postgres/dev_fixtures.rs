@@ -19,9 +19,11 @@ impl DevFixtureStore for PostgresDevFixtureStore {
     fn seed(&self, fixture: FixtureIds) -> FixtureSeedFuture<'_> {
         let pool = self.pool.clone();
         Box::pin(async move {
-            seed_transaction(&pool, fixture).await.map_err(|_| {
+            seed_transaction(&pool, fixture).await.map_err(|error| {
+                let sqlstate = crate::adapters::postgres::sqlstate(&error);
                 tracing::warn!(
                     failure_kind = "seed_transaction",
+                    sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
                     "development fixture seed failed"
                 );
                 FixtureStoreError

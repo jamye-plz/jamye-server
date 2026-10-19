@@ -70,9 +70,14 @@ journalctl -t jamye-server-admin -o cat | jq -R 'fromjson? | select(.event_kind 
 - 신고 본문 snapshot은 사용자가 쓴 글이다. 출력에서 제어 문자와 방향 전환 문자는 `\u{001b}`처럼
   이스케이프되고 줄바꿈은 `\n`으로 보인다.
 
-관리 CLI도 API와 같은 PostgreSQL 연결 제한을 사용한다. 단일 SQL 문은 120초가 지나면 취소되고
-(`sqlstate=57014`), 잠금 대기는 5초 후 실패한다(`sqlstate=55P03`). 해당 오류가 나면 잠시 후
-재시도하고, 큰 작업은 가능한 경우 작은 작업으로 나누어 실행한다.
+- **DB 제한.** 관리 CLI도 API와 같은 PostgreSQL 연결 제한을 사용한다. 단일 SQL 문은 120초가
+  지나면 취소되고, 잠금 대기는 5초 후 실패한다. 이때 stderr와 위 journal의 warn JSON 줄에
+  `sqlstate` 필드가 각각 `57014`, `55P03`으로 남는다. 잠시 후 재시도하고, 큰 작업은 가능한 경우
+  작은 작업으로 나누어 실행한다.
+
+```bash
+journalctl -t jamye-server-admin -o cat | jq -R 'fromjson? | select(.sqlstate != null) | {timestamp, failure_kind, operation, sqlstate}'
+```
 
 ## 2. 명령
 
