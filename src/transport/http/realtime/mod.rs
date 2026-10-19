@@ -22,7 +22,7 @@ use crate::{
     ports::realtime::ConversationAuthorizer,
     transport::{
         http::auth::{AuthVerifierState, AuthenticatedAccess, error_response},
-        realtime::{LocalRealtimeHub, run_socket, run_unauthenticated_socket},
+        realtime::{LocalRealtimeHub, run_shutdown_socket, run_socket, run_unauthenticated_socket},
     },
 };
 
@@ -128,6 +128,9 @@ async fn websocket(
     RawQuery(raw_query): RawQuery,
 ) -> Response {
     let ws = limit_websocket_upgrade(ws);
+    if state.hub.is_shutting_down() {
+        return ws.on_upgrade(run_shutdown_socket);
+    }
     let raw_ticket = match parse_ticket_query(raw_query.as_deref()) {
         Some(ticket) => ticket,
         None => return ws.on_upgrade(run_unauthenticated_socket),

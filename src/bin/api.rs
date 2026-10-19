@@ -1,4 +1,4 @@
-use std::{error::Error, io};
+use std::{error::Error, io, time::Duration};
 
 use jamye_server::{
     adapters::object_storage::media::{BucketLifecycle, S3BucketBackend},
@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         configured_storage.bucket(),
     );
     lifecycle.ensure_bucket().await?;
-    let app = composition::router_with_runtime(
+    let (app, hub) = composition::router_with_runtime_and_hub(
         &config,
         &app_links,
         &auth,
@@ -47,11 +47,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
         object_storage.as_ref(),
     )?;
     let listener = TcpListener::bind(config.listen_address()).await?;
+    let realtime_drain_limit = (config.shutdown_grace() / 2).min(Duration::from_secs(5));
     serve_with_graceful_shutdown(
         listener,
         app,
-        wait_for_shutdown_signal(),
-        config.shutdown_grace(),
+        async move {
+            wait_for_shutdown_signal().await;
+            hub.shutdown().await;
+            if !hub.wait_for_drain(realtime_drain_limit).await {
+                tracing::warn!("realtime sessions did not drain before the deadline");
+            }
+        },
+        // Realtime drain runs first, so the whole shutdown stays within the configured grace.
+        config.shutdown_grace().saturating_sub(realtime_drain_limit),
     )
     .await?;
 

@@ -11,6 +11,7 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+use futures_util::StreamExt;
 use jamye_server::{
     adapters::postgres::{auth::PostgresAuthRepository, transactions::SqlxTransactionManager},
     application::{
@@ -26,10 +27,12 @@ use jamye_server::{
     },
     transport::{
         http::{auth::AuthVerifierState, realtime::RealtimeHttpState},
-        realtime::LocalRealtimeHub,
+        realtime::{CLOSE_GOING_AWAY, LocalRealtimeHub},
     },
 };
 use time::OffsetDateTime;
+use tokio::{net::TcpListener, sync::oneshot};
+use tokio_tungstenite::{connect_async, tungstenite::Message as ClientMessage};
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -120,6 +123,66 @@ async fn consumed_after_the_bound_expiry_is_indistinguishable_from_missing() -> 
         harness.service.consume(&issued.ticket).await,
         Err(RealtimeTicketError::AuthenticationFailed)
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn shutdown_upgrades_close_before_ticket_consumption() -> TestResult {
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let harness = Harness::new(now);
+    let identity = identity(now + time::Duration::minutes(1));
+    let ticket = harness.service.issue(&identity, "2").await?;
+    let pool =
+        sqlx::postgres::PgPoolOptions::new().connect_lazy("postgres://test:test@127.0.0.1/test")?;
+    let users = Arc::new(UserService::new(
+        Arc::new(SqlxTransactionManager::new(pool.clone())),
+        Arc::new(PostgresAuthRepository::new(pool)),
+    ));
+    let hub = LocalRealtimeHub::default();
+    hub.shutdown().await;
+    let state = RealtimeHttpState::new(
+        Arc::new(harness.service.clone()),
+        hub.clone(),
+        Arc::new(AlwaysAuthorized),
+        AuthVerifierState::new(Arc::new(StaticVerifier(identity))),
+        users,
+    );
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+    let address = listener.local_addr()?;
+    let (stop, stopped) = oneshot::channel();
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            jamye_server::transport::http::realtime::router(state),
+        )
+        .with_graceful_shutdown(async move {
+            let _ = stopped.await;
+        })
+        .await
+    });
+
+    for query in [String::new(), format!("?ticket={}", ticket.ticket)] {
+        let (mut socket, _) =
+            connect_async(format!("ws://{address}/api/v1/realtime/ws{query}")).await?;
+        let message = tokio::time::timeout(Duration::from_secs(2), socket.next())
+            .await?
+            .ok_or_else(|| std::io::Error::other("socket closed without a close frame"))??;
+        match message {
+            ClientMessage::Close(Some(frame)) => {
+                assert_eq!(u16::from(frame.code), CLOSE_GOING_AWAY);
+                assert_eq!(frame.reason.as_str(), "server_shutdown");
+            }
+            other => {
+                return Err(
+                    std::io::Error::other(format!("expected close frame, got {other:?}")).into(),
+                );
+            }
+        }
+    }
+    assert_eq!(harness.store.len()?, 1);
+    assert_eq!(hub.registry_counts().await, (0, 0, 0));
+    let _ = stop.send(());
+    server.await??;
     Ok(())
 }
 

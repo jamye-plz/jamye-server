@@ -1,11 +1,13 @@
 use std::{sync::Arc, time::Duration};
 
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
-use futures_util::{SinkExt, StreamExt, stream::SplitSink};
+use futures_util::{Sink, SinkExt, StreamExt, stream::SplitSink};
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::Error as WebSocketError;
 use uuid::Uuid;
+
+use super::registry::RegisterError;
 
 use crate::{
     application::{
@@ -22,33 +24,42 @@ pub const CLOSE_PROTOCOL_ERROR: u16 = 4400;
 pub const CLOSE_REALTIME_AUTH_FAILED: u16 = 4401;
 pub const CLOSE_REALTIME_AUTH_EXPIRED: u16 = 4401;
 pub const CLOSE_INTERNAL_ERROR: u16 = 1011;
+pub const CLOSE_GOING_AWAY: u16 = 1001;
 pub const CLOSE_MESSAGE_TOO_BIG: u16 = 1009;
 pub const CLOSE_TRY_AGAIN_LATER: u16 = 1013;
 const CLIENT_PING_INTERVAL_SECONDS: u64 = 25;
 const PONG_DEADLINE_SECONDS: u64 = 10;
 const HEARTBEAT_TIMEOUT: Duration =
     Duration::from_secs(CLIENT_PING_INTERVAL_SECONDS + PONG_DEADLINE_SECONDS);
+const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_NONCE_BYTES: usize = 128;
 const V1_REALTIME_EVENT_TYPES: &[&str] = &["message.created", "topic.created"];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SocketTiming {
     heartbeat_timeout: Duration,
+    write_timeout: Duration,
 }
 
 impl SocketTiming {
-    pub fn new(client_ping_interval: Duration, pong_deadline: Duration) -> Option<Self> {
-        if client_ping_interval.is_zero() || pong_deadline.is_zero() {
+    pub fn new(
+        client_ping_interval: Duration,
+        pong_deadline: Duration,
+        write_timeout: Duration,
+    ) -> Option<Self> {
+        if client_ping_interval.is_zero() || pong_deadline.is_zero() || write_timeout.is_zero() {
             return None;
         }
         Some(Self {
             heartbeat_timeout: client_ping_interval.checked_add(pong_deadline)?,
+            write_timeout,
         })
     }
 
     fn protocol() -> Self {
         Self {
             heartbeat_timeout: HEARTBEAT_TIMEOUT,
+            write_timeout: WRITE_TIMEOUT,
         }
     }
 
@@ -83,10 +94,15 @@ pub async fn run_socket_with_runtime(
     timing: SocketTiming,
 ) {
     let (mut sender, mut receiver) = socket.split();
-    let connection = match hub.register(session.user_id).await {
+    let mut shutdown = hub.shutdown_signal();
+    let connection = match hub.register_socket(session.user_id).await {
         Ok(connection) => connection,
-        Err(_) => {
-            close(&mut sender, CLOSE_TRY_AGAIN_LATER, "socket_limit").await;
+        Err(error) => {
+            let (code, reason) = match error {
+                RegisterError::Full => (CLOSE_TRY_AGAIN_LATER, "socket_limit"),
+                RegisterError::ShuttingDown => (CLOSE_GOING_AWAY, "server_shutdown"),
+            };
+            close(&mut sender, code, reason, timing.write_timeout).await;
             return;
         }
     };
@@ -94,6 +110,8 @@ pub async fn run_socket_with_runtime(
     let socket_id = connection.socket_id;
     let mut outbound = connection.outbound;
     let mut evictions = connection.evictions;
+    // Registry cleanup can happen before the close frame has finished sending.
+    let _session = connection.session;
     let expires_after = duration_until(session.access_token_expires_at, clock.now());
     let expiry = tokio::time::sleep(expires_after);
     let heartbeat = tokio::time::sleep(timing.heartbeat_timeout());
@@ -103,14 +121,19 @@ pub async fn run_socket_with_runtime(
     loop {
         tokio::select! {
             biased;
+            () = async { let _ = shutdown.wait_for(|shutting_down| *shutting_down).await; } => {
+                hub.cleanup(socket_id).await;
+                close(&mut sender, CLOSE_GOING_AWAY, "server_shutdown", timing.write_timeout).await;
+                break;
+            }
             () = &mut expiry => {
                 hub.cleanup(socket_id).await;
-                close(&mut sender, CLOSE_REALTIME_AUTH_EXPIRED, "realtime_auth_expired").await;
+                close(&mut sender, CLOSE_REALTIME_AUTH_EXPIRED, "realtime_auth_expired", timing.write_timeout).await;
                 break;
             }
             () = &mut heartbeat => {
                 hub.cleanup(socket_id).await;
-                close(&mut sender, CLOSE_PROTOCOL_ERROR, "heartbeat_timeout").await;
+                close(&mut sender, CLOSE_PROTOCOL_ERROR, "heartbeat_timeout", timing.write_timeout).await;
                 break;
             }
             eviction = evictions.recv() => {
@@ -121,6 +144,7 @@ pub async fn run_socket_with_runtime(
                     &mut sender,
                     CLOSE_MEMBERSHIP_REQUIRED,
                     eviction.reason.as_str(),
+                    timing.write_timeout,
                 ).await;
                 break;
             }
@@ -135,12 +159,13 @@ pub async fn run_socket_with_runtime(
                             &hub,
                             authorizer.as_ref(),
                             &mut sender,
+                            timing.write_timeout,
                         ).await {
                             break;
                         }
                     }
                     Some(Ok(Message::Ping(payload))) => {
-                        if sender.send(Message::Pong(payload)).await.is_err() {
+                        if !send_bounded(&mut sender, Message::Pong(payload), timing.write_timeout).await {
                             break;
                         }
                     }
@@ -148,7 +173,7 @@ pub async fn run_socket_with_runtime(
                     Some(Ok(Message::Close(_))) | None => break,
                     Some(Ok(Message::Binary(_))) => {
                         hub.cleanup(socket_id).await;
-                        close(&mut sender, CLOSE_PROTOCOL_ERROR, "protocol_error").await;
+                        close(&mut sender, CLOSE_PROTOCOL_ERROR, "protocol_error", timing.write_timeout).await;
                         break;
                     }
                     Some(Err(error)) => {
@@ -161,7 +186,7 @@ pub async fn run_socket_with_runtime(
                         } else {
                             (CLOSE_PROTOCOL_ERROR, "protocol_error")
                         };
-                        close(&mut sender, code, reason).await;
+                        close(&mut sender, code, reason, timing.write_timeout).await;
                         break;
                     }
                 }
@@ -173,7 +198,7 @@ pub async fn run_socket_with_runtime(
                 if !realtime_event_allowed_for_contract_version(&payload, &contract_version) {
                     continue;
                 }
-                if sender.send(Message::Text(payload.into())).await.is_err() {
+                if !send_bounded(&mut sender, Message::Text(payload.into()), timing.write_timeout).await {
                     break;
                 }
             }
@@ -183,12 +208,23 @@ pub async fn run_socket_with_runtime(
 }
 
 pub async fn run_unauthenticated_socket(mut socket: WebSocket) {
-    let _ = socket
-        .send(Message::Close(Some(CloseFrame {
-            code: CLOSE_REALTIME_AUTH_FAILED,
-            reason: "realtime_auth_failed".into(),
-        })))
-        .await;
+    close(
+        &mut socket,
+        CLOSE_REALTIME_AUTH_FAILED,
+        "realtime_auth_failed",
+        WRITE_TIMEOUT,
+    )
+    .await;
+}
+
+pub(crate) async fn run_shutdown_socket(mut socket: WebSocket) {
+    close(
+        &mut socket,
+        CLOSE_GOING_AWAY,
+        "server_shutdown",
+        WRITE_TIMEOUT,
+    )
+    .await;
 }
 
 fn realtime_event_allowed_for_contract_version(payload: &str, contract_version: &str) -> bool {
@@ -209,12 +245,19 @@ async fn handle_client_frame(
     hub: &LocalRealtimeHub,
     authorizer: &dyn ConversationAuthorizer,
     sender: &mut SplitSink<WebSocket, Message>,
+    write_timeout: Duration,
 ) -> bool {
     let frame = match serde_json::from_str::<ClientFrame>(payload) {
         Ok(frame) => frame,
         Err(_) => {
             hub.cleanup(socket_id).await;
-            close(sender, CLOSE_PROTOCOL_ERROR, "protocol_error").await;
+            close(
+                sender,
+                CLOSE_PROTOCOL_ERROR,
+                "protocol_error",
+                write_timeout,
+            )
+            .await;
             return false;
         }
     };
@@ -227,17 +270,35 @@ async fn handle_client_frame(
                 Ok(true) => {}
                 Ok(false) => {
                     hub.cleanup(socket_id).await;
-                    close(sender, CLOSE_MEMBERSHIP_REQUIRED, "membership_required").await;
+                    close(
+                        sender,
+                        CLOSE_MEMBERSHIP_REQUIRED,
+                        "membership_required",
+                        write_timeout,
+                    )
+                    .await;
                     return false;
                 }
                 Err(_) => {
                     hub.cleanup(socket_id).await;
-                    close(sender, CLOSE_INTERNAL_ERROR, "internal_error").await;
+                    close(
+                        sender,
+                        CLOSE_INTERNAL_ERROR,
+                        "internal_error",
+                        write_timeout,
+                    )
+                    .await;
                     return false;
                 }
             }
             if !hub.subscribe(socket_id, conversation_id).await {
-                close(sender, CLOSE_INTERNAL_ERROR, "internal_error").await;
+                close(
+                    sender,
+                    CLOSE_INTERNAL_ERROR,
+                    "internal_error",
+                    write_timeout,
+                )
+                .await;
                 return false;
             }
             send_control(
@@ -246,6 +307,7 @@ async fn handle_client_frame(
                     request_id,
                     conversation_id,
                 },
+                write_timeout,
             )
             .await
         }
@@ -254,7 +316,13 @@ async fn handle_client_frame(
             conversation_id,
         } => {
             if !hub.unsubscribe(socket_id, conversation_id).await {
-                close(sender, CLOSE_INTERNAL_ERROR, "internal_error").await;
+                close(
+                    sender,
+                    CLOSE_INTERNAL_ERROR,
+                    "internal_error",
+                    write_timeout,
+                )
+                .await;
                 return false;
             }
             send_control(
@@ -263,16 +331,23 @@ async fn handle_client_frame(
                     request_id,
                     conversation_id,
                 },
+                write_timeout,
             )
             .await
         }
         ClientFrame::Ping { nonce } => {
             if nonce.len() > MAX_NONCE_BYTES {
                 hub.cleanup(socket_id).await;
-                close(sender, CLOSE_PROTOCOL_ERROR, "protocol_error").await;
+                close(
+                    sender,
+                    CLOSE_PROTOCOL_ERROR,
+                    "protocol_error",
+                    write_timeout,
+                )
+                .await;
                 return false;
             }
-            send_control(sender, &ServerControlFrame::Pong { nonce }).await
+            send_control(sender, &ServerControlFrame::Pong { nonce }, write_timeout).await
         }
     }
 }
@@ -280,21 +355,47 @@ async fn handle_client_frame(
 async fn send_control(
     sender: &mut SplitSink<WebSocket, Message>,
     frame: &ServerControlFrame,
+    write_timeout: Duration,
 ) -> bool {
     let Ok(payload) = serde_json::to_string(frame) else {
-        close(sender, CLOSE_INTERNAL_ERROR, "internal_error").await;
+        close(
+            sender,
+            CLOSE_INTERNAL_ERROR,
+            "internal_error",
+            write_timeout,
+        )
+        .await;
         return false;
     };
-    sender.send(Message::Text(payload.into())).await.is_ok()
+    send_bounded(sender, Message::Text(payload.into()), write_timeout).await
 }
 
-async fn close(sender: &mut SplitSink<WebSocket, Message>, code: u16, reason: &'static str) {
-    let _ = sender
-        .send(Message::Close(Some(CloseFrame {
+async fn send_bounded<S: Sink<Message> + Unpin>(
+    sender: &mut S,
+    message: Message,
+    limit: Duration,
+) -> bool {
+    matches!(
+        tokio::time::timeout(limit, sender.send(message)).await,
+        Ok(Ok(()))
+    )
+}
+
+async fn close<S: Sink<Message> + Unpin>(
+    sender: &mut S,
+    code: u16,
+    reason: &'static str,
+    write_timeout: Duration,
+) {
+    let _ = send_bounded(
+        sender,
+        Message::Close(Some(CloseFrame {
             code,
             reason: reason.into(),
-        })))
-        .await;
+        })),
+        write_timeout,
+    )
+    .await;
 }
 
 fn duration_until(expires_at: time::OffsetDateTime, now: time::OffsetDateTime) -> Duration {
@@ -336,4 +437,64 @@ enum ServerControlFrame {
     Pong {
         nonce: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        convert::Infallible,
+        pin::Pin,
+        task::{Context, Poll},
+        time::Duration,
+    };
+
+    use axum::extract::ws::Message;
+    use futures_util::Sink;
+
+    use super::send_bounded;
+
+    struct NeverReadySink;
+
+    impl Sink<Message> for NeverReadySink {
+        type Error = Infallible;
+
+        fn poll_ready(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Pending
+        }
+
+        fn start_send(self: Pin<&mut Self>, _item: Message) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn poll_flush(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn send_times_out_when_the_sink_never_becomes_ready() {
+        tokio::time::pause();
+        let limit = Duration::from_secs(10);
+        let send = tokio::spawn(async move {
+            send_bounded(&mut NeverReadySink, Message::Ping(Vec::new().into()), limit).await
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(limit - Duration::from_millis(1)).await;
+        assert!(!send.is_finished());
+        tokio::time::advance(Duration::from_millis(1)).await;
+        assert!(matches!(send.await, Ok(false)));
+    }
 }

@@ -269,6 +269,7 @@ FastAPI가 자동 생성하는 OpenAPI/docs/redoc route는 migration surface가 
 | 1011 internal_error | legacy reconnect semantics + delta-first correctness requirement | task-4b | tests/realtime |
 | 1009 message_too_big | net-new limit (ADR 0004): client frame/message over 4096 bytes | task-u08 | tests/realtime |
 | 1013 socket_limit | net-new limit (ADR 0004): ninth socket for a user, 8 per user | task-u08 | tests/realtime |
+| 1001 server_shutdown | server shutdown closes established and newly opened sockets (ADR 0004) | batch-e | tests/realtime |
 
 ## 6. Legacy table ownership
 

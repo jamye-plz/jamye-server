@@ -2,9 +2,10 @@ use std::{
     collections::{HashMap, HashSet},
     fmt,
     sync::Arc,
+    time::Duration,
 };
 
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, mpsc, watch};
 use uuid::Uuid;
 
 mod revocation;
@@ -38,22 +39,63 @@ pub struct SocketConnection {
     pub socket_id: SocketId,
     pub outbound: mpsc::Receiver<String>,
     pub evictions: mpsc::Receiver<RealtimeEviction>,
+    pub(super) session: SocketSession,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct LocalRealtimeHub {
     inner: Arc<Mutex<RegistryState>>,
+    shutdown: watch::Sender<bool>,
+    active_sessions: watch::Sender<usize>,
+}
+
+impl Default for LocalRealtimeHub {
+    fn default() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(RegistryState::default())),
+            shutdown: watch::channel(false).0,
+            active_sessions: watch::channel(0).0,
+        }
+    }
+}
+
+pub(super) enum RegisterError {
+    Full,
+    ShuttingDown,
+}
+
+pub(super) struct SocketSession {
+    active_sessions: watch::Sender<usize>,
+}
+
+impl Drop for SocketSession {
+    fn drop(&mut self) {
+        self.active_sessions.send_modify(|count| *count -= 1);
+    }
 }
 
 impl LocalRealtimeHub {
+    /// Test-facing registration; after `shutdown` it also returns `RegistryFull`.
     pub async fn register(&self, user_id: Uuid) -> Result<SocketConnection, RegistryFull> {
+        self.register_socket(user_id)
+            .await
+            .map_err(|_| RegistryFull)
+    }
+
+    pub(super) async fn register_socket(
+        &self,
+        user_id: Uuid,
+    ) -> Result<SocketConnection, RegisterError> {
         let mut state = self.inner.lock().await;
+        if *self.shutdown.borrow() {
+            return Err(RegisterError::ShuttingDown);
+        }
         if state
             .users
             .get(&user_id)
             .is_some_and(|sockets| sockets.len() >= MAX_SOCKETS_PER_USER)
         {
-            return Err(RegistryFull);
+            return Err(RegisterError::Full);
         }
         let socket_id = SocketId::new();
         let (sender, outbound) = mpsc::channel(SOCKET_BUFFER_CAPACITY);
@@ -68,11 +110,49 @@ impl LocalRealtimeHub {
             },
         );
         state.users.entry(user_id).or_default().insert(socket_id);
+        self.active_sessions.send_modify(|count| *count += 1);
         Ok(SocketConnection {
             socket_id,
             outbound,
             evictions,
+            session: SocketSession {
+                active_sessions: self.active_sessions.clone(),
+            },
         })
+    }
+
+    pub async fn shutdown(&self) {
+        // Serialize shutdown with admission so no session can appear after draining starts.
+        let _state = self.inner.lock().await;
+        self.shutdown.send_replace(true);
+    }
+
+    pub(crate) fn is_shutting_down(&self) -> bool {
+        *self.shutdown.borrow()
+    }
+
+    pub(super) fn shutdown_signal(&self) -> watch::Receiver<bool> {
+        self.shutdown.subscribe()
+    }
+
+    /// After shutdown, wait for sessions to finish their final close attempt.
+    pub async fn wait_for_drain(&self, limit: Duration) -> bool {
+        let mut active_sessions = self.active_sessions.subscribe();
+        matches!(
+            tokio::time::timeout(limit, async {
+                loop {
+                    let drained = *active_sessions.borrow_and_update() == 0;
+                    if drained {
+                        return true;
+                    }
+                    if active_sessions.changed().await.is_err() {
+                        return false;
+                    }
+                }
+            })
+            .await,
+            Ok(true)
+        )
     }
 
     pub async fn subscribe(&self, socket_id: SocketId, conversation_id: Uuid) -> bool {

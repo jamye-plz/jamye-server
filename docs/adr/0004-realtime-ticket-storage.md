@@ -1,6 +1,6 @@
 # ADR 0004: Redis-only one-time realtime tickets and durable PostgreSQL delivery
 
-- 상태: Accepted; task-4b GREEN/recovery evidence complete; task-u08에서 close code 1009·1013 개정
+- 상태: Accepted; task-4b GREEN/recovery evidence complete; task-u08에서 close code 1009·1013 개정; batch-e에서 shutdown close code 1001 개정
 - 날짜: 2026-08-25
 - 범위: R1 realtime ticket, WebSocket admission, outbox delivery acceleration
 
@@ -51,6 +51,10 @@ protocol error는 `4400`, 내부 dependency error는 `1011`이다. client frame/
 구체 transport 구현이며 application port나 runtime plugin registry가 아니다. 각 socket의
 outbound queue는 bounded이며, 가득 찬 queue에 event를 무한 적재하지 않는다. 이때 누락된
 low-latency hint는 reconnect/delta로 복구한다.
+
+서버 shutdown 시에는 registry에서 socket을 제거하고 `1001 server_shutdown`으로 닫는다.
+shutdown 이후의 새 socket에도 같은 close code와 reason을 보낸다. 각 outbound frame은
+최대 10초 동안만 전송을 시도하며 실패하거나 시간 초과되면 연결을 정리한다.
 
 ### Durable delivery
 

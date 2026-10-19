@@ -141,6 +141,18 @@ pub fn router_with_runtime(
     rate_limits: &crate::config::rate_limit::RateLimitConfig,
     object_storage: Option<&ObjectStorageConfig>,
 ) -> Result<Router, CompositionError> {
+    router_with_runtime_and_hub(config, app_links, auth, rate_limits, object_storage)
+        .map(|(router, _hub)| router)
+}
+
+/// Builds the production router and returns the hub shared by its realtime sessions.
+pub fn router_with_runtime_and_hub(
+    config: &AppConfig,
+    app_links: &AppLinksConfig,
+    auth: &AuthConfig,
+    rate_limits: &crate::config::rate_limit::RateLimitConfig,
+    object_storage: Option<&ObjectStorageConfig>,
+) -> Result<(Router, LocalRealtimeHub), CompositionError> {
     let timeout = config.readiness_timeout();
     // Legal pages render once at startup from validated operator values; no values means the
     // four routes stay unmounted (plain 404) so the code can deploy before the values exist.
@@ -430,7 +442,7 @@ pub fn router_with_runtime(
         )))
         .merge(realtime_router(RealtimeHttpState::new(
             tickets,
-            hub,
+            hub.clone(),
             realtime_repository,
             crate::transport::http::auth::AuthVerifierState::new(verifier),
             users,
@@ -441,8 +453,12 @@ pub fn router_with_runtime(
     if let Some(legal_state) = legal_routes {
         application = application.merge(legal_router(legal_state));
     }
-    Ok(with_platform_layers(
-        crate::transport::http::client_ip::with_trusted_proxies(application, config),
+    Ok((
+        with_platform_layers(crate::transport::http::client_ip::with_trusted_proxies(
+            application,
+            config,
+        )),
+        hub,
     ))
 }
 
