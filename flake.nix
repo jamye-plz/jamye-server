@@ -323,6 +323,7 @@
           pkgs.minio-client
           pkgs.podman
           pkgs.podman-compose
+          pkgs.shellcheck
           pkgs.sqlx-cli
         ];
 

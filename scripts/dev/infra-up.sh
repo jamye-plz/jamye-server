@@ -22,7 +22,7 @@ status=0
 minio_running || status=$?
 if [[ "$status" -ne 0 ]]; then
   if [[ "$status" -eq 1 ]]; then
-    printf '%s\n' 'error: local MinIO exited before ownership verification' >&2
+    printf '%s\n' 'error: local MinIO exited before ownership verification; see .local/infra/minio/minio.log' >&2
   fi
   exit "$status"
 fi

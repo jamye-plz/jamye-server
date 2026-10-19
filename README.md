@@ -44,7 +44,7 @@ just infra-status
 just test-recovery
 ```
 
-`just check`는 format, strict Clippy, default/all-feature tests와 contract drift를 한 번에 실행하는 구현 완료 게이트다. 서비스 stop/start recovery와 flake 검증은 각각 `just test-recovery`, `just flake-check`로 분리한다. 자세한 의미는 [검증 절차](docs/validation.md)와 [로컬 개발](docs/development.md)에 있다.
+`just check`는 format, strict Clippy, shellcheck, default/all-feature tests와 contract drift를 한 번에 실행하는 구현 완료 게이트다. 서비스 stop/start recovery와 flake 검증은 각각 `just test-recovery`, `just flake-check`로 분리한다. 자세한 의미는 [검증 절차](docs/validation.md)와 [로컬 개발](docs/development.md)에 있다.
 
 ## 로컬 테스트 환경
 
@@ -69,7 +69,7 @@ CI 게이트는 [검증 절차](docs/validation.md)를 참고한다.
 
 ## 배포 경계
 
-`compose.yaml`은 production 배포 정의가 아니다. flake는 `aarch64-darwin`, `aarch64-linux`, `x86_64-linux`의 `api`/`worker`/`admin` package, checks와 `nixosModules.default`를 내보낸다. NixOS module의 systemd 서비스와 operator `jamye-server-admin` wrapper는 flake check로 평가한다. 실제 host, secret, 서비스 lifecycle, ingress와 배포 결과는 별도 `homelab` 저장소의 책임이다.
+`compose.yaml`은 production 배포 정의가 아니다. flake는 `aarch64-darwin`, `aarch64-linux`, `x86_64-linux`의 `api`/`worker`/`admin` package와 local/CI harness 전용 `minio` package(nixpkgs insecure 예외는 minio에만 적용), checks와 `nixosModules.default`를 내보낸다. NixOS module의 systemd 서비스와 operator `jamye-server-admin` wrapper는 flake check로 평가한다. 실제 host, secret, 서비스 lifecycle, ingress와 배포 결과는 별도 `homelab` 저장소의 책임이다.
 
 별도 `homelab` 저장소가 다음을 소유한다.
 

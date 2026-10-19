@@ -8,7 +8,7 @@ evidence generation, 수동 manifest digest는 과거 구현 과정의 기록이
 
 | 명령 | 목적 | 통과가 의미하는 것 |
 | --- | --- | --- |
-| `just check` | format, strict Clippy, default/all-feature test, contract drift | 커밋 대상 범위의 백엔드 구현 완료 |
+| `just check` | format, strict Clippy, shellcheck(warning 이상), default/all-feature test, contract drift | 커밋 대상 범위의 백엔드 구현 완료 |
 | `just test-recovery` | guarded PostgreSQL/Redis stop-start scenario | release용 복구 동작 확인 |
 | `just flake-check` | output tree 평가와 module 평가; Linux host에서는 `nixos-module-smoke` VM health smoke 포함 | 현재 host 검증 통과. 운영 배포 성공을 뜻하지 않음 |
 | `just coverage` | all-feature coverage report 생성 | 참고 지표. 특정 퍼센트가 release 권한을 갖지 않음 |
@@ -29,7 +29,9 @@ named-volume data를 보존한 채 PostgreSQL을 한 번, Redis를 세 번 정�
 - `just test`는 `.env.local`을 읽어 default와 all-feature suite를 실행한다.
 - `just contract-generate`는 devShell 안에서 커밋된 release-candidate 계약을 재생성한다.
   기존 manifest의 provenance와 일치하는 `tests/production_composition/fixtures/contract_generation/dirty.json`을 입력으로 사용한다.
-- `just contract-check`는 contract 생성의 결정성과 byte 일치를 검사한다.
+- `just contract-check`는 contract 생성의 결정성과 byte 일치를 검사한다. `contract-generate`가 쓰는 fixture provenance가
+  `src/contract_generation/provenance.json`과 byte 단위로 같은지도 확인한다.
+- `just shell-check`는 `scripts/` 아래 셸 스크립트를 shellcheck로 검사하고 warning 이상이면 실패한다.
 - `just dependency-check`, `just secret-check`, `just lock-check`는 모든 local test에
   중복 결합하지 않고 필요할 때 명시적으로 실행하는 supply-chain 검사다.
   `secret-check`는 과거 commit 전체가 아니라 tracked file과 ignore되지 않은 새 file의

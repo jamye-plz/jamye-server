@@ -50,3 +50,4 @@ rm -rf -- "$MINIO_DIR"
 
 printf '%s\n' 'deleted guarded disposable volumes and flake-pinned host MinIO data'
 printf '%s\n' '.env.local was preserved; delete it separately only if you intend to rotate local credentials'
+printf '%s\n' 'next: run `just infra-up`, then `just minio-policy`'

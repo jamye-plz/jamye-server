@@ -298,7 +298,7 @@ task-10은 사용자 승인 STT non-goal로 삭제했다. 기존 참조 안정�
 
 ## 12. 테스트와 완료 판정
 
-- `just check`가 format, strict Clippy, default/all-feature tests와 contract drift를 한 번씩 실행한다.
+- `just check`가 format, strict Clippy, shellcheck, default/all-feature tests와 contract drift를 한 번씩 실행한다.
 - `just check` 통과는 동결된 제품 범위의 구현 완료를 뜻한다.
 - PostgreSQL/Redis stop/start는 상태를 바꾸므로 `just test-recovery`로 분리하고 release 전에 실행한다.
 - coverage는 품질 관찰 지표이며 임의의 백분율이나 manifest hash가 구현 완료 권한을 갖지 않는다.
