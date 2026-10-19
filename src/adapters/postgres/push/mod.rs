@@ -179,11 +179,13 @@ impl PushInvalidDestinationRepository for PostgresPushRepository {
     }
 }
 
-pub(super) fn database_error(operation: &'static str, _error: sqlx::Error) -> PushRepositoryError {
+pub(super) fn database_error(operation: &'static str, error: sqlx::Error) -> PushRepositoryError {
+    let sqlstate = crate::adapters::postgres::sqlstate(&error);
     tracing::warn!(
         dependency = "postgres",
         failure_kind = "push_installations",
         operation,
+        sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
         "PostgreSQL push installation operation failed"
     );
     PushRepositoryError::Unavailable

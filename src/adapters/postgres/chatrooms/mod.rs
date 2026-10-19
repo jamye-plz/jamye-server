@@ -85,10 +85,12 @@ pub(super) fn database_error(
             _ => {}
         }
     }
+    let sqlstate = crate::adapters::postgres::sqlstate(&error);
     tracing::warn!(
         dependency = "postgres",
         failure_kind = "chatrooms",
         operation,
+        sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
         "PostgreSQL chatroom operation failed"
     );
     ChatroomsRepositoryError::Unavailable

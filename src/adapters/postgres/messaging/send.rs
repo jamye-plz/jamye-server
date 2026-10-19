@@ -43,11 +43,11 @@ pub(super) async fn persist(
     handle: &mut dyn TransactionHandle,
     command: &SendMessageCommand,
 ) -> Result<PersistMessageOutcome, MessagingRepositoryError> {
-    let connection = connection(handle).map_err(|_| database_error("transaction_handle"))?;
+    let connection = connection(handle).map_err(|_| database_error("transaction_handle", None))?;
     authorize(connection, command).await?;
     let created_at = message_order::next_timestamp(connection, command.chatroom_id)
         .await
-        .map_err(|_| database_error("message_order"))?;
+        .map_err(|error| database_error("message_order", Some(&error)))?;
     let proposed_id = Uuid::new_v4();
     let inserted = insert_message(connection, command, proposed_id, created_at).await?;
     let Some(row) = inserted else {
@@ -60,7 +60,7 @@ pub(super) async fn record_created_event(
     handle: &mut dyn TransactionHandle,
     message: &CanonicalMessage,
 ) -> Result<PersistedMessage, MessagingRepositoryError> {
-    let connection = connection(handle).map_err(|_| database_error("transaction_handle"))?;
+    let connection = connection(handle).map_err(|_| database_error("transaction_handle", None))?;
     let canonical_event_id = persist_event_and_outbox(connection, message).await?;
     Ok(PersistedMessage::new(message.clone(), canonical_event_id))
 }
@@ -92,8 +92,8 @@ pub(super) async fn delivery_context(
     .bind(message.sender_id)
     .fetch_optional(&mut *connection)
     .await
-    .map_err(|_| database_error("delivery_context"))?
-    .ok_or_else(|| database_error("delivery_context_missing"))?;
+    .map_err(|error| database_error("delivery_context", Some(&error)))?
+    .ok_or_else(|| database_error("delivery_context_missing", None))?;
     match (row.1.as_str(), row.2) {
         ("main", None) => Ok(MessageDeliveryContext::Main {
             group_id: row.0,
@@ -109,10 +109,10 @@ pub(super) async fn delivery_context(
             .bind(row.0)
             .fetch_optional(&mut *connection)
             .await
-            .map_err(|_| database_error("delivery_context_topic"))?
-            .ok_or_else(|| database_error("delivery_context_topology"))?;
+            .map_err(|error| database_error("delivery_context_topic", Some(&error)))?
+            .ok_or_else(|| database_error("delivery_context_topology", None))?;
             if authoritative_topic_id != topic_id {
-                return Err(database_error("delivery_context_topology"));
+                return Err(database_error("delivery_context_topology", None));
             }
             Ok(MessageDeliveryContext::Topic {
                 group_id: row.0,
@@ -120,7 +120,7 @@ pub(super) async fn delivery_context(
                 sender_display_name: row.3,
             })
         }
-        _ => Err(database_error("delivery_context_topology")),
+        _ => Err(database_error("delivery_context_topology", None)),
     }
 }
 
@@ -146,7 +146,7 @@ async fn authorize(
     .bind(command.sender_id)
     .fetch_optional(&mut *connection)
     .await
-    .map_err(|_| database_error("authorize"))?;
+    .map_err(|error| database_error("authorize", Some(&error)))?;
     if authorized.is_none() {
         return Err(MessagingRepositoryError::MembershipRequired);
     }
@@ -188,7 +188,7 @@ async fn insert_message(
     .bind(created_at)
     .fetch_optional(&mut *connection)
     .await
-    .map_err(|_| database_error("insert_message"))
+    .map_err(|error| database_error("insert_message", Some(&error)))
 }
 
 async fn existing_message(
@@ -215,8 +215,8 @@ async fn existing_message(
     .bind(command.client_msg_id)
     .fetch_optional(&mut *connection)
     .await
-    .map_err(|_| database_error("read_existing"))?
-    .ok_or_else(|| database_error("missing_conflict_row"))?;
+    .map_err(|error| database_error("read_existing", Some(&error)))?
+    .ok_or_else(|| database_error("missing_conflict_row", None))?;
     if row.8.is_some() {
         return Err(MessagingRepositoryError::IdempotencyConflict);
     }
@@ -235,9 +235,9 @@ async fn existing_message(
     .bind(message.id)
     .fetch_all(&mut *connection)
     .await
-    .map_err(|_| database_error("read_existing_event"))?;
+    .map_err(|error| database_error("read_existing_event", Some(&error)))?;
     let [canonical_event_id] = canonical_event_ids.as_slice() else {
-        return Err(database_error("non_canonical_existing_event"));
+        return Err(database_error("non_canonical_existing_event", None));
     };
     Ok(PersistMessageOutcome::Existing(PersistedMessage::new(
         message,
@@ -250,7 +250,8 @@ async fn persist_event_and_outbox(
     message: &CanonicalMessage,
 ) -> Result<Uuid, MessagingRepositoryError> {
     let event_id = Uuid::new_v4();
-    let payload = serde_json::to_value(message).map_err(|_| database_error("event_payload"))?;
+    let payload =
+        serde_json::to_value(message).map_err(|_| database_error("event_payload", None))?;
     let (cursor, occurred_at) = sqlx::query_as::<_, (i64, OffsetDateTime)>(
         "INSERT INTO conversation_events \
          (id, conversation_id, event_type, event_version, payload) \
@@ -262,7 +263,7 @@ async fn persist_event_and_outbox(
     .bind(payload)
     .fetch_one(&mut *connection)
     .await
-    .map_err(|_| database_error("insert_event"))?;
+    .map_err(|error| database_error("insert_event", Some(&error)))?;
     let event = MessageCreatedEvent {
         version: 1,
         event_type: MessageCreatedType::MessageCreated,
@@ -280,7 +281,8 @@ async fn insert_outbox(
     connection: &mut PgConnection,
     event: &MessageCreatedEvent,
 ) -> Result<(), MessagingRepositoryError> {
-    let payload = serde_json::to_value(event).map_err(|_| database_error("outbox_payload"))?;
+    let payload =
+        serde_json::to_value(event).map_err(|_| database_error("outbox_payload", None))?;
     sqlx::query(
         "INSERT INTO outbox_events \
          (id, intent_type, event_type, event_version, aggregate_type, aggregate_id, \
@@ -294,7 +296,7 @@ async fn insert_outbox(
     .execute(&mut *connection)
     .await
     .map(|_| ())
-    .map_err(|_| database_error("insert_outbox"))
+    .map_err(|error| database_error("insert_outbox", Some(&error)))
 }
 
 fn canonical_message(row: MessageRow) -> CanonicalMessage {
@@ -312,11 +314,16 @@ fn canonical_message(row: MessageRow) -> CanonicalMessage {
     }
 }
 
-fn database_error(operation: &'static str) -> MessagingRepositoryError {
+fn database_error(
+    operation: &'static str,
+    error: Option<&sqlx::Error>,
+) -> MessagingRepositoryError {
+    let sqlstate = error.and_then(crate::adapters::postgres::sqlstate);
     tracing::warn!(
         dependency = "postgres",
         failure_kind = "messaging_write",
         operation,
+        sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
         "PostgreSQL messaging write failed"
     );
     MessagingRepositoryError::DatabaseUnavailable

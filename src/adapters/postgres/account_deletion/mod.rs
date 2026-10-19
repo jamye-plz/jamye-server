@@ -123,12 +123,14 @@ impl AccountDeletionRepository for PostgresAccountDeletionRepository {
 
 pub(super) fn database_error(
     operation: &'static str,
-    _error: sqlx::Error,
+    error: sqlx::Error,
 ) -> AccountDeletionRepositoryError {
+    let sqlstate = crate::adapters::postgres::sqlstate(&error);
     tracing::warn!(
         dependency = "postgres",
         failure_kind = "account_deletion",
         operation,
+        sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
         "PostgreSQL account-deletion persistence operation failed"
     );
     AccountDeletionRepositoryError::Unavailable

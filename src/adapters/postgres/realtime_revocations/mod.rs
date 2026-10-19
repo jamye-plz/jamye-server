@@ -90,7 +90,7 @@ impl PostgresRealtimeRevocations {
         .bind(lease_milliseconds)
         .fetch_all(&self.pool)
         .await
-        .map_err(|_| database_error("claim_controls"))?;
+        .map_err(|error| database_error("claim_controls", Some(&error)))?;
 
         rows.into_iter().map(control_claim_from_row).collect()
     }
@@ -118,7 +118,7 @@ impl PostgresRealtimeRevocations {
         .bind(claim.claim_generation)
         .execute(&self.pool)
         .await
-        .map_err(|_| database_error("mark_control_published"))?;
+        .map_err(|error| database_error("mark_control_published", Some(&error)))?;
         Ok(result.rows_affected() == 1)
     }
 
@@ -182,7 +182,7 @@ impl PostgresRealtimeRevocations {
         .bind(max_attempts)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| database_error("record_control_failure"))?;
+        .map_err(|error| database_error("record_control_failure", Some(&error)))?;
 
         match status.as_deref() {
             Some("pending") => Ok(ControlFailureDisposition::RetryScheduled),
@@ -200,7 +200,7 @@ impl PostgresRealtimeRevocations {
             .bind(group_id)
             .fetch_all(&self.pool)
             .await
-            .map_err(|_| database_error("revocation_conversations"))
+            .map_err(|error| database_error("revocation_conversations", Some(&error)))
     }
 
     pub async fn authorized_users(
@@ -230,7 +230,7 @@ impl PostgresRealtimeRevocations {
         .bind(candidates)
         .fetch_all(&self.pool)
         .await
-        .map_err(|_| database_error("authorize_delivery_batch"))?;
+        .map_err(|error| database_error("authorize_delivery_batch", Some(&error)))?;
         Ok(rows.into_iter().collect())
     }
 }
@@ -264,8 +264,8 @@ impl ControlIntentAppender for PostgresRealtimeRevocations {
             .execute(connection)
             .await
             .map(|_| ())
-            .map_err(|_| {
-                log_database_failure("append_control");
+            .map_err(|error| {
+                log_database_failure("append_control", Some(&error));
                 ControlIntentError::Unavailable
             })
         })
@@ -339,16 +339,21 @@ fn duration_milliseconds(duration: Duration) -> Result<i64, RealtimeRevocationSt
     i64::try_from(duration.as_millis()).map_err(|_| RealtimeRevocationStoreError::InvalidData)
 }
 
-fn database_error(operation: &'static str) -> RealtimeRevocationStoreError {
-    log_database_failure(operation);
+fn database_error(
+    operation: &'static str,
+    error: Option<&sqlx::Error>,
+) -> RealtimeRevocationStoreError {
+    log_database_failure(operation, error);
     RealtimeRevocationStoreError::Unavailable
 }
 
-fn log_database_failure(operation: &'static str) {
+fn log_database_failure(operation: &'static str, error: Option<&sqlx::Error>) {
+    let sqlstate = error.and_then(crate::adapters::postgres::sqlstate);
     tracing::warn!(
         dependency = "postgres",
         failure_kind = "realtime_revocation",
         operation,
+        sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
         "PostgreSQL realtime revocation operation failed"
     );
 }

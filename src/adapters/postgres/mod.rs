@@ -43,3 +43,10 @@ pub fn runtime_pool(
         .acquire_timeout(acquire_timeout)
         .connect_lazy_with(options))
 }
+
+pub(crate) fn sqlstate(error: &sqlx::Error) -> Option<String> {
+    error
+        .as_database_error()?
+        .code()
+        .map(|code| code.into_owned())
+}

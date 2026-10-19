@@ -170,10 +170,12 @@ fn database_error(operation: &'static str, error: sqlx::Error) -> MediaRepositor
     {
         return MediaRepositoryError::InvalidData;
     }
+    let sqlstate = crate::adapters::postgres::sqlstate(&error);
     tracing::warn!(
         dependency = "postgres",
         failure_kind = "media",
         operation,
+        sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
         "PostgreSQL media operation failed"
     );
     MediaRepositoryError::Unavailable

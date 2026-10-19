@@ -281,12 +281,14 @@ fn duration_milliseconds(duration: Duration) -> Result<i64, AccountObjectDeletio
 
 fn database_error(
     operation: &'static str,
-    _error: sqlx::Error,
+    error: sqlx::Error,
 ) -> AccountObjectDeletionRepositoryError {
+    let sqlstate = crate::adapters::postgres::sqlstate(&error);
     tracing::warn!(
         dependency = "postgres",
         failure_kind = "account_object_deletion",
         operation,
+        sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
         "PostgreSQL account-object cleanup persistence operation failed"
     );
     AccountObjectDeletionRepositoryError::Unavailable

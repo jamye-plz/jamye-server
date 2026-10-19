@@ -46,7 +46,7 @@ impl PostgresAuthRepository {
         .bind(&identity.provider_id)
         .fetch_optional(&mut *connection)
         .await
-        .map_err(|_| database_failure("identity_lookup"))?;
+        .map_err(|error| database_failure("identity_lookup", &error))?;
         let user_id = match existing {
             Some(user_id) => user_id,
             None => {
@@ -57,7 +57,7 @@ impl PostgresAuthRepository {
                     .bind(&identity.avatar_url)
                     .execute(&mut *connection)
                     .await
-                    .map_err(|_| database_failure("user_insert"))?;
+                    .map_err(|error| database_failure("user_insert", &error))?;
                 let claimed = sqlx::query_scalar::<_, Uuid>(
                     "INSERT INTO auth_identities (id, user_id, provider, provider_id) \
                      VALUES ($1, $2, $3, $4) \
@@ -70,7 +70,7 @@ impl PostgresAuthRepository {
                 .bind(&identity.provider_id)
                 .fetch_optional(&mut *connection)
                 .await
-                .map_err(|_| database_failure("identity_insert"))?;
+                .map_err(|error| database_failure("identity_insert", &error))?;
                 match claimed {
                     Some(user_id) => user_id,
                     None => {
@@ -87,12 +87,14 @@ impl PostgresAuthRepository {
                         .bind(&identity.provider_id)
                         .fetch_one(&mut *connection)
                         .await
-                        .map_err(|_| database_failure("identity_convergence"))?;
+                        .map_err(|error| database_failure("identity_convergence", &error))?;
                         sqlx::query("DELETE FROM users WHERE id = $1")
                             .bind(speculative_user_id)
                             .execute(&mut *connection)
                             .await
-                            .map_err(|_| database_failure("speculative_user_cleanup"))?;
+                            .map_err(|error| {
+                                database_failure("speculative_user_cleanup", &error)
+                            })?;
                         canonical_user_id
                     }
                 }
@@ -138,7 +140,7 @@ impl PostgresAuthRepository {
         .bind(&identity.provider_id)
         .fetch_optional(&mut *connection)
         .await
-        .map_err(|_| database_failure("identity_restore_lookup"))?;
+        .map_err(|error| database_failure("identity_restore_lookup", &error))?;
         let Some((identity_id, user_id)) = deleted else {
             return Ok(None);
         };
@@ -153,7 +155,7 @@ impl PostgresAuthRepository {
         .bind(user_id)
         .execute(&mut *connection)
         .await
-        .map_err(|_| database_failure("user_restore"))?;
+        .map_err(|error| database_failure("user_restore", &error))?;
         sqlx::query(
             "UPDATE auth_identities \
              SET deleted_at = NULL \
@@ -162,7 +164,7 @@ impl PostgresAuthRepository {
         .bind(identity_id)
         .execute(&mut *connection)
         .await
-        .map_err(|_| database_failure("identity_restore"))?;
+        .map_err(|error| database_failure("identity_restore", &error))?;
         sqlx::query(
             "UPDATE memberships membership \
              SET deleted_at = NULL, \
@@ -183,7 +185,7 @@ impl PostgresAuthRepository {
         .bind(user_id)
         .execute(&mut *connection)
         .await
-        .map_err(|_| database_failure("membership_restore"))?;
+        .map_err(|error| database_failure("membership_restore", &error))?;
         insert_refresh_session(
             &mut *connection,
             session.id,
@@ -222,7 +224,7 @@ impl PostgresAuthRepository {
         .bind(token_hash.as_bytes().as_slice())
         .fetch_optional(&mut *connection)
         .await
-        .map_err(|_| database_failure("refresh_lock"))?;
+        .map_err(|error| database_failure("refresh_lock", &error))?;
         let Some((parent_id, user_id, family_id, expires_at, consumed, revoked, suspended)) =
             parent
         else {
@@ -243,7 +245,7 @@ impl PostgresAuthRepository {
             .bind(now)
             .execute(&mut *connection)
             .await
-            .map_err(|_| database_failure("refresh_family_revoke"))?;
+            .map_err(|error| database_failure("refresh_family_revoke", &error))?;
             return Ok(RotationOutcome::Reused);
         }
         if revoked || expires_at <= now {
@@ -257,7 +259,7 @@ impl PostgresAuthRepository {
         .bind(now)
         .execute(&mut *connection)
         .await
-        .map_err(|_| database_failure("refresh_consume"))?;
+        .map_err(|error| database_failure("refresh_consume", &error))?;
         insert_refresh_session(
             &mut *connection,
             child.id,
@@ -293,7 +295,7 @@ impl PostgresAuthRepository {
         .execute(connection)
         .await
         .map(|_| ())
-        .map_err(|_| database_failure("refresh_revoke"))
+        .map_err(|error| database_failure("refresh_revoke", &error))
     }
 
     async fn load_profile(
@@ -315,7 +317,7 @@ impl PostgresAuthRepository {
         .fetch_optional(&self.pool)
         .await
         .map(|row| row.map(profile_from_row))
-        .map_err(|_| database_failure("profile_load"))
+        .map_err(|error| database_failure("profile_load", &error))
     }
 
     async fn account_is_active_record(&self, user_id: Uuid) -> Result<bool, AuthRepositoryError> {
@@ -330,7 +332,7 @@ impl PostgresAuthRepository {
         .bind(user_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|_| database_failure("account_active_lookup"))
+        .map_err(|error| database_failure("account_active_lookup", &error))
     }
 
     async fn update_profile_record(
@@ -354,7 +356,7 @@ impl PostgresAuthRepository {
                 avatar_url,
             )
             .await
-            .map_err(|_| database_failure("avatar_release"))?;
+            .map_err(|error| database_failure("avatar_release", &error))?;
         }
         sqlx::query_as::<_, (Uuid, String, String, Option<String>, OffsetDateTime)>(
             "WITH updated AS ( \
@@ -381,7 +383,7 @@ impl PostgresAuthRepository {
         .fetch_optional(connection)
         .await
         .map(|row| row.map(profile_from_row))
-        .map_err(|_| database_failure("profile_update"))
+        .map_err(|error| database_failure("profile_update", &error))
     }
 }
 
@@ -464,7 +466,7 @@ async fn insert_refresh_session(
     .execute(connection)
     .await
     .map(|_| ())
-    .map_err(|_| database_failure("refresh_insert"))
+    .map_err(|error| database_failure("refresh_insert", &error))
 }
 
 async fn ensure_not_suspended(
@@ -476,7 +478,7 @@ async fn ensure_not_suspended(
             .bind(user_id)
             .fetch_optional(connection)
             .await
-            .map_err(|_| database_failure("suspension_lookup"))?;
+            .map_err(|error| database_failure("suspension_lookup", &error))?;
     if suspended == Some(true) {
         return Err(AuthRepositoryError::AccountSuspended);
     }
@@ -493,11 +495,13 @@ fn profile_from_row(row: (Uuid, String, String, Option<String>, OffsetDateTime))
     }
 }
 
-fn database_failure(operation: &'static str) -> AuthRepositoryError {
+fn database_failure(operation: &'static str, error: &sqlx::Error) -> AuthRepositoryError {
+    let sqlstate = crate::adapters::postgres::sqlstate(error);
     tracing::warn!(
         dependency = "postgres",
         failure_kind = "auth",
         operation,
+        sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
         "PostgreSQL authentication operation failed"
     );
     AuthRepositoryError::Unavailable

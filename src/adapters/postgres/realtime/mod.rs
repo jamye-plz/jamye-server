@@ -78,7 +78,7 @@ impl PostgresRealtimeRepository {
         .bind(lease_milliseconds)
         .fetch_all(&self.pool)
         .await
-        .map_err(|_| database_error("claim"))?;
+        .map_err(|error| database_error("claim", Some(&error)))?;
 
         rows.into_iter().map(claim_from_row).collect()
     }
@@ -102,7 +102,7 @@ impl PostgresRealtimeRepository {
         .bind(claim.claim_generation)
         .execute(&self.pool)
         .await
-        .map_err(|_| database_error("mark_published"))?;
+        .map_err(|error| database_error("mark_published", Some(&error)))?;
         Ok(result.rows_affected() == 1)
     }
 
@@ -165,7 +165,7 @@ impl PostgresRealtimeRepository {
         .bind(max_attempts)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| database_error("record_failure"))?;
+        .map_err(|error| database_error("record_failure", Some(&error)))?;
 
         match status.as_deref() {
             Some("pending") => Ok(FailureDisposition::RetryScheduled),
@@ -193,7 +193,7 @@ impl PostgresRealtimeRepository {
         .bind(user_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|_| database_error("authorize_subscription"))
+        .map_err(|error| database_error("authorize_subscription", Some(&error)))
     }
 }
 
@@ -242,11 +242,13 @@ fn duration_milliseconds(duration: Duration) -> Result<i64, RealtimePortError> {
     i64::try_from(duration.as_millis()).map_err(|_| RealtimePortError::InvalidData)
 }
 
-fn database_error(operation: &'static str) -> RealtimePortError {
+fn database_error(operation: &'static str, error: Option<&sqlx::Error>) -> RealtimePortError {
+    let sqlstate = error.and_then(crate::adapters::postgres::sqlstate);
     tracing::warn!(
         dependency = "postgres",
         failure_kind = "realtime",
         operation,
+        sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
         "PostgreSQL realtime operation failed"
     );
     RealtimePortError::Unavailable

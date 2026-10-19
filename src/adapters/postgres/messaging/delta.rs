@@ -43,7 +43,7 @@ pub(super) async fn page(
         .into_iter()
         .filter_map(|row| delta_event(row, query.conversation_id))
         .collect::<Vec<_>>();
-    let page_limit = usize::try_from(query.limit).map_err(|_| database_error("limit"))?;
+    let page_limit = usize::try_from(query.limit).map_err(|_| database_error("limit", None))?;
     let has_more = events.len() > page_limit;
     events.truncate(page_limit);
     let items = events
@@ -119,7 +119,7 @@ async fn fetch_rows(
     .bind(fetch_limit)
     .fetch_all(pool)
     .await
-    .map_err(|_| database_error("delta_page"))
+    .map_err(|error| database_error("delta_page", Some(&error)))
 }
 
 fn delta_event(row: DeltaRow, conversation_id: Uuid) -> Option<DeltaEvent> {
@@ -232,11 +232,16 @@ fn safe_reconcile_scope(
     }
 }
 
-fn database_error(operation: &'static str) -> MessagingRepositoryError {
+fn database_error(
+    operation: &'static str,
+    error: Option<&sqlx::Error>,
+) -> MessagingRepositoryError {
+    let sqlstate = error.and_then(crate::adapters::postgres::sqlstate);
     tracing::warn!(
         dependency = "postgres",
         failure_kind = "delta_read",
         operation,
+        sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
         "PostgreSQL delta read failed"
     );
     MessagingRepositoryError::DatabaseUnavailable

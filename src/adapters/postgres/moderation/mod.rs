@@ -416,10 +416,12 @@ fn database_error(operation: &'static str, error: sqlx::Error) -> ModerationRepo
     {
         return ModerationRepositoryError::UserNotFound;
     }
+    let sqlstate = crate::adapters::postgres::sqlstate(&error);
     tracing::warn!(
         dependency = "postgres",
         failure_kind = "moderation",
         operation,
+        sqlstate = sqlstate.as_deref().unwrap_or("unavailable"),
         "PostgreSQL moderation operation failed"
     );
     ModerationRepositoryError::Unavailable
