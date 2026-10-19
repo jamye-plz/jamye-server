@@ -45,12 +45,15 @@ Cargo 산출물이며 원격 NixOS 서비스와 별개지만, 정리 후 테스�
 기본 engine은 rootless Podman이며 devShell이 Compose provider를 Nix store에 고정한다.
 macOS의 Podman machine은 사용자 소유이고 repository 명령은 이를 생성·시작·정지·삭제하지
 않는다. CI처럼 Docker를 사용할 때는 `JAMYE_TEST_CONTAINER_ENGINE=docker`를 설정한다.
+PostgreSQL과 Redis는 loopback에 bind하고 project로 격리된 named volume을 사용한다.
 
-MinIO는 `.env.local`의 관리자 자격증명을 process 환경으로 받고 `127.0.0.1:9000`과
-`127.0.0.1:9001`에만 bind한다. data, PID, log는 Git에서 제외된
+MinIO는 `.env.local`의 관리자 자격증명을 process 환경으로 받고 loopback
+(`127.0.0.1:9000`/`9001`과 함께 열리는 IPv6 loopback `[::1]`)에만 bind한다.
+data, PID, log는 Git에서 제외된
 `.local/infra/minio/`에 보관한다. 반복 `infra-up`은 같은 process를 재사용한다.
 `infra-down`은 TERM으로 최대 10초간 종료를 기다리며 강제 종료하지 않는다. PID가 다른
-process를 가리키거나 포트가 외부 process에 점유돼 있으면 종료하고 해당 process를 건드리지 않는다.
+process를 가리키거나 포트가 외부 process에 점유돼 있으면 exit 2로 중단하며 해당
+process에는 신호를 보내지 않는다.
 리스너 소유 확인에는 macOS의 `lsof` 또는 Linux의 `ss`가 필요하다.
 
 이전 Compose MinIO를 사용했다면 첫 `infra-up`이 project와 `minio` service label이

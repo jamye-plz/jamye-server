@@ -1,6 +1,6 @@
 # ADR 0001: M0/C0 dependency baseline
 
-- 상태: Accepted; M0 and task-3c lock/dependency/GREEN evidence complete
+- 상태: Accepted; M0 and task-3c lock/dependency/GREEN evidence complete; MinIO 결정은 N1에서 개정
 - 날짜: 2026-08-24
 - 범위: M0 platform과 C0 contract generation에 실제 사용하는 dependency만
 

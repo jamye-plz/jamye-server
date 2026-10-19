@@ -126,8 +126,12 @@ infra-down: require-nix-shell
     source scripts/dev/common.sh
     source scripts/dev/minio-process.sh
     prepare_infra
-    stop_minio
-    compose down --remove-orphans
+    minio_status=0
+    (stop_minio) || minio_status=$?
+    compose_status=0
+    compose down --remove-orphans || compose_status=$?
+    if [[ "$minio_status" -ne 0 ]]; then exit "$minio_status"; fi
+    if [[ "$compose_status" -ne 0 ]]; then exit "$compose_status"; fi
     printf '%s\n' 'local services stopped; data was preserved'
 
 # Delete guarded disposable infrastructure data after explicit confirmation.

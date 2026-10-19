@@ -40,6 +40,7 @@ jobs:
       - name: Run service-backed checks
         run: |
           nix develop . --command bash -euo pipefail -c '
+            curl --fail --silent --show-error --max-time 3 http://127.0.0.1:9000/minio/health/live >/dev/null
             cargo fetch --locked
             just check
           '

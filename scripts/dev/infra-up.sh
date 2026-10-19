@@ -8,19 +8,23 @@ source "$SCRIPT_DIR/minio-identity.sh"
 source "$SCRIPT_DIR/minio-process.sh"
 
 prepare_infra
-legacy_containers="$("$engine" ps -a -q \
-  --filter "label=com.docker.compose.project=$COMPOSE_PROJECT" \
-  --filter 'label=com.docker.compose.service=minio')"
-if [[ -n "$legacy_containers" ]]; then
-  legacy_ids=()
-  while IFS= read -r container_id; do
-    legacy_ids+=("$container_id")
-  done <<< "$legacy_containers"
-  "$engine" rm --force "${legacy_ids[@]}"
-fi
+remove_legacy_minio_container
+status=0
+minio_state || status=$?
+case "$status" in
+  0|1) ;;
+  *) exit "$status" ;;
+esac
 compose up --detach
 start_minio
 wait_for_infra
-minio_running
+status=0
+minio_running || status=$?
+if [[ "$status" -ne 0 ]]; then
+  if [[ "$status" -eq 1 ]]; then
+    printf '%s\n' 'error: local MinIO exited before ownership verification' >&2
+  fi
+  exit "$status"
+fi
 prepare_minio_identity
 compose ps

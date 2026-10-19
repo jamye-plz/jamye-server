@@ -14,27 +14,22 @@ fi
 expected_volumes=(
   jamye-server-test-postgres-data
   jamye-server-test-redis-data
-  jamye-server-test-minio-data
+  jamye-server-test-minio-data # Legacy volume from the former Compose MinIO service.
 )
 
-if [[ ! -L "$MINIO_DIR" ]] && [[ "$(realpath -m -- "$MINIO_DIR")" == "$MINIO_DIR" ]]; then
-  :
-else
-  printf '%s\n' 'error: unsafe MinIO state directory; refusing reset' >&2
-  exit 2
-fi
+require_safe_minio_dir
 
 for volume in "${expected_volumes[@]}"; do
   if [[ "$volume" != "$COMPOSE_PROJECT"-* ]]; then
     printf 'error: unsafe volume name: %s\n' "$volume" >&2
     exit 2
   fi
-  if ! "$engine" volume inspect "$volume" >/dev/null 2>&1; then
+  if ! "$CONTAINER_ENGINE" volume inspect "$volume" >/dev/null 2>&1; then
     continue
   fi
 
-  compose_label="$("$engine" volume inspect --format '{{index .Labels "com.docker.compose.project"}}' "$volume" 2>/dev/null || true)"
-  podman_label="$("$engine" volume inspect --format '{{index .Labels "io.podman.compose.project"}}' "$volume" 2>/dev/null || true)"
+  compose_label="$("$CONTAINER_ENGINE" volume inspect --format '{{index .Labels "com.docker.compose.project"}}' "$volume" 2>/dev/null || true)"
+  podman_label="$("$CONTAINER_ENGINE" volume inspect --format '{{index .Labels "io.podman.compose.project"}}' "$volume" 2>/dev/null || true)"
   if [[ "$compose_label" != "$COMPOSE_PROJECT" && "$podman_label" != "$COMPOSE_PROJECT" ]]; then
     printf 'error: volume %s lacks the expected project ownership label; refusing reset\n' "$volume" >&2
     exit 2
@@ -45,8 +40,8 @@ stop_minio
 compose down --remove-orphans
 
 for volume in "${expected_volumes[@]}"; do
-  if "$engine" volume inspect "$volume" >/dev/null 2>&1; then
-    "$engine" volume rm "$volume"
+  if "$CONTAINER_ENGINE" volume inspect "$volume" >/dev/null 2>&1; then
+    "$CONTAINER_ENGINE" volume rm "$volume"
   fi
 done
 rm -rf -- "$MINIO_DIR"

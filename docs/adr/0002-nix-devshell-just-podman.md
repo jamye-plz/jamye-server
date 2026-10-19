@@ -5,7 +5,7 @@
 > Podman, destructive-operation, and production ownership boundaries remain in
 > force.
 
-- 상태: Accepted, task-module boundary amended
+- 상태: Accepted, task-module boundary amended, N1에서 MinIO host process와 CI Docker engine으로 개정
 - 날짜: 2026-08-24
 
 ## Context
@@ -59,9 +59,11 @@ healthcheck, project-owned named volume을 사용했다.
 
 N1에서 이 구성을 개정했으며 Compose는 PostgreSQL과 Redis만 실행하고 MinIO는 같은
 flake-pinned nixpkgs의 host process로 실행한다. 상세 lifecycle은
-[로컬 서비스 가이드](../development.md#로컬-서비스)를 따른다.
+[로컬 개발](../development.md#로컬-서비스)을 따른다.
 
 devShell은 Podman client와 `podman-compose`를 제공하며 `PODMAN_COMPOSE_PROVIDER`를 Nix store executable에 고정한다. `just tools-check`는 service를 시작하지 않고 ambient fallback이 없는지 먼저 확인한다.
+CI는 `JAMYE_TEST_CONTAINER_ENGINE=docker`를 명시적으로 선택하며, 로컬 기본값은
+Nix 고정 provider와 rootless 검사를 사용하는 Podman이다.
 
 macOS `podman machine`은 user-owned prerequisite다. repository/Just/agent는 VM을 만들거나 시작·정지·reset·삭제하지 않는다. Linux는 VM layer 없이 같은 rootless project를 사용한다.
 
