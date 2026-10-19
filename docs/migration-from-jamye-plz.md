@@ -267,6 +267,8 @@ FastAPI가 자동 생성하는 OpenAPI/docs/redoc route는 migration surface가 
 | 4400 protocol_error | net-new explicit protocol guard from initial prompt contract ownership | task-4b | tests/realtime |
 | 4401 realtime_auth_failed\|realtime_auth_expired | mobile ticket requirement + selected future D13 evidence | task-3b/task-4b | tests/contract;tests/realtime |
 | 1011 internal_error | legacy reconnect semantics + delta-first correctness requirement | task-4b | tests/realtime |
+| 1009 message_too_big | net-new UD2 limit (2026-10-17): client frame/message over 4096 bytes | task-u08 | tests/realtime |
+| 1013 socket_limit | net-new UD2 limit (2026-10-17): ninth socket for a user, 8 per user | task-u08 | tests/realtime |
 
 ## 6. Legacy table ownership
 
