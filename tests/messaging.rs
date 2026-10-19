@@ -6,7 +6,7 @@ mod delta;
 #[cfg(feature = "dev-fixtures")]
 #[allow(
     dead_code,
-    reason = "messaging tests use the shared interest sentinel but keep their existing writer"
+    reason = "messaging tests read raw log snapshots and do not use parsed_lines"
 )]
 #[path = "support/logging.rs"]
 mod logging_support;

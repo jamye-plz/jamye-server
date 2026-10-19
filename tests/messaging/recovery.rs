@@ -1,7 +1,7 @@
 use std::{
     env, fs, io,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::Duration,
 };
 
@@ -16,10 +16,10 @@ use jamye_server::{
 use serde_json::json;
 use sqlx::PgPool;
 use tower::ServiceExt;
-use tracing_subscriber::fmt::MakeWriter;
 use uuid::Uuid;
 
 use crate::{
+    logging_support::SharedWriter,
     messaging_helpers::{
         TestApp, assert_error, counts, events_from, json_body, router_for_unavailable_database,
         send_to, test_identity,
@@ -312,43 +312,5 @@ impl DependencyProbe for PoolProbe {
                 _ => ProbeOutcome::Unreachable,
             }
         })
-    }
-}
-
-#[derive(Clone, Default)]
-struct SharedWriter(Arc<Mutex<Vec<u8>>>);
-
-impl SharedWriter {
-    fn snapshot(&self) -> io::Result<String> {
-        let bytes = self
-            .0
-            .lock()
-            .map_err(|_| io::Error::other("log writer lock poisoned"))?
-            .clone();
-        String::from_utf8(bytes).map_err(io::Error::other)
-    }
-}
-
-impl<'a> MakeWriter<'a> for SharedWriter {
-    type Writer = SharedWriterGuard;
-
-    fn make_writer(&'a self) -> Self::Writer {
-        SharedWriterGuard(self.0.clone())
-    }
-}
-
-struct SharedWriterGuard(Arc<Mutex<Vec<u8>>>);
-
-impl io::Write for SharedWriterGuard {
-    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-        self.0
-            .lock()
-            .map_err(|_| io::Error::other("log writer lock poisoned"))?
-            .extend_from_slice(buffer);
-        Ok(buffer.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
     }
 }

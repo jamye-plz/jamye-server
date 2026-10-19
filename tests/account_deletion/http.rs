@@ -1,8 +1,4 @@
-use std::{
-    collections::BTreeSet,
-    io,
-    sync::{Arc, Mutex},
-};
+use std::{collections::BTreeSet, sync::Arc};
 
 use axum::{
     body::{Body, to_bytes},
@@ -25,11 +21,11 @@ use jamye_server::{
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tower::ServiceExt;
-use tracing_subscriber::fmt::MakeWriter;
 use uuid::Uuid;
 
 use crate::{
     TestResult,
+    logging_support::SharedWriter,
     postgres_support::TestDatabase,
     support::{
         FailGraceAfterPrepareRepository, FakeAppleIdentityProvider, FakeAppleRevocationProvider,
@@ -1031,44 +1027,6 @@ fn assert_exact_keys(value: &Value, expected: &[&str]) -> TestResult {
     let actual = object.keys().map(String::as_str).collect::<BTreeSet<_>>();
     let expected = expected.iter().copied().collect::<BTreeSet<_>>();
     require_eq(actual, expected, "JSON object keys differed")
-}
-
-#[derive(Clone, Default)]
-struct SharedWriter(Arc<Mutex<Vec<u8>>>);
-
-impl SharedWriter {
-    fn snapshot(&self) -> io::Result<String> {
-        let bytes = self
-            .0
-            .lock()
-            .map_err(|_| io::Error::other("account-deletion log writer lock poisoned"))?
-            .clone();
-        String::from_utf8(bytes).map_err(io::Error::other)
-    }
-}
-
-impl<'writer> MakeWriter<'writer> for SharedWriter {
-    type Writer = SharedWriterGuard;
-
-    fn make_writer(&'writer self) -> Self::Writer {
-        SharedWriterGuard(self.0.clone())
-    }
-}
-
-struct SharedWriterGuard(Arc<Mutex<Vec<u8>>>);
-
-impl io::Write for SharedWriterGuard {
-    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-        self.0
-            .lock()
-            .map_err(|_| io::Error::other("account-deletion log writer lock poisoned"))?
-            .extend_from_slice(buffer);
-        Ok(buffer.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
 }
 
 struct DeletionFixture {

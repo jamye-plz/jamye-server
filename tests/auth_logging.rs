@@ -10,7 +10,7 @@ mod auth_helpers;
 mod logging;
 #[allow(
     dead_code,
-    reason = "auth logging tests use the shared interest sentinel but keep their existing writer"
+    reason = "auth logging tests read raw log snapshots and do not use parsed_lines"
 )]
 #[path = "support/logging.rs"]
 mod logging_support;
