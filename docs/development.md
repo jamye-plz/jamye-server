@@ -56,10 +56,12 @@ process를 가리키거나 포트가 외부 process에 점유돼 있으면 exit 
 process에는 신호를 보내지 않는다.
 리스너 소유 확인에는 macOS의 `lsof` 또는 Linux의 `ss`가 필요하다.
 
-이전 Compose MinIO를 사용했다면 첫 `infra-up`이 project와 `minio` service label이
-일치하는 기존 container만 제거해 포트를 비운다. 기존 `jamye-server-test-minio-data`
-volume은 유지되지만 새 host data 경로로 자동 이전되지는 않는다. 기존 데이터가 필요하면
-reset 전에 별도로 보관·이전한다.
+이전 Compose MinIO를 사용했다면 `infra-up`과 `infra-down`은 project와 `minio` service
+label이 일치하는 기존 container만 제거해 포트를 비운다. `infra-status`는 container를
+변경하지 않고 발견 사실과 전환 명령을 안내한다. `infra-reset`도 아래 확인과 검증을 통과한
+뒤 해당 container를 제거한다. `infra-up`과 `infra-down`은 기존
+`jamye-server-test-minio-data` volume을 유지하지만 새 host data 경로로 자동 이전하지는
+않는다. 기존 데이터가 필요하면 reset 전에 별도로 보관·이전한다.
 
 `JAMYE_CONFIRM_INFRA_RESET=jamye-server-test just infra-reset`은 project와 volume
 ownership label 및 고정 MinIO 경로를 검증하고 MinIO 종료에 성공한 뒤 PostgreSQL·Redis

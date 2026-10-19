@@ -53,10 +53,15 @@ minio_running() {
 
 # A stopped PID is safe only when the port is also free.
 minio_state() {
-  local status=0
+  local status=0 legacy_containers
   minio_running || status=$?
   if [[ "$status" -eq 1 ]] && minio_port_in_use; then
-    printf '%s\n' 'error: port 9000 is occupied by an unmanaged process' >&2
+    legacy_containers="$(legacy_minio_containers)" || return $?
+    if [[ -n "$legacy_containers" ]]; then
+      printf '%s\n' 'error: port 9000 is occupied and a legacy compose MinIO container exists; run `just infra-up` or `just infra-down` to remove it' >&2
+    else
+      printf '%s\n' 'error: port 9000 is occupied by an unmanaged process' >&2
+    fi
     return 2
   fi
   return "$status"
@@ -83,13 +88,17 @@ minio_owns_port() {
   esac
 }
 
+legacy_minio_containers() {
+  "$CONTAINER_ENGINE" ps -a -q \
+    --filter "label=com.docker.compose.project=$COMPOSE_PROJECT" \
+    --filter 'label=com.docker.compose.service=minio'
+}
+
 # podman-compose 1.6.0 does not remove the legacy container with up --remove-orphans.
 remove_legacy_minio_container() {
   local legacy_containers container_id
   local -a legacy_ids=()
-  legacy_containers="$("$CONTAINER_ENGINE" ps -a -q \
-    --filter "label=com.docker.compose.project=$COMPOSE_PROJECT" \
-    --filter 'label=com.docker.compose.service=minio')"
+  legacy_containers="$(legacy_minio_containers)" || return $?
   if [[ -n "$legacy_containers" ]]; then
     while IFS= read -r container_id; do
       legacy_ids+=("$container_id")

@@ -36,6 +36,7 @@ for volume in "${expected_volumes[@]}"; do
   fi
 done
 
+remove_legacy_minio_container
 stop_minio
 compose down --remove-orphans
 
