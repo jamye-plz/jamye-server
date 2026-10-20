@@ -124,12 +124,12 @@ const MIGRATIONS_0001_THROUGH_0020: &[&str] = &[
 ];
 
 #[tokio::test]
-async fn fresh_disposable_database_applies_the_canonical_0001_through_0021_chain() -> TestResult {
+async fn fresh_disposable_database_applies_the_canonical_0001_through_0022_chain() -> TestResult {
     let database = TestDatabase::migrated().await?;
     let mut connection = database.connection().await?;
     let result: TestResult = async {
         let applied: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM _sqlx_migrations WHERE success AND version BETWEEN 1 AND 21",
+            "SELECT count(*) FROM _sqlx_migrations WHERE success AND version BETWEEN 1 AND 22",
         )
         .fetch_one(&mut connection)
         .await?;
@@ -140,10 +140,10 @@ async fn fresh_disposable_database_applies_the_canonical_0001_through_0021_chain
         .await?;
         require_eq(
             applied,
-            21,
-            "fresh disposable chain did not apply 0001 through 0021",
+            22,
+            "fresh disposable chain did not apply 0001 through 0022",
         )?;
-        require_eq(latest, 21, "fresh disposable chain did not end at 0021")?;
+        require_eq(latest, 22, "fresh disposable chain did not end at 0022")?;
         Ok(())
     }
     .await;

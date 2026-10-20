@@ -66,8 +66,10 @@ Apple을 provider-path OAuth가 아니라 iOS native Sign in with Apple의 ident
   그 뒤 SQL transaction 밖에서 client_secret(ES256)으로 Apple `/auth/token`을 호출하고,
   받은 token을 `/auth/revoke`로 폐기한 뒤 기존 30일 유예 삭제 transaction을 실행한다.
 - 증명 누락은 `422 apple_reauthentication_required`, subject mismatch는
-  `403 apple_subject_mismatch`, authorization code 오류는 `422 apple_authorization_code_invalid`,
-  Apple 5xx/timeout은 `503 provider_unavailable`이다. revoke 전 실패는 DB mutation이 0이어야 한다.
+  `403 apple_subject_mismatch`, `invalid_grant` authorization code 오류는
+  `422 apple_authorization_code_invalid`이다. Apple client configuration 오류와
+  429/5xx/timeout은 retryable `503 provider_unavailable`이며, revoke 전 실패는 DB mutation이
+  0이어야 한다.
   revoke 뒤 유예 transaction 실패는 `500 account_deletion_failed_after_revoke`로 보고한다.
 
 ### Identity, access, and refresh authority

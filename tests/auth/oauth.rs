@@ -250,10 +250,12 @@ async fn apple_exchange_creates_reuses_and_restores_with_stable_nickname() -> Te
     assert!(!reused.account_restored);
     assert_eq!(user_nickname(&pool, user_id).await?, "김철수");
 
-    sqlx::query("UPDATE users SET deleted_at = clock_timestamp() WHERE id = $1")
-        .bind(user_id)
-        .execute(&pool)
-        .await?;
+    sqlx::query(
+        "UPDATE users SET deleted_at = clock_timestamp() - INTERVAL '29 days' WHERE id = $1",
+    )
+    .bind(user_id)
+    .execute(&pool)
+    .await?;
     sqlx::query(
         "UPDATE auth_identities SET deleted_at = clock_timestamp() \
          WHERE user_id = $1",
@@ -290,6 +292,82 @@ async fn apple_exchange_creates_reuses_and_restores_with_stable_nickname() -> Te
         serde_json::from_slice(&to_bytes(restored.into_body(), 8192).await?)?;
     let _ = assert_exact_token_pair(&restored_body)?;
     assert_eq!(user_nickname(&pool, user_id).await?, "김철수");
+
+    pool.close().await;
+    database.dispose().await
+}
+
+#[tokio::test]
+async fn apple_exchange_starts_a_new_account_after_the_purge_grace_deadline() -> TestResult {
+    let database = TestDatabase::migrated().await?;
+    let pool = database.pool()?;
+    let fixture = harness_with_apple_identity(
+        pool.clone(),
+        AppleIdentity {
+            provider_id: "apple-expired-grace-subject".to_owned(),
+            client_id: "dev.local.jamyeapp".to_owned(),
+        },
+    )?;
+    let original = fixture
+        .service
+        .exchange_apple_identity(
+            AppleExchangeInput {
+                identity_token: "APPLE_EXPIRED_GRACE_CREATE".to_owned(),
+                raw_nonce: "raw-nonce-expired-create".to_owned(),
+                full_name: Some("김철수".to_owned()),
+            },
+            "ip:apple-expired-create",
+        )
+        .await?;
+    assert!(!original.account_restored);
+    let original_user_id: Uuid = sqlx::query_scalar(
+        "SELECT user_id FROM auth_identities \
+         WHERE provider = 'apple' AND provider_id = 'apple-expired-grace-subject'",
+    )
+    .fetch_one(&pool)
+    .await?;
+    sqlx::query(
+        "UPDATE users \
+         SET deleted_at = clock_timestamp() - INTERVAL '31 days' \
+         WHERE id = $1",
+    )
+    .bind(original_user_id)
+    .execute(&pool)
+    .await?;
+    sqlx::query(
+        "UPDATE auth_identities SET deleted_at = clock_timestamp() \
+         WHERE user_id = $1",
+    )
+    .bind(original_user_id)
+    .execute(&pool)
+    .await?;
+
+    let output = fixture
+        .service
+        .exchange_apple_identity(
+            AppleExchangeInput {
+                identity_token: "APPLE_EXPIRED_GRACE_RELOGIN".to_owned(),
+                raw_nonce: "raw-nonce-expired-relogin".to_owned(),
+                full_name: Some("새 사용자".to_owned()),
+            },
+            "ip:apple-expired-relogin",
+        )
+        .await?;
+    assert!(!output.account_restored);
+    let restored_user_id: Uuid = sqlx::query_scalar(
+        "SELECT user_id FROM auth_identities \
+         WHERE provider = 'apple' AND provider_id = 'apple-expired-grace-subject' \
+           AND deleted_at IS NULL",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_ne!(restored_user_id, original_user_id);
+    let original_is_still_deleted: bool =
+        sqlx::query_scalar("SELECT deleted_at IS NOT NULL FROM users WHERE id = $1")
+            .bind(original_user_id)
+            .fetch_one(&pool)
+            .await?;
+    assert!(original_is_still_deleted);
 
     pool.close().await;
     database.dispose().await

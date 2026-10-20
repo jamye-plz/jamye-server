@@ -209,6 +209,7 @@ fn harness_with_options(
             credentials: Arc::new(OsCredentialSource),
             token_issuer: codec.clone(),
             clock: Arc::new(FixedClock(OffsetDateTime::now_utc())),
+            account_purge_grace_days: 30,
         },
         OAuthProviderSlot::enabled(
             ProviderKind::Kakao,

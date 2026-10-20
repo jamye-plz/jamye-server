@@ -482,7 +482,7 @@ async fn delete_topic_side_tables(
          SET deleted_at = COALESCE(deleted_at, clock_timestamp()), \
              tag = 'deleted-' || replace(id::text, '-', ''), \
              confidence = NULL \
-         WHERE topic_id = $1 AND deleted_at IS NULL",
+         WHERE topic_id = $1",
     )
     .bind(topic_id)
     .execute(connection)

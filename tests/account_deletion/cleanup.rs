@@ -30,7 +30,9 @@ use jamye_server::{
     },
     config::{
         AppEnvironment,
-        account_deletion::{AccountDeletionConfig, AccountDeletionConfigInput},
+        account_deletion::{
+            AccountDeletionConfig, AccountDeletionConfigInput, AccountPurgeGraceConfig,
+        },
         object_storage::{ObjectStorageConfig, ObjectStorageConfigInput},
     },
     ports::{
@@ -62,6 +64,18 @@ const MEDIA_ACCESS_KEY_ID: &str = "task-8-media-access";
 const MEDIA_SECRET_ACCESS_KEY: &str = "task-8-media-secret-must-not-appear";
 const CLEANUP_ACCESS_KEY_ID: &str = "task-11-s3-access";
 const SECRET_ACCESS_KEY: &str = "task-11-s3-secret-must-not-appear";
+
+#[test]
+fn purge_grace_config_defaults_and_rejects_invalid_values() -> TestResult {
+    assert_eq!(AccountPurgeGraceConfig::resolve(None)?.grace_days(), 30);
+    for value in ["0", "x", "366"] {
+        let error = AccountPurgeGraceConfig::resolve(Some(value.to_owned()))
+            .err()
+            .ok_or_else(|| io::Error::other("invalid purge grace days must be rejected"))?;
+        assert_eq!(error.key(), "JAMYE_ACCOUNT_PURGE_GRACE_DAYS");
+    }
+    Ok(())
+}
 
 #[test]
 fn cleanup_config_requires_credentials_and_a_strict_lease_budget() -> TestResult {

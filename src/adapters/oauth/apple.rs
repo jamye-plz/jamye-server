@@ -6,7 +6,7 @@ use jsonwebtoken::{
     Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, decode_header, encode,
     jwk::JwkSet,
 };
-use reqwest::{Client, StatusCode, redirect::Policy};
+use reqwest::{Client, Response, StatusCode, redirect::Policy};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
@@ -22,6 +22,7 @@ use crate::{
 
 const APPLE_CLOCK_LEEWAY_SECONDS: u64 = 300;
 const APPLE_CLIENT_SECRET_TTL_SECONDS: i64 = 300;
+const APPLE_ERROR_BODY_MAX_BYTES: usize = 4 * 1024;
 
 #[derive(Clone)]
 pub struct AppleOAuthConfig {
@@ -166,10 +167,10 @@ impl AppleOAuthProvider {
             .send()
             .await
             .map_err(|_| apple_revocation_unavailable("apple_revoke"))?;
-        match response.status() {
-            status if status.is_success() => Ok(()),
-            status if status.is_server_error() => Err(apple_revocation_unavailable("apple_revoke")),
-            _ => Err(AppleRevocationProviderError::InvalidAuthorizationCode),
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(apple_revocation_error(response, "apple_revoke").await)
         }
     }
 
@@ -196,11 +197,7 @@ impl AppleOAuthProvider {
                 .json::<AppleTokenResponse>()
                 .await
                 .map_err(|_| apple_revocation_unavailable("apple_token_decode")),
-            status if status.is_server_error() => Err(apple_revocation_unavailable("apple_token")),
-            StatusCode::BAD_REQUEST | StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
-                Err(AppleRevocationProviderError::InvalidAuthorizationCode)
-            }
-            _ => Err(AppleRevocationProviderError::InvalidAuthorizationCode),
+            _ => Err(apple_revocation_error(response, "apple_token").await),
         }
     }
 
@@ -360,6 +357,48 @@ fn apple_revocation_unavailable(operation: &'static str) -> AppleRevocationProvi
     AppleRevocationProviderError::Unavailable
 }
 
+fn apple_revocation_unavailable_with_error(
+    operation: &'static str,
+    error: AppleOAuthErrorCategory,
+) -> AppleRevocationProviderError {
+    tracing::warn!(
+        dependency = "apple",
+        failure_kind = "upstream",
+        operation,
+        apple_error = error.as_str(),
+        "Apple revocation provider operation failed"
+    );
+    AppleRevocationProviderError::Unavailable
+}
+
+fn apple_revocation_invalid_configuration(
+    operation: &'static str,
+    error: AppleOAuthErrorCategory,
+) -> AppleRevocationProviderError {
+    tracing::warn!(
+        dependency = "apple",
+        failure_kind = "configuration",
+        operation,
+        apple_error = error.as_str(),
+        "Apple revocation provider configuration was rejected"
+    );
+    AppleRevocationProviderError::InvalidConfiguration
+}
+
+fn apple_revocation_invalid_authorization_code(
+    operation: &'static str,
+    apple_error: &'static str,
+) -> AppleRevocationProviderError {
+    tracing::warn!(
+        dependency = "apple",
+        failure_kind = "authorization_code",
+        operation,
+        apple_error,
+        "Apple revocation provider rejected authorization code"
+    );
+    AppleRevocationProviderError::InvalidAuthorizationCode
+}
+
 #[derive(Serialize)]
 struct AppleClientSecretClaims<'a> {
     iss: &'a str,
@@ -389,6 +428,102 @@ struct AppleRevokeRequest<'a> {
 struct AppleTokenResponse {
     access_token: String,
     refresh_token: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AppleOAuthErrorResponse {
+    error: String,
+}
+
+#[derive(Clone, Copy)]
+enum AppleOAuthErrorCategory {
+    InvalidGrant,
+    InvalidRequest,
+    InvalidClient,
+    UnauthorizedClient,
+    InvalidScope,
+    UnsupportedGrantType,
+    TemporarilyUnavailable,
+    ServerError,
+}
+
+impl AppleOAuthErrorCategory {
+    fn parse(error: &str) -> Option<Self> {
+        match error {
+            "invalid_grant" => Some(Self::InvalidGrant),
+            "invalid_request" => Some(Self::InvalidRequest),
+            "invalid_client" => Some(Self::InvalidClient),
+            "unauthorized_client" => Some(Self::UnauthorizedClient),
+            "invalid_scope" => Some(Self::InvalidScope),
+            "unsupported_grant_type" => Some(Self::UnsupportedGrantType),
+            "temporarily_unavailable" => Some(Self::TemporarilyUnavailable),
+            "server_error" => Some(Self::ServerError),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::InvalidGrant => "invalid_grant",
+            Self::InvalidRequest => "invalid_request",
+            Self::InvalidClient => "invalid_client",
+            Self::UnauthorizedClient => "unauthorized_client",
+            Self::InvalidScope => "invalid_scope",
+            Self::UnsupportedGrantType => "unsupported_grant_type",
+            Self::TemporarilyUnavailable => "temporarily_unavailable",
+            Self::ServerError => "server_error",
+        }
+    }
+}
+
+async fn apple_revocation_error(
+    response: Response,
+    operation: &'static str,
+) -> AppleRevocationProviderError {
+    let status = response.status();
+    if status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS {
+        return apple_revocation_unavailable(operation);
+    }
+    let error = match apple_oauth_error_category(response).await {
+        Ok(error) => error,
+        Err(()) => return apple_revocation_unavailable(operation),
+    };
+    match error {
+        Some(error @ AppleOAuthErrorCategory::InvalidClient)
+        | Some(error @ AppleOAuthErrorCategory::UnauthorizedClient)
+        | Some(error @ AppleOAuthErrorCategory::InvalidScope)
+        | Some(error @ AppleOAuthErrorCategory::UnsupportedGrantType) => {
+            apple_revocation_invalid_configuration(operation, error)
+        }
+        Some(error @ AppleOAuthErrorCategory::TemporarilyUnavailable)
+        | Some(error @ AppleOAuthErrorCategory::ServerError) => {
+            apple_revocation_unavailable_with_error(operation, error)
+        }
+        Some(
+            error @ (AppleOAuthErrorCategory::InvalidGrant
+            | AppleOAuthErrorCategory::InvalidRequest),
+        ) => apple_revocation_invalid_authorization_code(operation, error.as_str()),
+        None => apple_revocation_invalid_authorization_code(operation, "unrecognized"),
+    }
+}
+
+async fn apple_oauth_error_category(
+    mut response: Response,
+) -> Result<Option<AppleOAuthErrorCategory>, ()> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| ())? {
+        if bytes
+            .len()
+            .checked_add(chunk.len())
+            .is_none_or(|length| length > APPLE_ERROR_BODY_MAX_BYTES)
+        {
+            return Ok(None);
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(serde_json::from_slice::<AppleOAuthErrorResponse>(&bytes)
+        .ok()
+        .and_then(|body| AppleOAuthErrorCategory::parse(&body.error)))
 }
 
 #[derive(Clone, Deserialize)]
@@ -569,6 +704,8 @@ mod tests {
             .with_state(FakeAppleState {
                 jwks: jwks_json(&jwks)?,
                 captured: captured.clone(),
+                token_error: None,
+                revoke_error: None,
             });
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let server = tokio::spawn(async move {
@@ -700,6 +837,8 @@ mod tests {
             .with_state(FakeAppleState {
                 jwks: jwks_json(&jwks)?,
                 captured: captured.clone(),
+                token_error: None,
+                revoke_error: None,
             });
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let server = tokio::spawn(async move {
@@ -781,6 +920,201 @@ mod tests {
         let _ = shutdown_tx.send(());
         server.await??;
         Ok(())
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn apple_provider_maps_invalid_client_to_configuration_without_logging_credentials()
+    -> TestResult {
+        let writer = SharedWriter::default();
+        let output = writer.clone();
+        let subscriber = build_json_subscriber(writer, "info")?;
+        let _guard = tracing::subscriber::set_default(subscriber);
+        let _interest_sentinel =
+            tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
+        let ec = generated_ec_key_material()?;
+        let captured = CapturedAppleRequests::default();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+        let address = listener.local_addr()?;
+        let app = Router::new()
+            .route("/keys", get(apple_keys))
+            .route("/auth/token", post(apple_token))
+            .route("/auth/revoke", post(apple_revoke))
+            .with_state(FakeAppleState {
+                jwks: json!({"keys": []}),
+                captured: captured.clone(),
+                token_error: Some(FakeAppleError::oauth(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_client",
+                )),
+                revoke_error: None,
+            });
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+        });
+        let provider = AppleOAuthProvider::new_with_endpoints(
+            AppleOAuthConfig::new(
+                vec!["dev.local.jamyeapp".to_owned()],
+                "TEAMID123",
+                "KEYID123",
+                ec.private_der,
+                Duration::from_secs(2),
+            )?,
+            format!("http://{address}/keys"),
+            format!("http://{address}/auth/token"),
+            format!("http://{address}/auth/revoke"),
+        )?;
+
+        assert_eq!(
+            provider
+                .revoke_authorization_code(&AppleAuthorizationCodeRevocationRequest {
+                    client_id: "dev.local.jamyeapp".to_owned(),
+                    authorization_code: "APPLE_INVALID_CLIENT_CODE_SENTINEL".to_owned(),
+                })
+                .await,
+            Err(AppleRevocationProviderError::InvalidConfiguration)
+        );
+
+        let requests = captured.requests()?;
+        assert_eq!(requests.len(), 1);
+        let client_secret = requests[0]
+            .fields
+            .get("client_secret")
+            .ok_or_else(|| io::Error::other("missing token client_secret"))?;
+        let logs = output.snapshot()?;
+        assert!(logs.contains("invalid_client"));
+        for forbidden in ["APPLE_INVALID_CLIENT_CODE_SENTINEL", client_secret.as_str()] {
+            assert!(
+                !logs.contains(forbidden),
+                "Apple adapter logs leaked credential material"
+            );
+        }
+
+        let _ = shutdown_tx.send(());
+        server.await??;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn apple_provider_classifies_token_and_revoke_error_responses() -> TestResult {
+        let writer = SharedWriter::default();
+        let output = writer.clone();
+        let subscriber = build_json_subscriber(writer, "info")?;
+        let _guard = tracing::subscriber::set_default(subscriber);
+        let _interest_sentinel =
+            tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
+        let oversized_body = format!(
+            "APPLE_OVERSIZE_ERROR_BODY_SENTINEL{}",
+            "x".repeat(APPLE_ERROR_BODY_MAX_BYTES)
+        );
+        assert_eq!(
+            revoke_with_fake_errors(
+                Some(FakeAppleError::oauth(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_grant",
+                )),
+                None,
+            )
+            .await?,
+            AppleRevocationProviderError::InvalidAuthorizationCode,
+            "invalid_grant must remain an invalid authorization code"
+        );
+        assert_eq!(
+            revoke_with_fake_errors(
+                Some(FakeAppleError::body(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    String::new(),
+                )),
+                None,
+            )
+            .await?,
+            AppleRevocationProviderError::Unavailable,
+            "429 must be retryable as provider unavailable"
+        );
+        assert_eq!(
+            revoke_with_fake_errors(
+                Some(FakeAppleError::body(
+                    StatusCode::BAD_REQUEST,
+                    oversized_body.clone(),
+                )),
+                None,
+            )
+            .await?,
+            AppleRevocationProviderError::InvalidAuthorizationCode,
+            "oversize error bodies must not be parsed or exposed"
+        );
+        assert_eq!(
+            revoke_with_fake_errors(
+                None,
+                Some(FakeAppleError::oauth(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_client",
+                )),
+            )
+            .await?,
+            AppleRevocationProviderError::InvalidConfiguration,
+            "revoke endpoint client configuration errors must be classified"
+        );
+        let logs = output.snapshot()?;
+        assert!(logs.contains("unrecognized"));
+        assert!(!logs.contains(&oversized_body));
+        Ok(())
+    }
+
+    async fn revoke_with_fake_errors(
+        token_error: Option<FakeAppleError>,
+        revoke_error: Option<FakeAppleError>,
+    ) -> TestResult<AppleRevocationProviderError> {
+        let captured = CapturedAppleRequests::default();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+        let address = listener.local_addr()?;
+        let app = Router::new()
+            .route("/keys", get(apple_keys))
+            .route("/auth/token", post(apple_token))
+            .route("/auth/revoke", post(apple_revoke))
+            .with_state(FakeAppleState {
+                jwks: json!({"keys": []}),
+                captured,
+                token_error,
+                revoke_error,
+            });
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+        });
+        let ec = generated_ec_key_material()?;
+        let provider = AppleOAuthProvider::new_with_endpoints(
+            AppleOAuthConfig::new(
+                vec!["dev.local.jamyeapp".to_owned()],
+                "TEAMID123",
+                "KEYID123",
+                ec.private_der,
+                Duration::from_secs(2),
+            )?,
+            format!("http://{address}/keys"),
+            format!("http://{address}/auth/token"),
+            format!("http://{address}/auth/revoke"),
+        )?;
+        let result = provider
+            .revoke_authorization_code(&AppleAuthorizationCodeRevocationRequest {
+                client_id: "dev.local.jamyeapp".to_owned(),
+                authorization_code: "APPLE_ERROR_CLASSIFICATION_CODE".to_owned(),
+            })
+            .await;
+
+        let _ = shutdown_tx.send(());
+        server.await??;
+        result.err().ok_or_else(|| {
+            io::Error::other("fake Apple error response unexpectedly succeeded").into()
+        })
     }
 
     #[derive(Clone, Serialize)]
@@ -1000,6 +1334,31 @@ mod tests {
     struct FakeAppleState {
         jwks: Value,
         captured: CapturedAppleRequests,
+        token_error: Option<FakeAppleError>,
+        revoke_error: Option<FakeAppleError>,
+    }
+
+    #[derive(Clone)]
+    struct FakeAppleError {
+        status: StatusCode,
+        body: String,
+    }
+
+    impl FakeAppleError {
+        fn oauth(status: StatusCode, error: &str) -> Self {
+            Self {
+                status,
+                body: json!({"error": error}).to_string(),
+            }
+        }
+
+        fn body(status: StatusCode, body: String) -> Self {
+            Self { status, body }
+        }
+
+        fn into_response(self) -> axum::response::Response {
+            (self.status, self.body).into_response()
+        }
     }
 
     async fn apple_keys(State(state): State<FakeAppleState>) -> Json<Value> {
@@ -1011,14 +1370,17 @@ mod tests {
         request: Request<Body>,
     ) -> impl IntoResponse {
         match capture_form(&state.captured, request).await {
-            Ok(()) => (
-                StatusCode::OK,
-                Json(json!({
-                    "access_token": "APPLE_ACCESS_TOKEN_SENTINEL",
-                    "refresh_token": "APPLE_REFRESH_TOKEN_SENTINEL"
-                })),
-            )
-                .into_response(),
+            Ok(()) => match state.token_error {
+                Some(error) => error.into_response(),
+                None => (
+                    StatusCode::OK,
+                    Json(json!({
+                        "access_token": "APPLE_ACCESS_TOKEN_SENTINEL",
+                        "refresh_token": "APPLE_REFRESH_TOKEN_SENTINEL"
+                    })),
+                )
+                    .into_response(),
+            },
             Err(()) => StatusCode::BAD_REQUEST.into_response(),
         }
     }
@@ -1038,8 +1400,11 @@ mod tests {
         request: Request<Body>,
     ) -> impl IntoResponse {
         match capture_form(&state.captured, request).await {
-            Ok(()) => StatusCode::OK,
-            Err(()) => StatusCode::BAD_REQUEST,
+            Ok(()) => state
+                .revoke_error
+                .map(FakeAppleError::into_response)
+                .unwrap_or_else(|| StatusCode::OK.into_response()),
+            Err(()) => StatusCode::BAD_REQUEST.into_response(),
         }
     }
 

@@ -122,6 +122,7 @@ impl PostgresAuthRepository {
         transaction: &mut dyn TransactionHandle,
         identity: &NewProviderIdentity,
         session: &NewRefreshSession,
+        grace_days: u32,
     ) -> Result<Option<IssuedSession>, AuthRepositoryError> {
         let connection = connection(transaction).map_err(|_| AuthRepositoryError::InvalidData)?;
         let deleted = sqlx::query_as::<_, (Uuid, Uuid)>(
@@ -132,12 +133,14 @@ impl PostgresAuthRepository {
                AND identity.provider_id = $2 \
                AND identity.deleted_at IS NOT NULL \
                AND account.deleted_at IS NOT NULL \
+               AND account.deleted_at > clock_timestamp() - ($3::BIGINT * INTERVAL '1 day') \
              ORDER BY identity.deleted_at DESC, identity.id \
              LIMIT 1 \
              FOR UPDATE OF identity, account",
         )
         .bind(&identity.provider)
         .bind(&identity.provider_id)
+        .bind(i64::from(grace_days))
         .fetch_optional(&mut *connection)
         .await
         .map_err(|error| database_failure("identity_restore_lookup", &error))?;
@@ -402,8 +405,9 @@ impl AuthRepository for PostgresAuthRepository {
         transaction: &'a mut dyn TransactionHandle,
         identity: &'a NewProviderIdentity,
         session: &'a NewRefreshSession,
+        grace_days: u32,
     ) -> AuthRepositoryFuture<'a, Option<IssuedSession>> {
-        Box::pin(self.restore_deleted_identity_record(transaction, identity, session))
+        Box::pin(self.restore_deleted_identity_record(transaction, identity, session, grace_days))
     }
 
     fn rotate_session<'a>(

@@ -12,6 +12,35 @@ use crate::{
 
 const ACCESS_KEY: &str = "JAMYE_ACCOUNT_OBJECT_DELETION_ACCESS_KEY_ID";
 const SECRET_KEY: &str = "JAMYE_ACCOUNT_OBJECT_DELETION_SECRET_ACCESS_KEY";
+const PURGE_GRACE_DAYS_KEY: &str = "JAMYE_ACCOUNT_PURGE_GRACE_DAYS";
+const MAX_PURGE_GRACE_DAYS: u32 = 365;
+
+/// Shared API and worker policy for the deleted-account recovery window.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AccountPurgeGraceConfig {
+    grace_days: u32,
+}
+
+impl AccountPurgeGraceConfig {
+    pub fn from_env() -> Result<Self, ConfigError> {
+        Self::resolve(env::var(PURGE_GRACE_DAYS_KEY).ok())
+    }
+
+    pub fn resolve(grace_days: Option<String>) -> Result<Self, ConfigError> {
+        let grace_days = positive_u32(PURGE_GRACE_DAYS_KEY, grace_days, 30)?;
+        if grace_days > MAX_PURGE_GRACE_DAYS {
+            return Err(ConfigError::new(
+                PURGE_GRACE_DAYS_KEY,
+                "must not exceed 365",
+            ));
+        }
+        Ok(Self { grace_days })
+    }
+
+    pub fn grace_days(&self) -> u32 {
+        self.grace_days
+    }
+}
 
 #[derive(Clone)]
 pub struct AccountDeletionConfig {
@@ -52,7 +81,7 @@ impl AccountDeletionConfigInput {
             retry_delay_ms: env::var("JAMYE_ACCOUNT_OBJECT_DELETION_RETRY_DELAY_MS").ok(),
             poll_interval_ms: env::var("JAMYE_ACCOUNT_OBJECT_DELETION_POLL_INTERVAL_MS").ok(),
             max_attempts: env::var("JAMYE_ACCOUNT_OBJECT_DELETION_MAX_ATTEMPTS").ok(),
-            purge_grace_days: env::var("JAMYE_ACCOUNT_PURGE_GRACE_DAYS").ok(),
+            purge_grace_days: env::var(PURGE_GRACE_DAYS_KEY).ok(),
             purge_batch_size: env::var("JAMYE_ACCOUNT_PURGE_BATCH_SIZE").ok(),
             purge_lease_ms: env::var("JAMYE_ACCOUNT_PURGE_LEASE_MS").ok(),
             purge_poll_interval_ms: env::var("JAMYE_ACCOUNT_PURGE_POLL_INTERVAL_MS").ok(),
@@ -124,9 +153,10 @@ impl AccountDeletionConfig {
                 "must exceed delete timeout plus safety margin",
             ));
         }
+        let purge_grace = AccountPurgeGraceConfig::resolve(input.purge_grace_days)?;
         let purge_worker = AccountPurgeWorkerConfig {
             claim_owner: format!("account-purge-{}", uuid::Uuid::new_v4()),
-            grace_days: positive_u32("JAMYE_ACCOUNT_PURGE_GRACE_DAYS", input.purge_grace_days, 30)?,
+            grace_days: purge_grace.grace_days(),
             batch_size: positive_u32("JAMYE_ACCOUNT_PURGE_BATCH_SIZE", input.purge_batch_size, 20)?,
             lease_duration: milliseconds(
                 "JAMYE_ACCOUNT_PURGE_LEASE_MS",

@@ -10,7 +10,9 @@ use axum::{
 use jamye_server::{
     config::{
         AppConfig, AppEnvironment, ConfigInput,
-        account_deletion::{AccountDeletionConfig, AccountDeletionConfigInput},
+        account_deletion::{
+            AccountDeletionConfig, AccountDeletionConfigInput, AccountPurgeGraceConfig,
+        },
         app_links::{AppLinksConfig, AppLinksConfigInput},
         auth::{AuthConfig, AuthConfigInput},
         legal::LegalConfigInput,

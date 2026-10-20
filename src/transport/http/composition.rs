@@ -26,8 +26,12 @@ use crate::{
         redis::health::RedisHealthProbe,
     },
     config::{
-        AppConfig, account_deletion::AccountDeletionConfig, app_links::AppLinksConfig,
-        auth::AuthConfig, object_storage::ObjectStorageConfig, push::PushConfig,
+        AppConfig,
+        account_deletion::{AccountDeletionConfig, AccountPurgeGraceConfig},
+        app_links::AppLinksConfig,
+        auth::AuthConfig,
+        object_storage::ObjectStorageConfig,
+        push::PushConfig,
     },
     platform::{
         readiness::{DependencyProbe, ReadinessService, UnconfiguredProbe},
@@ -121,12 +125,15 @@ use crate::{
 pub fn router(config: &AppConfig, auth: &AuthConfig) -> Result<Router, CompositionError> {
     let rate_limits = crate::config::rate_limit::RateLimitConfig::default();
     let app_links = AppLinksConfig::from_env().map_err(|_| CompositionError::AppLinks)?;
+    let account_purge_grace =
+        AccountPurgeGraceConfig::from_env().map_err(|_| CompositionError::AccountPurgeGrace)?;
     let object_storage = ObjectStorageConfig::from_env(config.environment())
         .map_err(|_| CompositionError::ObjectStorageNotConfigured)?;
     router_with_runtime(
         config,
         &app_links,
         auth,
+        &account_purge_grace,
         &rate_limits,
         object_storage.as_ref(),
     )
@@ -138,11 +145,19 @@ pub fn router_with_runtime(
     config: &AppConfig,
     app_links: &AppLinksConfig,
     auth: &AuthConfig,
+    account_purge_grace: &AccountPurgeGraceConfig,
     rate_limits: &crate::config::rate_limit::RateLimitConfig,
     object_storage: Option<&ObjectStorageConfig>,
 ) -> Result<Router, CompositionError> {
-    router_with_runtime_and_hub(config, app_links, auth, rate_limits, object_storage)
-        .map(|(router, _hub)| router)
+    router_with_runtime_and_hub(
+        config,
+        app_links,
+        auth,
+        account_purge_grace,
+        rate_limits,
+        object_storage,
+    )
+    .map(|(router, _hub)| router)
 }
 
 /// Builds the production router and returns the hub shared by its realtime sessions.
@@ -150,6 +165,7 @@ pub fn router_with_runtime_and_hub(
     config: &AppConfig,
     app_links: &AppLinksConfig,
     auth: &AuthConfig,
+    account_purge_grace: &AccountPurgeGraceConfig,
     rate_limits: &crate::config::rate_limit::RateLimitConfig,
     object_storage: Option<&ObjectStorageConfig>,
 ) -> Result<(Router, LocalRealtimeHub), CompositionError> {
@@ -222,6 +238,7 @@ pub fn router_with_runtime_and_hub(
                 credentials: Arc::new(OsCredentialSource),
                 token_issuer: token_codec.clone(),
                 clock: Arc::new(SystemAuthClock),
+                account_purge_grace_days: account_purge_grace.grace_days(),
             },
             oauth_slot(&auth.kakao, auth.provider_timeout)?,
             oauth_slot(&auth.google, auth.provider_timeout)?,
@@ -932,6 +949,7 @@ pub enum CompositionError {
     RedisNotConfigured,
     Minio,
     AppLinks,
+    AccountPurgeGrace,
     Auth,
     Groups,
     Media,
@@ -980,6 +998,7 @@ impl fmt::Display for CompositionError {
             Self::Postgres => "PostgreSQL",
             Self::Redis | Self::RedisNotConfigured => "Redis",
             Self::Minio => "MinIO",
+            Self::AccountPurgeGrace => "account-purge grace policy",
             Self::AppLinks => "app-link configuration",
             Self::Auth => "authentication composition",
             Self::Groups => "groups composition",

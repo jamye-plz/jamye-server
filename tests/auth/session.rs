@@ -127,9 +127,10 @@ mod refresh_ip {
             transaction: &'a mut dyn TransactionHandle,
             identity: &'a NewProviderIdentity,
             session: &'a NewRefreshSession,
+            grace_days: u32,
         ) -> AuthRepositoryFuture<'a, Option<IssuedSession>> {
             self.inner
-                .restore_deleted_identity(transaction, identity, session)
+                .restore_deleted_identity(transaction, identity, session, grace_days)
         }
 
         fn rotate_session<'a>(
