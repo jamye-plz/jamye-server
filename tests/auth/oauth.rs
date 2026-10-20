@@ -164,19 +164,25 @@ async fn apple_exchange_disabled_returns_404_and_zero_mutation() -> TestResult {
         fixture.codec.clone(),
     ));
 
-    let response = router
-        .oneshot(apple_exchange_request(
-            "APPLE_IDENTITY_TOKEN_SENTINEL",
-            "raw-nonce-123456",
-            Some("김철수"),
-        )?)
+    for (identity_token, raw_nonce) in [
+        ("APPLE_IDENTITY_TOKEN_SENTINEL", "raw-nonce-123456"),
+        ("", "short"),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(apple_exchange_request(
+                identity_token,
+                raw_nonce,
+                Some("김철수"),
+            )?)
+            .await?;
+        assert_error_code(
+            response,
+            StatusCode::NOT_FOUND,
+            "oauth_provider_not_supported",
+        )
         .await?;
-    assert_error_code(
-        response,
-        StatusCode::NOT_FOUND,
-        "oauth_provider_not_supported",
-    )
-    .await?;
+    }
     let rows: i64 = sqlx::query_scalar(
         "SELECT (SELECT count(*) FROM users) + \
                 (SELECT count(*) FROM auth_identities) + \

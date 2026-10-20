@@ -284,10 +284,10 @@ impl AuthService {
         input: AppleExchangeInput,
         network_subject: &str,
     ) -> Result<AuthExchangeOutput, AuthError> {
-        validate_apple_exchange_input(&input)?;
         if !self.apple.enabled {
             return Err(AuthError::OAuthProviderNotSupported);
         }
+        validate_apple_exchange_input(&input)?;
         self.check_rate_limit(
             "oauth_exchange",
             network_subject,

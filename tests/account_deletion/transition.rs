@@ -2079,8 +2079,20 @@ async fn purge_queues_pending_and_active_avatar_objects_and_hard_deletes_every_a
         .await?;
         require_eq(
             queued,
-            expected_keys,
+            expected_keys.clone(),
             "purge did not leave every avatar object queued exactly once",
+        )?;
+        let pending_is_deferred = sqlx::query_scalar::<_, bool>(
+            "SELECT next_attempt_at >= clock_timestamp() + interval '14 minutes' \
+             FROM account_object_deletion_intents \
+             WHERE object_key = $1",
+        )
+        .bind(&expected_keys[0])
+        .fetch_one(&pool)
+        .await?;
+        require(
+            pending_is_deferred,
+            "purge did not defer a pending avatar object's cleanup until its PUT URL expires",
         )?;
         let remaining = sqlx::query_scalar::<_, i64>(
             "SELECT count(*) FROM user_avatar_uploads WHERE user_id = $1",

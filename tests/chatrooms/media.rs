@@ -228,6 +228,21 @@ async fn c5_lists_image_and_video_attachments_with_item_cursor_pagination() -> T
         "audio attachments are not listed"
     );
 
+    let audio_cursor = router
+        .clone()
+        .oneshot(empty_request(
+            "GET",
+            &format!("{path}?before={}", audio.id),
+            Some(fixture.owner_id),
+        )?)
+        .await?;
+    assert_error(
+        audio_cursor,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "request_validation_failed",
+    )
+    .await?;
+
     for uri in [
         format!("{path}?before=not-a-uuid"),
         format!("{path}?before={}", foreign_image.id),

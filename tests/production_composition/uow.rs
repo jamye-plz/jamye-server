@@ -24,6 +24,28 @@ async fn send_message_calls_every_feature_operation_on_one_handle_then_commits_o
 }
 
 #[tokio::test]
+async fn send_message_existing_does_not_recreate_notification_fanout() {
+    let fixture = RecordingFixture::new();
+    fixture.set_existing_message();
+
+    let result = fixture
+        .compositions
+        .send_message(send_message_input())
+        .await;
+
+    assert!(
+        result.is_ok(),
+        "existing SendMessage composition must complete"
+    );
+    assert_eq!(
+        fixture.trace(),
+        vec![Step::MessageInsert, Step::MessageMediaBinding],
+        "an existing message must not recreate its event or notification fanout",
+    );
+    assert_eq!(fixture.transaction_counts(), (1, 1, 0));
+}
+
+#[tokio::test]
 async fn create_topic_calls_every_feature_operation_on_one_handle_then_commits_once() {
     let fixture = RecordingFixture::new();
     let result = fixture

@@ -60,6 +60,11 @@ async fn t1_is_atomic_idempotent_and_emits_distinct_bootstrap_and_announcement_e
     assert_eq!(events[0].4["topic_id"], topic.id.to_string());
     assert_eq!(events[1].3, "message.created");
     assert_eq!(events[1].2, fixture.main_chatroom_id);
+    assert_eq!(events[1].4["sender_nickname"], "주제 작성자");
+    assert_eq!(
+        events[1].4["sender_avatar_url"],
+        "https://cdn.test/author.png"
+    );
     assert_ne!(events[0].0, events[1].0);
     assert!(events[0].1 < events[1].1);
 

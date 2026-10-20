@@ -319,7 +319,7 @@ async fn http_create_topic_push_uses_topic_created_not_announcement_message_crea
 }
 
 #[tokio::test]
-async fn http_main_chat_message_records_one_notification_and_push_even_when_retried() -> TestResult {
+async fn http_main_chat_message_retry_does_not_reenqueue_a_retained_push() -> TestResult {
     let database = TestDatabase::migrated().await?;
     let pool = database.pool()?;
     let result: TestResult = async {
@@ -339,6 +339,21 @@ async fn http_main_chat_message_records_one_notification_and_push_even_when_retr
             created.status == StatusCode::CREATED,
             "main-chat message did not return Created",
         )?;
+        let message_id = response_id(&created.body, "message")?;
+        let first_pushes: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM push_delivery_intents WHERE source_message_id = $1",
+        )
+        .bind(message_id)
+        .fetch_one(&pool)
+        .await?;
+        require(
+            first_pushes == 1,
+            "the first main-chat send did not create exactly one push occurrence",
+        )?;
+        sqlx::query("DELETE FROM push_delivery_intents WHERE source_message_id = $1")
+            .bind(message_id)
+            .execute(&pool)
+            .await?;
         let retried = send_message(
             router,
             fixture.send.message.sender_id,
@@ -352,11 +367,9 @@ async fn http_main_chat_message_records_one_notification_and_push_even_when_retr
             retried.status == StatusCode::OK,
             "main-chat retry did not return Existing",
         )?;
-        let message_id = response_id(&created.body, "message")?;
         // The main chatroom notifies its one live recipient exactly once per
-        // message (no topic): one chat_unread row keyed per conversation and
-        // one occurrence for the recipient's installation, with the
-        // idempotent retry adding neither.
+        // message (no topic), and an idempotent replay does not recreate a
+        // terminal intent that retention has already removed.
         let (notifications, topicless, pushes): (i64, i64, i64) = sqlx::query_as(
             "SELECT \
                  (SELECT count(*) FROM notifications WHERE conversation_id = $1), \
@@ -371,8 +384,8 @@ async fn http_main_chat_message_records_one_notification_and_push_even_when_retr
         .fetch_one(&pool)
         .await?;
         require(
-            notifications == 1 && topicless == 1 && pushes == 1,
-            "main-chat message did not record exactly one recipient notification and push occurrence",
+            notifications == 1 && topicless == 1 && pushes == 0,
+            "main-chat retry recreated a retained push occurrence",
         )
     }
     .await;

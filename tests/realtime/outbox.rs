@@ -206,6 +206,89 @@ async fn subscription_authorization_collapses_every_denied_membership_case() -> 
         assert!(!repository.is_authorized(user_id, conversation_id).await?);
     }
 
+    sqlx::query(
+        "UPDATE memberships SET deleted_at = clock_timestamp() \
+         WHERE group_id = $1 AND user_id = $2",
+    )
+    .bind(owner.group_id)
+    .bind(owner.user_id)
+    .execute(&pool)
+    .await?;
+    assert!(
+        !repository
+            .is_authorized(owner.user_id, owner.chatroom_id)
+            .await?
+    );
+    sqlx::query("UPDATE memberships SET deleted_at = NULL WHERE group_id = $1 AND user_id = $2")
+        .bind(owner.group_id)
+        .bind(owner.user_id)
+        .execute(&pool)
+        .await?;
+
+    sqlx::query("UPDATE chatrooms SET deleted_at = clock_timestamp() WHERE id = $1")
+        .bind(owner.chatroom_id)
+        .execute(&pool)
+        .await?;
+    assert!(
+        !repository
+            .is_authorized(owner.user_id, owner.chatroom_id)
+            .await?
+    );
+    sqlx::query("UPDATE chatrooms SET deleted_at = NULL WHERE id = $1")
+        .bind(owner.chatroom_id)
+        .execute(&pool)
+        .await?;
+
+    sqlx::query("UPDATE users SET deleted_at = clock_timestamp() WHERE id = $1")
+        .bind(owner.user_id)
+        .execute(&pool)
+        .await?;
+    assert!(
+        !repository
+            .is_authorized(owner.user_id, owner.chatroom_id)
+            .await?
+    );
+    sqlx::query("UPDATE users SET deleted_at = NULL WHERE id = $1")
+        .bind(owner.user_id)
+        .execute(&pool)
+        .await?;
+
+    let topic_id = Uuid::new_v4();
+    let topic_chatroom_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO topics (id, group_id, author_id, idempotency_key, request_fingerprint, title) \
+         VALUES ($1, $2, $3, $4, $5, 'subscription topic')",
+    )
+    .bind(topic_id)
+    .bind(owner.group_id)
+    .bind(owner.user_id)
+    .bind(Uuid::new_v4())
+    .bind("a".repeat(64))
+    .execute(&pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO chatrooms (id, group_id, type, topic_id) VALUES ($1, $2, 'topic', $3)",
+    )
+    .bind(topic_chatroom_id)
+    .bind(owner.group_id)
+    .bind(topic_id)
+    .execute(&pool)
+    .await?;
+    assert!(
+        repository
+            .is_authorized(owner.user_id, topic_chatroom_id)
+            .await?
+    );
+    sqlx::query("UPDATE topics SET deleted_at = clock_timestamp(), title = '' WHERE id = $1")
+        .bind(topic_id)
+        .execute(&pool)
+        .await?;
+    assert!(
+        !repository
+            .is_authorized(owner.user_id, topic_chatroom_id)
+            .await?
+    );
+
     sqlx::query("UPDATE groups SET deleted_at = clock_timestamp() WHERE id = $1")
         .bind(owner.group_id)
         .execute(&pool)

@@ -8,7 +8,7 @@ use crate::{
     TestResult,
     support::{
         Harness, UPLOAD_LIMIT, assert_error, count_rows, header, insert_user, json_body, json_post,
-        object_key, queued_keys, row_status,
+        object_key, queued_after_expiry, queued_keys, row_status,
     },
 };
 
@@ -194,6 +194,10 @@ async fn u4_releases_the_previous_pending_row_and_queues_its_object_for_deletion
         assert_eq!(
             queued_keys(&harness.pool).await?,
             vec![object_key(actor, first)]
+        );
+        assert!(
+            queued_after_expiry(&harness.pool, &object_key(actor, first)).await?,
+            "a released pending upload must not be deleted while its PUT URL is live"
         );
 
         // Another user's pending upload is never touched.

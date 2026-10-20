@@ -8,7 +8,7 @@ use crate::{
     TestResult,
     support::{
         BASE, Harness, assert_error, count_rows, insert_row, insert_user, jpeg_bytes, json_body,
-        json_post, object_key, queued_keys, row_status, user_avatar_url,
+        json_post, object_key, queued_immediately, queued_keys, row_status, user_avatar_url,
     },
 };
 
@@ -96,6 +96,10 @@ async fn u5_replaces_the_previous_active_row_and_queues_its_object() -> TestResu
         assert_eq!(
             queued_keys(&harness.pool).await?,
             vec![object_key(actor, first)]
+        );
+        assert!(
+            queued_immediately(&harness.pool, &object_key(actor, first)).await?,
+            "active avatar cleanup must remain immediately eligible"
         );
         Ok(())
     }

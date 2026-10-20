@@ -38,7 +38,8 @@ task-20b 서버 구현에서 채택하고 task-u12에서 moderation soft delete 
 - **정지는 모든 인증 진입점에서 403 `account_suspended`다.** bearer extractor는 검증된 토큰 뒤에
   account gate(`users.suspended_at` 조회)를 기다리고, refresh와 OAuth/Apple 교환은 저장소 단계에서,
   realtime ticket 발급(extractor)과 WebSocket 연결(ticket 소비 직후)은 같은 gate로 거부한다.
-  정지는 refresh session을 폐지(`revoked_at`)하고, 해제는 컬럼만 지운다. 폐지된 session은 되살리지 않으므로
+  정지는 refresh session을 폐지(`revoked_at`)하고, 해제는 정지를 지운 뒤 아직 활성인 session도 모두
+  폐지한다(정지 중 경합으로 생긴 session 포함). 정지 상태가 아닌 계정의 해제는 세션을 폐지하지 않는다.
   사용자는 다시 로그인한다. 이미 열린 WebSocket은 강제로 끊지 않는다(다음 재연결에서 거부).
   extractor는 요청마다 PK 조회 한 번을 더한다. gate 실패(DB 불가)는 fail-closed 503이다.
 - **운영자 알림은 기존 푸시 파이프라인을 쓴다.** 신고가 commit된 뒤 `JAMYE_OPERATOR_ACCOUNT_IDS`의 계정이

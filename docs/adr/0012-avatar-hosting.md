@@ -32,7 +32,9 @@ presigned URL을 거치며, bucket은 비공개다. 그리고 `avatar_url`은 51
 - **삭제 큐 재사용.** 객체를 지울 일은 모두 기존 `account_object_deletion_intents`(object_key
   unique, at-least-once)에 넣고 기존 cleanup worker가 지운다. 새 worker와 테이블은 없다.
   교체(U5), 지움·다른 https 값(U2), 대체된 pending(U4)은 release 시점에 큐에 넣고,
-  계정 purge는 남은 pending·active 객체를 큐에 넣은 뒤 모든 행을 hard-delete한다.
+  계정 purge는 남은 pending·active 객체를 큐에 넣은 뒤 모든 행을 hard-delete한다. pending 객체는
+  presigned PUT이 만료될 때까지(`expires_at + 60초`) `next_attempt_at`으로 삭제를 미루고, active
+  객체는 즉시 큐에 넣는다.
 - **설정 게이트.** `JAMYE_AVATAR_PUBLIC_BASE_URL`(https origin, 256자 이하)이 없으면 U4~U6
   route를 mount하지 않는다. 코드를 꺼진 채 먼저 배포하고, 인증 없는 smoke(꺼짐 404 / 켜짐 401)로
   상태를 구분한 뒤 homelab에서 값을 연결한다. 값은 기존 origin 검증기와 `validate_url`로 검증하고

@@ -322,6 +322,47 @@ async fn postgres_chat_finalize_obeys_caller_rollback_and_returns_canonical_retr
 }
 
 #[tokio::test]
+async fn postgres_chat_finalize_rejects_retries_that_change_or_omit_the_poster() -> TestResult {
+    let fixture = FinalizeDatabaseFixture::new().await?;
+    let repository = PostgresMediaRepository::new(fixture.pool.clone());
+    let transactions = SqlxTransactionManager::new(fixture.pool.clone());
+    let original_poster = fixture
+        .insert_confirmed_poster(fixture.author_id, fixture.chatroom_id)
+        .await?;
+    let replacement_poster = fixture
+        .insert_confirmed_poster(fixture.author_id, fixture.chatroom_id)
+        .await?;
+    let video = fixture
+        .insert_video_upload(fixture.author_id, fixture.chatroom_id)
+        .await?;
+    let mut transaction = transactions.begin().await?;
+    repository
+        .finalize_upload(
+            transaction.as_mut(),
+            &FinalizeUploadCommand::Chat {
+                actor_id: fixture.author_id,
+                upload_id: video.id,
+                finalized: finalized_video(),
+                poster_upload_id: Some(original_poster),
+            },
+        )
+        .await?;
+    transactions.commit(transaction).await?;
+
+    for retry_query in [
+        poster_query(fixture.author_id, video.id, replacement_poster),
+        query(fixture.author_id, video.id, None, None),
+    ] {
+        assert_eq!(
+            repository.prepare_upload_finalize(&retry_query).await,
+            Err(MediaRepositoryError::FinalizeConflict)
+        );
+    }
+
+    fixture.dispose().await
+}
+
+#[tokio::test]
 async fn sdk_head_object_uses_internal_signed_path_and_authoritative_metadata() -> TestResult {
     let server = ScriptedS3::start([ScriptedResponse::head(
         StatusCode::OK,
