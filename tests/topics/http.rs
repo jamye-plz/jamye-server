@@ -249,10 +249,27 @@ async fn t1_through_t8_http_use_the_locked_authenticated_mobile_shapes() -> Test
             &tags_uri,
             Some(fixture.author_id),
             None,
-            json!({"tags": [{"tag": "삭제확인", "source": "user", "confidence": null}]}),
+            json!({"tags": [{"tag": "삭제확인", "source": "user", "confidence": 0.8}]}),
         )?)
         .await?;
     assert_eq!(tags.status(), StatusCode::OK);
+    let replaced = router
+        .clone()
+        .oneshot(json_request(
+            "PUT",
+            &tags_uri,
+            Some(fixture.author_id),
+            None,
+            json!({"tags": [{"tag": "교체확인", "source": "user", "confidence": 0.9}]}),
+        )?)
+        .await?;
+    assert_eq!(replaced.status(), StatusCode::OK);
+    let replaced_deleted_at: time::OffsetDateTime = sqlx::query_scalar(
+        "SELECT deleted_at FROM topic_tags WHERE topic_id = $1 AND tag = '삭제확인'",
+    )
+    .bind(topic_id)
+    .fetch_one(&pool)
+    .await?;
     sqlx::query(
         "INSERT INTO chatroom_reads (id, user_id, chatroom_id, last_read_cursor) \
          VALUES ($1, $2, $3, 1)",
@@ -361,15 +378,26 @@ async fn t1_through_t8_http_use_the_locked_authenticated_mobile_shapes() -> Test
             .fetch_one(&pool)
             .await?;
     assert!(chatroom_deleted);
-    let tag_state: (i64, i64, bool) = sqlx::query_as(
+    let tag_state: (i64, i64, bool, i64) = sqlx::query_as(
         "SELECT count(*), count(*) FILTER (WHERE deleted_at IS NULL), \
-                bool_and(tag LIKE 'deleted-%') \
+                bool_and(tag LIKE 'deleted-%'), \
+                count(*) FILTER (WHERE confidence IS NOT NULL) \
          FROM topic_tags WHERE topic_id = $1",
     )
     .bind(topic_id)
     .fetch_one(&pool)
     .await?;
-    assert_eq!(tag_state, (1, 0, true));
+    assert_eq!(tag_state, (2, 0, true, 0));
+    let replaced_timestamp_preserved: bool = sqlx::query_scalar(
+        "SELECT deleted_at = $2 FROM topic_tags \
+         WHERE topic_id = $1 AND tag = 'deleted-' || replace(id::text, '-', '') \
+           AND deleted_at = $2",
+    )
+    .bind(topic_id)
+    .bind(replaced_deleted_at)
+    .fetch_one(&pool)
+    .await?;
+    assert!(replaced_timestamp_preserved);
     let read_counts: (i64, i64) = sqlx::query_as(
         "SELECT count(*), count(*) FILTER (WHERE deleted_at IS NULL) \
          FROM chatroom_reads WHERE chatroom_id = $1",

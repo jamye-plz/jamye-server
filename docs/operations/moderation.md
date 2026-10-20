@@ -141,7 +141,8 @@ admin users unsuspend <user_id>
 admin accounts delete <user_id>
 ```
 
-앱의 계정 삭제와 같은 30일 복구 기간 삭제를 시작한다(`JAMYE_ACCOUNT_PURGE_GRACE_DAYS`, 기본 30일).
+앱의 계정 삭제와 같은 복구 기간 삭제를 시작한다(`JAMYE_ACCOUNT_PURGE_GRACE_DAYS`, 1~365일,
+기본 30일).
 멤버십 제거, 세션 폐지, 푸시 설치 비활성화, 로그인 연결 소프트 삭제가 한 transaction이고, 복구 기간이
 끝나면 worker가 purge한다. 본인 확인은 명령 전에 운영자가 끝내야 한다(§5). 소유한 그룹이 있는 계정은
 종료 코드 1이며 소유권을 먼저 넘겨야 한다(CLI는 소유권을 옮기지 못한다). 이미 삭제가 시작된 계정도

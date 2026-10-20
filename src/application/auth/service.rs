@@ -49,6 +49,7 @@ pub struct AuthDependencies {
     pub credentials: Arc<dyn CredentialSource>,
     pub token_issuer: Arc<dyn AccessTokenIssuer>,
     pub clock: Arc<dyn AuthClock>,
+    pub account_purge_grace_days: u32,
 }
 
 #[derive(Clone)]
@@ -133,6 +134,7 @@ impl AuthService {
             || lifetimes.access.is_zero()
             || lifetimes.refresh <= lifetimes.access
             || !rate_limits.is_valid()
+            || dependencies.account_purge_grace_days == 0
         {
             return Err(AuthError::InvalidConfiguration);
         }
@@ -339,7 +341,12 @@ impl AuthService {
         let restored = match self
             .dependencies
             .repository
-            .restore_deleted_identity(transaction.as_mut(), &identity, &session)
+            .restore_deleted_identity(
+                transaction.as_mut(),
+                &identity,
+                &session,
+                self.dependencies.account_purge_grace_days,
+            )
             .await
         {
             Ok(restored) => restored,

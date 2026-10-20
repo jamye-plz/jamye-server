@@ -6,6 +6,7 @@ use uuid::Uuid;
 use crate::{TestResult, postgres_support::TestDatabase};
 
 const TOPICS_MIGRATION: &str = "migrations/0005_topics.sql";
+const TOPIC_TAG_SCRUB_MIGRATION: &str = "migrations/0022_scrub_deleted_topic_tags.sql";
 
 #[test]
 fn topic_migration_is_forward_only_and_adds_the_deferred_chatroom_fk() -> TestResult {
@@ -123,6 +124,86 @@ async fn a_failed_0005_upgrade_rolls_back_every_topic_relation_and_fk() -> TestR
         return Err(format!("failed to remove {}: {error}", fixture_dir.display()).into());
     }
     result?;
+    database.dispose().await
+}
+
+#[tokio::test]
+async fn topic_tag_scrub_migration_backfills_every_deleted_topic_tag() -> TestResult {
+    let migration = fs::read_to_string(TOPIC_TAG_SCRUB_MIGRATION)?;
+    assert!(migration.contains("-- migration: 0022_scrub_deleted_topic_tags"));
+    assert!(
+        migration.contains("tag_entry.tag <> ('deleted-' || replace(tag_entry.id::text, '-', ''))")
+    );
+    let database = TestDatabase::migrated_to(21).await?;
+    let mut connection = database.connection().await?;
+    let user_id = Uuid::new_v4();
+    let group_id = Uuid::new_v4();
+    let topic_id = Uuid::new_v4();
+    let historical_tag_id = Uuid::new_v4();
+    let live_tag_id = Uuid::new_v4();
+    sqlx::query("INSERT INTO users (id, nickname) VALUES ($1, 'topic tag author')")
+        .bind(user_id)
+        .execute(&mut connection)
+        .await?;
+    sqlx::query("INSERT INTO groups (id, name, owner_id) VALUES ($1, 'topic tag group', $2)")
+        .bind(group_id)
+        .bind(user_id)
+        .execute(&mut connection)
+        .await?;
+    sqlx::query(
+        "INSERT INTO topics \
+         (id, group_id, author_id, idempotency_key, request_fingerprint, title, deleted_at) \
+         VALUES ($1, $2, $3, $4, $5, '', clock_timestamp())",
+    )
+    .bind(topic_id)
+    .bind(group_id)
+    .bind(user_id)
+    .bind(Uuid::new_v4())
+    .bind("0".repeat(64))
+    .execute(&mut connection)
+    .await?;
+    sqlx::query(
+        "INSERT INTO topic_tags (id, topic_id, tag, source, confidence, deleted_at) \
+         VALUES ($1, $2, 'deleted-historical user tag', 'user', 0.9, \
+                 clock_timestamp() - INTERVAL '1 day'), \
+                ($3, $2, 'current user tag', 'user', 0.8, NULL)",
+    )
+    .bind(historical_tag_id)
+    .bind(topic_id)
+    .bind(live_tag_id)
+    .execute(&mut connection)
+    .await?;
+    let historical_deleted_at: time::OffsetDateTime =
+        sqlx::query_scalar("SELECT deleted_at FROM topic_tags WHERE id = $1")
+            .bind(historical_tag_id)
+            .fetch_one(&mut connection)
+            .await?;
+
+    let migrator = sqlx::migrate::Migrator::new(std::path::Path::new("migrations")).await?;
+    migrator.run_to(22, &mut connection).await?;
+
+    let tags: Vec<(Uuid, String, Option<f64>, bool)> = sqlx::query_as(
+        "SELECT id, tag, confidence, deleted_at IS NOT NULL \
+         FROM topic_tags WHERE topic_id = $1 ORDER BY id",
+    )
+    .bind(topic_id)
+    .fetch_all(&mut connection)
+    .await?;
+    assert_eq!(tags.len(), 2);
+    for (id, tag, confidence, deleted) in tags {
+        assert!(deleted);
+        assert_eq!(tag, format!("deleted-{}", id.simple()));
+        assert_eq!(confidence, None);
+    }
+    let preserved_historical_timestamp: bool =
+        sqlx::query_scalar("SELECT deleted_at = $2 FROM topic_tags WHERE id = $1")
+            .bind(historical_tag_id)
+            .bind(historical_deleted_at)
+            .fetch_one(&mut connection)
+            .await?;
+    assert!(preserved_historical_timestamp);
+
+    connection.close().await?;
     database.dispose().await
 }
 

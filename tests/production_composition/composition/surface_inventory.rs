@@ -58,8 +58,15 @@ fn production_router(config: &AppConfig, auth: &AuthConfig) -> TestResult<axum::
     let rate_limits = RateLimitConfig::default();
     let storage = object_storage_config()?;
     let app_links = AppLinksConfig::try_from(AppLinksConfigInput::default())?;
-    let router =
-        composition::router_with_runtime(config, &app_links, auth, &rate_limits, Some(&storage))?;
+    let account_purge_grace = AccountPurgeGraceConfig::resolve(None)?;
+    let router = composition::router_with_runtime(
+        config,
+        &app_links,
+        auth,
+        &account_purge_grace,
+        &rate_limits,
+        Some(&storage),
+    )?;
     Ok(router)
 }
 

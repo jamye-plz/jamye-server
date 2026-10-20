@@ -23,6 +23,7 @@ pub trait AuthRepository: Send + Sync {
         _transaction: &'a mut dyn TransactionHandle,
         _identity: &'a NewProviderIdentity,
         _session: &'a NewRefreshSession,
+        _grace_days: u32,
     ) -> AuthRepositoryFuture<'a, Option<IssuedSession>> {
         Box::pin(async { Ok(None) })
     }

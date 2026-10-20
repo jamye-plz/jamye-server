@@ -3,8 +3,8 @@ use std::{error::Error, io, time::Duration};
 use jamye_server::{
     adapters::object_storage::media::{BucketLifecycle, S3BucketBackend},
     config::{
-        AppConfig, app_links::AppLinksConfig, auth::AuthConfig,
-        object_storage::ObjectStorageConfig, rate_limit::RateLimitConfig,
+        AppConfig, account_deletion::AccountPurgeGraceConfig, app_links::AppLinksConfig,
+        auth::AuthConfig, object_storage::ObjectStorageConfig, rate_limit::RateLimitConfig,
     },
     platform::{
         logging::init_json_logging,
@@ -19,6 +19,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let config = AppConfig::from_env()?;
     let app_links = AppLinksConfig::from_env()?;
     let auth = AuthConfig::from_env()?;
+    let account_purge_grace = AccountPurgeGraceConfig::from_env()?;
     let rate_limits = RateLimitConfig::from_env()?;
     let object_storage = ObjectStorageConfig::from_env(config.environment())?;
     init_json_logging()?;
@@ -43,6 +44,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         &config,
         &app_links,
         &auth,
+        &account_purge_grace,
         &rate_limits,
         object_storage.as_ref(),
     )?;

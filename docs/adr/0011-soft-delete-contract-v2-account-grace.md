@@ -30,9 +30,10 @@ server boundary.
 - D10 hard purge moves to a leased worker that uses DB clock, batch claim, and
   the existing account deletion finalization transition after the grace period.
 - A2 OAuth exchange restores a grace-deleted account only through an explicit
-  restore path for a soft-deleted identity. The response body remains
-  `TokenPair`; the one-time recovery signal is the
-  `X-Jamye-Account-Restored: true` response header.
+  restore path for a soft-deleted identity while its DB-clock purge grace
+  window remains open. After expiry, the identity follows normal account
+  creation. The response body remains `TokenPair`; the one-time recovery
+  signal is the `X-Jamye-Account-Restored: true` response header.
 - Contract v2 is the current negotiation target for delete/recovery behavior;
   previous contract projection remains available where the base phase exposes
   it.
