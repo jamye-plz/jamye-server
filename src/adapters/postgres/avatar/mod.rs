@@ -109,7 +109,7 @@ async fn create_intent(
     let released = release_rows(connection, command.user_id, "pending")
         .await
         .map_err(|error| database_error("avatar_release_pending", error))?;
-    enqueue_object_deletions(connection, &released)
+    enqueue_object_deletions(connection, &released, true)
         .await
         .map_err(|error| database_error("avatar_enqueue_pending", error))?;
 
@@ -208,7 +208,7 @@ async fn activate(
     let released = release_rows(connection, command.actor_id, "active")
         .await
         .map_err(|error| database_error("avatar_release_active", error))?;
-    enqueue_object_deletions(connection, &released)
+    enqueue_object_deletions(connection, &released, false)
         .await
         .map_err(|error| database_error("avatar_enqueue_active", error))?;
     sqlx::query("UPDATE user_avatar_uploads SET status = 'active' WHERE id = $1")
@@ -256,19 +256,19 @@ pub(crate) async fn release_active_for_profile_change(
     .bind(user_id)
     .fetch_optional(&mut *connection)
     .await?;
-    let released = sqlx::query_scalar::<_, String>(
+    let released = sqlx::query_as::<_, (String, OffsetDateTime)>(
         "UPDATE user_avatar_uploads \
          SET status = 'released', released_at = clock_timestamp() \
          WHERE user_id = $1 AND status = 'active' \
            AND ($2::text IS NULL \
                 OR (SELECT avatar_url FROM users WHERE id = $1) IS DISTINCT FROM $2::text) \
-         RETURNING object_key",
+         RETURNING object_key, expires_at",
     )
     .bind(user_id)
     .bind(new_avatar_url)
     .fetch_all(&mut *connection)
     .await?;
-    enqueue_object_deletions(connection, &released).await
+    enqueue_object_deletions(connection, &released, false).await
 }
 
 async fn lock_live_user(
@@ -290,12 +290,12 @@ async fn release_rows(
     connection: &mut PgConnection,
     user_id: Uuid,
     status: &str,
-) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar::<_, String>(
+) -> Result<Vec<(String, OffsetDateTime)>, sqlx::Error> {
+    sqlx::query_as::<_, (String, OffsetDateTime)>(
         "UPDATE user_avatar_uploads \
          SET status = 'released', released_at = clock_timestamp() \
          WHERE user_id = $1 AND status = $2 \
-         RETURNING object_key",
+         RETURNING object_key, expires_at",
     )
     .bind(user_id)
     .bind(status)
@@ -305,16 +305,19 @@ async fn release_rows(
 
 async fn enqueue_object_deletions(
     connection: &mut PgConnection,
-    object_keys: &[String],
+    uploads: &[(String, OffsetDateTime)],
+    defer_until_expiry: bool,
 ) -> Result<(), sqlx::Error> {
-    for object_key in object_keys {
+    for (object_key, expires_at) in uploads {
         sqlx::query(
-            "INSERT INTO account_object_deletion_intents (id, object_key) \
-             VALUES ($1, $2) \
+            "INSERT INTO account_object_deletion_intents (id, object_key, next_attempt_at) \
+             VALUES ($1, $2, CASE WHEN $3 THEN GREATEST($4, clock_timestamp()) + interval '60 seconds' END) \
              ON CONFLICT (object_key) DO NOTHING",
         )
         .bind(Uuid::new_v4())
         .bind(object_key)
+        .bind(defer_until_expiry)
+        .bind(expires_at)
         .execute(&mut *connection)
         .await?;
     }

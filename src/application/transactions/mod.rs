@@ -68,6 +68,7 @@ impl TransactionCompositions {
                     Some(persisted.source_event_id()),
                 ),
             };
+            let created = existing_event_id.is_none();
             let media = BindMessageMediaCommand {
                 actor_id: input.message.sender_id,
                 chatroom_id: message.chatroom_id,
@@ -93,12 +94,14 @@ impl TransactionCompositions {
                     .await
                     .map_err(|_| TransactionCompositionError::FeatureOperationFailed)?,
             };
-            let notification = input.notification_for(&persisted)?;
-            self.dependencies
-                .notifications
-                .record_message_created(transaction.as_mut(), &notification)
-                .await
-                .map_err(|_| TransactionCompositionError::FeatureOperationFailed)?;
+            if created {
+                let notification = input.notification_for(&persisted)?;
+                self.dependencies
+                    .notifications
+                    .record_message_created(transaction.as_mut(), &notification)
+                    .await
+                    .map_err(|_| TransactionCompositionError::FeatureOperationFailed)?;
+            }
             Ok(())
         }
         .await;
@@ -217,22 +220,24 @@ impl TransactionCompositions {
                     sender_display_name,
                 } => (group_id, Some(topic_id), sender_display_name),
             };
-            self.dependencies
-                .notifications
-                .record_message_created(
-                    transaction.as_mut(),
-                    &RecordMessageNotificationCommand {
-                        group_id,
-                        topic_id,
-                        conversation_id: command.chatroom_id,
-                        source_event_id: persisted.source_event_id(),
-                        source_message_id: persisted.message().id,
-                        sender_id: actor_id,
-                        sender_display_name,
-                    },
-                )
-                .await
-                .map_err(|_| MessagingError::DatabaseUnavailable)?;
+            if created {
+                self.dependencies
+                    .notifications
+                    .record_message_created(
+                        transaction.as_mut(),
+                        &RecordMessageNotificationCommand {
+                            group_id,
+                            topic_id,
+                            conversation_id: command.chatroom_id,
+                            source_event_id: persisted.source_event_id(),
+                            source_message_id: persisted.message().id,
+                            sender_id: actor_id,
+                            sender_display_name,
+                        },
+                    )
+                    .await
+                    .map_err(|_| MessagingError::DatabaseUnavailable)?;
+            }
             let mut message = persisted.into_message();
             message.media = attachments;
             Ok::<_, MessagingError>(if created {

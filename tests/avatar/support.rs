@@ -462,6 +462,27 @@ pub async fn queued_keys(pool: &PgPool) -> TestResult<Vec<String>> {
     .await?)
 }
 
+pub async fn queued_after_expiry(pool: &PgPool, object_key: &str) -> TestResult<bool> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT intent.next_attempt_at >= upload.expires_at + interval '60 seconds' \
+         FROM account_object_deletion_intents intent \
+         JOIN user_avatar_uploads upload ON upload.object_key = intent.object_key \
+         WHERE intent.object_key = $1",
+    )
+    .bind(object_key)
+    .fetch_one(pool)
+    .await?)
+}
+
+pub async fn queued_immediately(pool: &PgPool, object_key: &str) -> TestResult<bool> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT next_attempt_at IS NULL FROM account_object_deletion_intents WHERE object_key = $1",
+    )
+    .bind(object_key)
+    .fetch_one(pool)
+    .await?)
+}
+
 pub async fn user_avatar_url(pool: &PgPool, user_id: Uuid) -> TestResult<Option<String>> {
     Ok(
         sqlx::query_scalar::<_, Option<String>>("SELECT avatar_url FROM users WHERE id = $1")

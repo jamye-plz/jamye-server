@@ -185,8 +185,13 @@ impl PostgresRealtimeRepository {
                  SELECT 1 \
                  FROM chatrooms c \
                  JOIN groups g ON g.id = c.group_id AND g.deleted_at IS NULL \
+                 LEFT JOIN topics topic ON topic.id = c.topic_id \
                  JOIN memberships m ON m.group_id = g.id AND m.user_id = $2 \
+                   AND m.deleted_at IS NULL \
+                 JOIN users account ON account.id = m.user_id AND account.deleted_at IS NULL \
                  WHERE c.id = $1 \
+                   AND c.deleted_at IS NULL \
+                   AND (c.topic_id IS NULL OR topic.deleted_at IS NULL) \
              )",
         )
         .bind(conversation_id)

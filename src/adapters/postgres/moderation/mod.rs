@@ -249,17 +249,35 @@ impl ModerationRepository for PostgresModerationRepository {
         Box::pin(async move {
             let connection =
                 connection(transaction).map_err(|_| ModerationRepositoryError::InvalidData)?;
-            let updated = sqlx::query(
-                "UPDATE users SET suspended_at = NULL, suspension_reason = NULL WHERE id = $1",
+            let (was_suspended, exists) = sqlx::query_as::<_, (bool, bool)>(
+                "WITH updated AS ( \
+                     UPDATE users \
+                     SET suspended_at = NULL, suspension_reason = NULL \
+                     WHERE id = $1 AND suspended_at IS NOT NULL \
+                     RETURNING id \
+                 ) \
+                 SELECT EXISTS (SELECT 1 FROM updated), EXISTS (SELECT 1 FROM users WHERE id = $1)",
             )
             .bind(user_id)
-            .execute(connection)
+            .fetch_one(&mut *connection)
             .await
             .map_err(|error| database_error("moderation_unsuspend", error))?;
-            if updated.rows_affected() == 1 {
-                Ok(())
+            if !exists {
+                return Err(ModerationRepositoryError::UserNotFound);
+            }
+            if was_suspended {
+                sqlx::query(
+                    "UPDATE refresh_sessions \
+                     SET revoked_at = GREATEST(clock_timestamp(), created_at) \
+                     WHERE user_id = $1 AND revoked_at IS NULL",
+                )
+                .bind(user_id)
+                .execute(connection)
+                .await
+                .map(|_| ())
+                .map_err(|error| database_error("moderation_unsuspend_revoke_sessions", error))
             } else {
-                Err(ModerationRepositoryError::UserNotFound)
+                Ok(())
             }
         })
     }

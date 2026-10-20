@@ -278,6 +278,7 @@ pub(super) async fn chatroom_media(
                            AND cursor_message.chatroom_id = $1 \
                            AND cursor_message.deleted_at IS NULL \
                            AND cursor_media.deleted_at IS NULL \
+                           AND (cursor_media.type LIKE 'image/%' OR cursor_media.type LIKE 'video/%') \
                      ) \
                  ) AS cursor_valid \
          ), cursor_item AS ( \
@@ -288,6 +289,7 @@ pub(super) async fn chatroom_media(
              WHERE cursor_media.id = $3 AND cursor_message.chatroom_id = $1 \
                AND cursor_message.deleted_at IS NULL \
                AND cursor_media.deleted_at IS NULL \
+               AND (cursor_media.type LIKE 'image/%' OR cursor_media.type LIKE 'video/%') \
          ), page AS ( \
              SELECT media.id, media.message_id, media.media_upload_id, media.type, \
                     media.byte_size, media.width, media.height, media.duration, \

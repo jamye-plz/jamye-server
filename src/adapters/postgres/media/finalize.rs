@@ -99,6 +99,9 @@ pub(super) async fn prepare_upload_finalize(
         if !upload.confirmed_chat_shape() {
             return Err(MediaRepositoryError::InvalidData);
         }
+        if query.poster_upload_id != upload.poster_upload_id {
+            return Err(MediaRepositoryError::FinalizeConflict);
+        }
         return Ok(UploadFinalizePreparation::Existing(
             UploadFinalizeRecord::Chat {
                 upload: upload.confirmed_record()?,

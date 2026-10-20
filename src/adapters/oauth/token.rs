@@ -45,6 +45,7 @@ impl ProductionTokenCodec {
     fn validation(&self) -> Validation {
         let mut validation = Validation::new(Algorithm::HS256);
         validation.leeway = 0;
+        validation.reject_tokens_expiring_in_less_than = 1;
         validation.set_audience(&[self.audience.as_str()]);
         validation.set_issuer(&[self.issuer.as_str()]);
         validation.set_required_spec_claims(&["sub", "iss", "aud", "iat", "exp"]);
@@ -135,6 +136,25 @@ mod tests {
             Uuid::new_v4(),
             now - time::Duration::seconds(90),
             now - time::Duration::seconds(30),
+        )?;
+
+        assert!(codec.verify(&token).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn access_token_expiring_at_the_current_second_is_rejected() -> TestResult {
+        let codec = ProductionTokenCodec::new(
+            b"task-5-production-token-secret-32-bytes",
+            "https://api.jamye.test",
+            "jamye-mobile",
+        )?;
+        let now = OffsetDateTime::now_utc();
+        let token = codec.issue(
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            now - time::Duration::seconds(1),
+            now,
         )?;
 
         assert!(codec.verify(&token).is_err());

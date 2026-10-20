@@ -17,6 +17,7 @@ struct RecorderState {
     trace: Vec<Step>,
     handles: Vec<usize>,
     fail_after: Option<Step>,
+    existing_message: bool,
 }
 
 #[derive(Clone, Default)]
@@ -35,6 +36,11 @@ impl RecordingRepositories {
     fn set_failure(&self, step: Step) {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         state.fail_after = Some(step);
+    }
+
+    fn set_existing_message(&self) {
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        state.existing_message = true;
     }
 
     fn trace(&self) -> Vec<Step> {
@@ -74,9 +80,19 @@ impl MessagingRepository for RecordingRepositories {
     ) -> MessagingFuture<'a, PersistMessageOutcome> {
         let failed = self.record(handle, Step::MessageInsert);
         let message = canonical_message(command);
+        let existing = self
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .existing_message;
         Box::pin(async move {
             if failed {
                 Err(MessagingRepositoryError::DatabaseUnavailable)
+            } else if existing {
+                Ok(PersistMessageOutcome::Existing(PersistedMessage::new(
+                    message,
+                    Uuid::from_u128(3),
+                )))
             } else {
                 Ok(PersistMessageOutcome::Created(message))
             }
@@ -421,6 +437,10 @@ impl RecordingFixture {
 
     fn clear_failure(&self) {
         self.repositories.clear_failure();
+    }
+
+    fn set_existing_message(&self) {
+        self.repositories.set_existing_message();
     }
 }
 

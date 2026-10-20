@@ -100,13 +100,40 @@ async fn suspend_is_idempotent_and_unknown_accounts_are_not_found() -> TestResul
         .fetch_one(&harness.pool)
         .await?;
         assert_eq!(cleared, (None, None));
+
+        let active_user = insert_user(&harness.pool, "already active").await?;
+        let active_session = new_session(7);
+        sqlx::query(
+            "INSERT INTO refresh_sessions (id, user_id, family_id, token_hash, expires_at) \
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(active_session.id)
+        .bind(active_user)
+        .bind(active_session.family_id)
+        .bind(active_session.token_hash.as_bytes().as_slice())
+        .bind(active_session.expires_at)
+        .execute(&harness.pool)
+        .await?;
+        harness.service.unsuspend_user(active_user).await?;
+        let still_active = sqlx::query_scalar::<_, bool>(
+            "SELECT revoked_at IS NULL FROM refresh_sessions WHERE id = $1",
+        )
+        .bind(active_session.id)
+        .fetch_one(&harness.pool)
+        .await?;
+        assert!(
+            still_active,
+            "unsuspending an active account must not revoke sessions"
+        );
+        let unknown_user = Uuid::new_v4();
         assert!(
             harness
                 .service
-                .suspend_user(Uuid::new_v4(), None)
+                .suspend_user(unknown_user, None)
                 .await
                 .is_err()
         );
+        assert!(harness.service.unsuspend_user(unknown_user).await.is_err());
         Ok(())
     }
     .await;
@@ -173,8 +200,29 @@ async fn suspend_revokes_sessions_refresh_answers_suspended_and_unsuspend_requir
         transactions.rollback(transaction).await?;
         assert_eq!(outcome, RotationOutcome::Suspended);
 
-        // After unsuspend the revoked token stays unusable: the user must sign in again.
+        // A session committed by a request racing suspension must not revive at unsuspend.
+        let raced_session = new_session(4);
+        sqlx::query(
+            "INSERT INTO refresh_sessions (id, user_id, family_id, token_hash, expires_at) \
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(raced_session.id)
+        .bind(user)
+        .bind(raced_session.family_id)
+        .bind(raced_session.token_hash.as_bytes().as_slice())
+        .bind(raced_session.expires_at)
+        .execute(&harness.pool)
+        .await?;
+
+        // After unsuspend every pre-unsuspend session stays unusable: the user must sign in again.
         harness.service.unsuspend_user(user).await?;
+        let raced_session_revoked = sqlx::query_scalar::<_, bool>(
+            "SELECT revoked_at IS NOT NULL FROM refresh_sessions WHERE id = $1",
+        )
+        .bind(raced_session.id)
+        .fetch_one(&harness.pool)
+        .await?;
+        assert!(raced_session_revoked);
         let mut transaction = transactions.begin().await?;
         let outcome = auth
             .rotate_session(

@@ -260,8 +260,8 @@ async fn enqueue_and_delete_avatar_uploads(
     connection: &mut PgConnection,
     user_id: Uuid,
 ) -> Result<u64, AccountDeletionRepositoryError> {
-    let object_keys = sqlx::query_scalar::<_, String>(
-        "SELECT object_key FROM user_avatar_uploads \
+    let uploads = sqlx::query_as::<_, (String, String, time::OffsetDateTime)>(
+        "SELECT object_key, status, expires_at FROM user_avatar_uploads \
          WHERE user_id = $1 AND status IN ('pending', 'active') \
          ORDER BY id \
          FOR UPDATE",
@@ -272,14 +272,16 @@ async fn enqueue_and_delete_avatar_uploads(
     .map_err(|error| database_error("account_deletion_avatar_upload_lock", error))?;
 
     let mut cleanup_intents_enqueued = 0_u64;
-    for object_key in &object_keys {
+    for (object_key, status, expires_at) in &uploads {
         let result = sqlx::query(
-            "INSERT INTO account_object_deletion_intents (id, object_key) \
-             VALUES ($1, $2) \
+            "INSERT INTO account_object_deletion_intents (id, object_key, next_attempt_at) \
+             VALUES ($1, $2, CASE WHEN $3 = 'pending' THEN GREATEST($4, clock_timestamp()) + interval '60 seconds' END) \
              ON CONFLICT (object_key) DO NOTHING",
         )
         .bind(Uuid::new_v4())
         .bind(object_key)
+        .bind(status)
+        .bind(expires_at)
         .execute(&mut *connection)
         .await
         .map_err(|error| database_error("account_deletion_avatar_intent_insert", error))?;
