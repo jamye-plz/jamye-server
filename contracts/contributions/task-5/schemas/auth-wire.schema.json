@@ -185,7 +185,7 @@
             {
               "format": "uri",
               "maxLength": 512,
-              "pattern": "^https://",
+              "pattern": "^https://[^/?#]",
               "type": "string"
             }
           ]
@@ -231,7 +231,7 @@
             {
               "format": "uri",
               "maxLength": 512,
-              "pattern": "^https://",
+              "pattern": "^https://[^/?#]",
               "type": "string"
             }
           ]
