@@ -186,8 +186,8 @@ local-dev example은 24개 키를 설명한다. 핵심 process 설정과 Postgre
 `src/config/mod.rs`, account purge와 cleanup credential은
 `src/config/account_deletion.rs`, guarded fixture flag는 `src/dev_fixtures`가 소유한다.
 environment, PostgreSQL URL, Redis URL과 object-storage 여섯 키는 API와 worker에 필수이고, access token
-세 키는 API에 필수다. Redis나 MinIO에 연결할 수 없으면 readiness가 degraded로 보고되고, MinIO health URL을
-설정하지 않아도 degraded로 동작한다. 시작 시 존재하는 값과 모든 범위를 검증하고 잘못된 설정은 명확한 safe
+세 키는 API에 필수다. API는 시작할 때 object storage bucket을 확인하므로 object-storage endpoint에 연결할 수 없으면 시작하지
+않는다. 실행 중 Redis에 연결할 수 없거나 `JAMYE_MINIO_HEALTH_URL` health 확인이 실패하거나 설정되지 않으면 readiness가 degraded로 보고된다. 시작 시 존재하는 값과 모든 범위를 검증하고 잘못된 설정은 명확한 safe
 error로 process를 종료한다.
 `JAMYE_TRUSTED_PROXIES`가 미설정이거나 비어 있으면 어떤 proxy도 신뢰하지 않아 `X-Forwarded-For`를 무시하고, 그 밖의 잘못된 값은 시작을 실패시키며, 목록에 있는 TCP peer가 보낸 단일 값 `X-Forwarded-For`만 사용한다. rate limit key는 IPv6 주소를 /64 prefix로 묶고, IPv4는 그대로, IPv4-mapped IPv6 주소는 IPv4로 바꿔 쓴다.
 

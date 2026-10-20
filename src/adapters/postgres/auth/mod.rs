@@ -100,7 +100,9 @@ impl PostgresAuthRepository {
                 }
             }
         };
-        ensure_not_suspended(&mut *connection, user_id).await?;
+        // Exchange locks the account before inserting a session so suspend sees it; rotation keeps
+        // its session-first lock order to avoid a user/session lock inversion.
+        ensure_not_suspended_for_exchange(&mut *connection, user_id).await?;
         insert_refresh_session(
             &mut *connection,
             session.id,
@@ -483,6 +485,23 @@ async fn ensure_not_suspended(
             .fetch_optional(connection)
             .await
             .map_err(|error| database_failure("suspension_lookup", &error))?;
+    if suspended == Some(true) {
+        return Err(AuthRepositoryError::AccountSuspended);
+    }
+    Ok(())
+}
+
+async fn ensure_not_suspended_for_exchange(
+    connection: &mut sqlx::PgConnection,
+    user_id: Uuid,
+) -> Result<(), AuthRepositoryError> {
+    let suspended = sqlx::query_scalar::<_, bool>(
+        "SELECT suspended_at IS NOT NULL FROM users WHERE id = $1 FOR SHARE",
+    )
+    .bind(user_id)
+    .fetch_optional(connection)
+    .await
+    .map_err(|error| database_failure("suspension_lookup", &error))?;
     if suspended == Some(true) {
         return Err(AuthRepositoryError::AccountSuspended);
     }

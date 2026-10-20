@@ -75,7 +75,7 @@ flowchart LR
 | C2 | 선택된 전체 서버 계약 release candidate | 모든 runtime owner의 DTO/schema/fixture contribution, selected REST inventory, 최종 2 realtime variants, manifest provenance | task-12 |
 | C3 | 후속 soft delete/Apple 계약 확장(2026-09-22 등록, task-14/task-15 구현·운영 배포 완료, §13) | 메시지 삭제(가칭 C6)·주제 삭제(가칭 T8) REST, `deleted_at`/`updated_at` 필드, realtime `message.deleted`/`topic.deleted`, Apple exchange endpoint(가칭 A6) | task-14/task-15 |
 
-계약 단계 C3는 operation ID `C3`(read marker; `contracts/openapi.json`)와 이름만 같고 무관하다. 메시지 삭제의 가칭은 처음 C5였지만 task-17이 `C5`를 대화방 미디어 목록에 쓰게 되어 C6으로 바꿨다. contract version 정책(현재 버전 1 유지 vs 버전 2로 증가, realtime event version 협상 포함)은 task-14 PLAN에서 결정한다.
+계약 단계 C3는 operation ID `C3`(read marker; `contracts/openapi.json`)와 이름만 같고 무관하다. 메시지 삭제의 가칭은 처음 C5였지만 task-17이 `C5`를 대화방 미디어 목록에 쓰게 되어 C6으로 바꿨다. contract version 정책은 task-14에서 버전 2로 올리고 직전 버전 1을 함께 지원하는 것으로 결정했다(`contracts/manifest.json`, version 협상은 `contracts/fixtures/version-negotiation.json`).
 
 C0는 정확히 5개 REST operation(H1, H2, C4, S1, R1)과 message.created 하나만 생성한다. D1, D8, D13만 C0를 막을 수 있다. 인증, 그룹, 주제, 미디어, 알림, 푸시, 계정 삭제 계약은 각 runtime feature owner가 나중에 추가한다.
 

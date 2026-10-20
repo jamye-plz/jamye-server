@@ -284,3 +284,59 @@ async fn oauth_exchange_is_refused_for_a_suspended_account_and_works_after_unsus
     .await;
     harness.finish(result).await
 }
+
+#[tokio::test]
+async fn oauth_exchange_session_creation_holds_the_user_share_lock_until_commit() -> TestResult {
+    let harness = Harness::new().await?;
+    let result: TestResult = async {
+        let auth = PostgresAuthRepository::new(harness.pool.clone());
+        let transactions = SqlxTransactionManager::new(harness.pool.clone());
+        let identity = NewProviderIdentity {
+            provider: "kakao".to_owned(),
+            provider_id: format!("exchange-lock-{}", Uuid::new_v4()),
+            nickname: "exchange lock".to_owned(),
+            avatar_url: None,
+        };
+
+        let mut initial = transactions.begin().await?;
+        let issued = auth
+            .create_session(initial.as_mut(), &identity, &new_session(20))
+            .await?;
+        transactions.commit(initial).await?;
+
+        let mut exchange = transactions.begin().await?;
+        let created = auth
+            .create_session(exchange.as_mut(), &identity, &new_session(21))
+            .await?;
+        assert_eq!(created.user_id, issued.user_id);
+
+        let mut contender = harness.pool.acquire().await?;
+        sqlx::query("SET lock_timeout = '100ms'")
+            .execute(&mut *contender)
+            .await?;
+        let blocked =
+            sqlx::query("UPDATE users SET suspended_at = clock_timestamp() WHERE id = $1")
+                .bind(issued.user_id)
+                .execute(&mut *contender)
+                .await;
+        let Err(blocked) = blocked else {
+            return Err("suspend did not wait for an in-flight OAuth exchange".into());
+        };
+        assert_eq!(
+            blocked
+                .as_database_error()
+                .and_then(|error| error.code())
+                .as_deref(),
+            Some("55P03")
+        );
+
+        transactions.rollback(exchange).await?;
+        sqlx::query("UPDATE users SET suspended_at = clock_timestamp() WHERE id = $1")
+            .bind(issued.user_id)
+            .execute(&mut *contender)
+            .await?;
+        Ok(())
+    }
+    .await;
+    harness.finish(result).await
+}
