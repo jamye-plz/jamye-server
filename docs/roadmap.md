@@ -4,7 +4,7 @@
 > 현재 단계: task-14 1·2·3차 운영 배포 완료(soft delete 전 범위, 계정 삭제 유예·복구, 앱 M15 소프트 삭제 수용 연동). task-15(Sign in with Apple)는 2026-09-30 세션에서 구현·검사·배포 전 안전 리뷰·운영 배포(기능 꺼짐 → 사용자 SOPS 입력 → 활성화)를 모두 마쳤다(§13, §14). task-16은 착수 승인 대기(§14). task-19(앱 M17 라운드 3 아바타 업로드)는 2026-10-06 세션 `20261006-174701`에서 구현하고 같은 날 2단계(기능 꺼짐 → 활성화)로 운영 배포했다(§13, §14)
 > 상태: Task 13이 완료됐다(근거는 §9). task-14(soft delete)는 세션 ultrawork/20260928-171401에서 구현해 1차(merge `c047e5a`)·2차(merge `b20a4d0`)·3차(merge `6dcb6d5`)를 모두 운영 배포했다(§0, §13, §14). task-15(Sign in with Apple)는 2026-09-30 세션 `20260930-000919`에서 A6 native identity-token exchange, Apple 계정 삭제 재인증·revoke, migration `0018`, 계약 contribution 갱신을 구현하고, 필수 검사와 배포 전 안전 리뷰(1·2차) PASS 뒤 커밋 `b4ae432` → PR #16 → merge `2c93ed1` → homelab PR #95(`6d916dc`, 기능 꺼짐)·PR #96(`fe6a4e9`, Apple 활성화)로 운영 배포했다(§13, §14). task-16(서버측 잔여 백로그)은 2026-09-22 로드맵에 등록만 됐으며 착수는 별도 승인이 필요하다. task-17은 2026-09-26 앱 M14 라운드 1 지원 범위로 구현해 같은 날 운영 배포했고(merge `5b987a2`, migration `0012`), task-18은 2026-09-27 앱 M14 라운드 2 지원 범위로 구현해 같은 날 운영 배포했다(merge `a77cac5`, migration `0013`). 2026-09-28에는 HTTP 메시지 전송의 첨부 1개 제한을 푼 수정(merge `c7f71a8`)을 배포했다(§13). task-19(앱 M17 라운드 3 아바타 업로드)는 2026-10-06 세션 `20261006-174701`에서 서버 호스팅 프로필 사진(U4 업로드 시작, U5 확정, U6 공개 조회)과 migration `0019`를 구현하고, 필수 검사와 배포 전 안전 리뷰 PASS 뒤 커밋 `a778592` → PR #18 → merge `f86012e` → homelab PR #98(`92d54c1`, 기능 꺼짐)·PR #99(`972ce7a`, 활성화)로 운영 배포했다(§13, §14).
 > 진행률: Task 1-15·17-19 구현·배포 완료, task-16은 등록(planned_unapproved) 단계(2026-10-07 앱 M17 종료 때 앱 M17(C)·(D)와 함께 백로그로 남김, §14), task-19(아바타 업로드)는 2026-10-06 세션 `20261006-174701`에서 구현하고 같은 날 운영 배포(§13, §14)
-> 기계 SSOT: .agents/results/plan-20260822-200110.json (task-1-13) · .agents/results/plan-20260926-181036.json (task-17) · .agents/results/plan-20260927-120934.json (task-18) · .agents/results/plan-20260928-171401.json (task-14) · .agents/results/plan-20260930-000919.json (task-15) · .agents/results/plan-20261006-174701.json (task-19) · task-16 이후는 착수 시 새 plan JSON 생성
+> 기계 SSOT: .agents/results/plan-20260822-200110.json (task-1-13) · .agents/results/plan-20260926-181036.json (task-17) · .agents/results/plan-20260927-120934.json (task-18) · .agents/results/plan-20260928-171401.json (task-14) · .agents/results/plan-20260930-000919.json (task-15) · .agents/results/plan-20261006-174701.json (task-19) · task-16 이후는 착수 시 새 plan JSON 생성. 위 plan JSON과 `.agents/results/`의 배포 기록은 저장소에 추적되지 않는 로컬 operator artifact다. 저장소에서 확인할 수 있는 권위 있는 기록은 이 문서의 inline 요약이다.
 
 ## 0. 2026-09-28~29 task-14 서버 구현·배포 기록
 
@@ -73,7 +73,7 @@ flowchart LR
 | C0 | 모바일 채팅을 시작할 수 있는 최소 runtime-adjacent 계약 | 공통 wire/error, H1/H2, C4, S1, R1, WebSocket protocol/close, message.created, outbox/delta와 ordinary-401 보존 marker | task-3b |
 | C1 | 실제 메시지 수직 경로 | REST message → PostgreSQL outbox → worker → Redis → authorized WS → paginated delta recovery | task-4a/task-4b |
 | C2 | 선택된 전체 서버 계약 release candidate | 모든 runtime owner의 DTO/schema/fixture contribution, selected REST inventory, 최종 2 realtime variants, manifest provenance | task-12 |
-| C3 | 후속 soft delete/Apple 계약 확장(2026-09-22 등록, planned_unapproved) | 메시지 삭제(가칭 C6)·주제 삭제(가칭 T8) REST, `deleted_at`/`updated_at` 필드, realtime `message.deleted`/`topic.deleted`, Apple exchange endpoint(가칭 A6) | task-14/task-15 |
+| C3 | 후속 soft delete/Apple 계약 확장(2026-09-22 등록, task-14/task-15 구현·운영 배포 완료, §13) | 메시지 삭제(가칭 C6)·주제 삭제(가칭 T8) REST, `deleted_at`/`updated_at` 필드, realtime `message.deleted`/`topic.deleted`, Apple exchange endpoint(가칭 A6) | task-14/task-15 |
 
 계약 단계 C3는 operation ID `C3`(read marker; `contracts/openapi.json`)와 이름만 같고 무관하다. 메시지 삭제의 가칭은 처음 C5였지만 task-17이 `C5`를 대화방 미디어 목록에 쓰게 되어 C6으로 바꿨다. contract version 정책(현재 버전 1 유지 vs 버전 2로 증가, realtime event version 협상 포함)은 task-14 PLAN에서 결정한다.
 
@@ -257,7 +257,7 @@ D1=A, D4=A current server/C2 deferred, D8=A, D12=A, D13=A는 2026-08-25 사용�
 
 현재 push 범위는 Expo installations, notification history, canonical source-event별 durable occurrence, installation preview policy다. Web Push 관련 파일/table/Nix surface는 만들지 않는다.
 
-`chat_unread`는 topic 대화와 group의 main chatroom 양쪽에서 만든다(2026-09-21, migration 0011). topic 메시지는 topic 단위로, main 메시지는 conversation 단위로 하나의 미읽음 notification에 coalesce하고, C3 read marker는 두 경우 모두 같은 conversation의 row를 `source_cursor` 기준으로 읽음 처리한다. `new_topic`은 topic에서만 만든다. Expo 페이로드는 항상 title/body를 담고, message preview는 installation이 허용할 때만 body를 대체한다.
+`chat_unread`는 topic 대화와 group의 main chatroom 양쪽에서 만든다(2026-09-21, migration 0011). topic 메시지는 topic 단위로, main 메시지는 conversation 단위로 하나의 미읽음 notification에 coalesce하고, C3 read marker는 두 경우 모두 같은 conversation의 row를 `source_cursor` 기준으로 읽음 처리한다. `new_topic`은 topic에서만 만든다. Expo 페이로드는 항상 title/body를 담고, message preview는 installation이 허용할 때만 body를 대체한다. preview가 없을 때의 title/body는 iOS가 앱이 닫힌 상태에서도 알림을 표시하도록 둔 한국어 generic fallback이며, 구조화된 type+args를 통한 실제 알림 현지화는 client가 소유한다.
 
 D3=C에 따라 이번 작업과 C2에는 STT contract, field, job, migration, event, inference adapter/worker/provider, package, config, fixture, QA gate가 없다. 미래 STT는 새 사용자 승인과 contract/migration/worker/security/Nix/QA를 모두 소유하는 새 reviewed plan이 있어야 시작할 수 있다. 일반 voice media transport/playback은 task-8과 task-12가 보존한다.
 

@@ -57,3 +57,6 @@ presigned URL을 거치며, bucket은 비공개다. 그리고 `avatar_url`은 51
 - 계정 삭제 유예 중에는 active 행이 계속 서빙되고 purge가 행을 지우면 같은 URL이 404가 된다.
 - 한 사용자는 동시에 하나의 아바타만 가진다. 이전 사진은 교체 즉시 URL이 404가 되고
   객체는 cleanup worker가 지연 삭제한다.
+- U5 확정 뒤에도 presigned PUT이 최대 900초 동안 유효하므로 소유자는 같은 크기의 JPEG로
+  자신의 객체를 바꿀 수 있다. 이는 immutable URL의 cache inconsistency를 만들 수 있지만
+  다른 사용자의 자산이나 권한에는 영향을 주지 않는 수용된 위험이다.
